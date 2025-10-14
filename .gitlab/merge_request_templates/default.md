@@ -12,3 +12,4 @@
 
 ## relavant issue number
 - 관련된 이슈 넘버가 있으면 이곳에 기입해주세요
+- S13P31S102-0
