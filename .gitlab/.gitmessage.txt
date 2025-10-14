@@ -33,4 +33,4 @@
 #   <ignored text> <ISSUE_KEY> <ignored text> #<COMMAND> <optional COMMAND_ARGUMENTS>
 #   ISSUE_KEY    : 스마트 커밋과 연결한 지라의 이슈 키
 #   COMMAND      : #comment <message>, #time <1w 2d 3h 4m>, #transition(to do/done/in-progress)
-#   example      : S13P31S102-0 #done # time 1w 3d 5h 30m #comment index 페이지 글자 버그 수정 완료
+#   example      : S13P31S102-0 #done #time 1w 3d 5h 30m #comment index 페이지 글자 버그 수정 완료
