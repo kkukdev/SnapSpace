@@ -6,6 +6,9 @@
 # (선택) 꼬릿말: 이슈 트래커 번호를 포함합니다. 주석을 해제하고 번호를 입력하세요.
 # Resolves: S13P31S102-0
 
+# (선택) 지라 스마트 커밋 템플릿: 주석을 해제하고, 필요한 것만 남겨서 사용하세요.
+# S13P31S102-0 #in-progress #time 5m #comment 지라 테스트용 커밋
+
 # --- COMMIT END ---  
 
 # ------------------  
@@ -32,5 +35,5 @@
 #   <지라 스마트 커밋>   
 #   <ignored text> <ISSUE_KEY> <ignored text> #<COMMAND> <optional COMMAND_ARGUMENTS>
 #   ISSUE_KEY    : 스마트 커밋과 연결한 지라의 이슈 키
-#   COMMAND      : #comment, # time, #done
+#   COMMAND      : #comment, #time, #done
 #   example      : S13P31S102-0 #done # time 1w 3d 5h 30m #comment index 페이지 글자 버그 수정 완료
