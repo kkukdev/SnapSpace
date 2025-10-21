@@ -30,7 +30,7 @@ BackEnd/
 
 ### 1. 환경 변수 설정
 ```bash
-# .env 파일 생성 (BackEnd/app/.env)
+# .env 파일 생성(예시) (BackEnd/app/.env)
 POSTGRES_DB=fastapi_db
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password
@@ -77,8 +77,25 @@ python -m app.main
 - `GET /ready` - 서비스 준비 상태
 - `GET /api/v1/docs` - Swagger UI
 
+## 데이터베이스 확인 (DBeaver)
+
+### DBeaver 연결 설정
+1. **새 연결 생성** (PostgreSQL)
+2. **연결 정보 입력(예시):**
+   - **호스트**: `localhost`
+   - **포트**: `5432`
+   - **데이터베이스**: `fastapi_db`
+   - **사용자명**: `postgres`
+   - **비밀번호**: `password`
+
+### 데이터베이스 체크 스크립트
+```bash
+# 데이터베이스 상태 종합 체크
+docker-compose exec app python tests/check_data.py
+```
+
 ## 다음 단계
 
-1. **SQLAlchemy 모델 정의** - 데이터베이스 테이블 구조 만들기
+1. **SQLAlchemy 모델 정의** - 데이터베이스 테이블 구조 만들기 ✅
 2. **Alembic 마이그레이션 설정** - 데이터베이스 스키마 버전 관리
 3. **CRUD API 구현** - 실제 데이터 조작 API 만들기
