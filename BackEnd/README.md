@@ -30,7 +30,7 @@ BackEnd/
 
 ### 1. 환경 변수 설정
 ```bash
-# .env 파일 생성 (BackEnd/.env)
+# .env 파일 생성 (BackEnd/app/.env)
 POSTGRES_DB=fastapi_db
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password
@@ -41,13 +41,16 @@ POSTGRES_PORT=5432
 ### 2. 전체 스택 실행
 ```bash
 # PostgreSQL + FastAPI 함께 실행
-docker-compose up -d
+docker-compose up --build -d
 
 # 로그 확인
 docker-compose logs -f
 
 # 중지
 docker-compose down
+
+# 중지 및 container에 저장되어 있는 volume(DB)까지 삭제
+docker-compose down -v
 ```
 
 ### 3. 개발 모드 (로컬에서 FastAPI만 실행)

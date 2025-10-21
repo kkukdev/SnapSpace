@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # PostgreSQL Database settings
-    DB_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
-    DB_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
-    DB_NAME: str = os.getenv("POSTGRES_DB", "fastapi_db")
-    DB_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    DB_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "password")
+    DB_HOST: str = os.getenv("POSTGRES_HOST")
+    DB_PORT: int = int(os.getenv("POSTGRES_PORT"))
+    DB_NAME: str = os.getenv("POSTGRES_DB")
+    DB_USER: str = os.getenv("POSTGRES_USER")
+    DB_PASSWORD: str = os.getenv("POSTGRES_PASSWORD")
     
     @property
     def DATABASE_URL(self) -> str:
