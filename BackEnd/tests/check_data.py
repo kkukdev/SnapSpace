@@ -104,7 +104,6 @@ def test_scan_operations():
         print("\n➕ 새 스캔 생성 테스트...")
         first_group = groups[0]
         new_scan = Scan(
-            scan_id="TEST_SCAN_001",
             group_id=first_group.group_id,
             meta_data={
                 'title': '테스트 스캔',

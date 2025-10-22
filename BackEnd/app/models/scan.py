@@ -7,7 +7,7 @@ class Scan(BaseModel):
     """스캔 데이터 모델"""
     __tablename__ = "scans"
     
-    scan_id = Column(String, primary_key=True, index=True, comment="스캔 고유 번호")
+    scan_id = Column(Integer, primary_key=True, autoincrement=True, index=True, comment="스캔 고유 번호")
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False, comment="그룹 외래키")
     meta_data = Column(JSON, nullable=False, comment="스캔본 메타데이터")
     status = Column(String, default="UPLOADED", nullable=False, comment="처리 상태")

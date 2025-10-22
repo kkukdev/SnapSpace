@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.schemas.base import BaseResponse
-from app.schemas.scan import Scan, ScanListResponse
+from app.schemas.scan import Scan, ScanCreate, ScanListResponse, ScanCreateResponse
 from app.services.scan_service import scan_service
 from app.utils.dependencies import get_db
 
@@ -119,6 +118,82 @@ async def get_scans(
     return scan_service.get_scans(db=db, skip=skip, limit=limit)
 
 
+@router.post(
+    "/",
+    response_model=ScanCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="스캔 생성",
+    description="새로운 스캔을 생성합니다.",
+    tags=["scans"],
+    responses={
+        201: {
+            "description": "스캔 생성 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "created",
+                        "success": True,
+                        "data": {
+                            "scan_id": 1,
+                            "group_id": 1,
+                            "meta_data": {},
+                            "status": "UPLOADED",
+                            "file_path": None,
+                            "memos": None,
+                            "created_at": "2024-01-15T09:00:00Z",
+                            "updated_at": "2024-01-15T09:00:00Z"
+                        },
+                        "timestamp": "2024-01-15T09:00:00Z"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "요청 데이터 검증 실패",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "loc": ["body", "group_id"],
+                                "msg": "field required",
+                                "type": "value_error.missing"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
+async def create_scan(
+    scan_data: ScanCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    ## 📄 스캔 생성
+    
+    새로운 스캔을 생성합니다. scan_id는 자동으로 생성됩니다.
+    
+    ### 📋 요청 데이터
+    - **group_id**: 그룹 ID (필수)
+    - **meta_data**: 스캔 메타데이터 (JSON 형태, 필수)
+    - **status**: 스캔 상태 (기본값: UPLOADED)
+    - **file_path**: 스캔 파일 경로 (선택사항)
+    - **memos**: 메모 정보 (JSON 형태, 선택사항)
+    
+    ### 📝 예시 요청
+    ```json
+    {
+        "group_id": 1,
+        "meta_data": {},
+        "memos": null
+    }
+    ```
+    """
+    return scan_service.create_scan(db=db, scan_data=scan_data)
+
+
 @router.get(
     "/{scan_id}",
     response_model=Scan,
@@ -127,7 +202,7 @@ async def get_scans(
     tags=["scans"]
 )
 async def get_scan(
-    scan_id: str,
+    scan_id: int,
     db: Session = Depends(get_db)
 ):
     """
@@ -138,4 +213,6 @@ async def get_scan(
     ### 📋 파라미터
     - **scan_id**: 조회할 스캔의 고유 ID
     """
-    return scan_service.get_scan_scan_response(db=db, scan_id=scan_id)
+    return scan_service.get_scan(db=db, scan_id=scan_id)
+
+
