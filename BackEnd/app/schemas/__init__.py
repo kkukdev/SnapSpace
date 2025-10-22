@@ -1,9 +1,2 @@
-from .base import BaseSchema, BaseResponse, ErrorResponse
-from .group import Group, GroupCreate, GroupUpdate, GroupInDB
-from .scan import Scan, ScanCreate, ScanUpdate, ScanInDB
-
-__all__ = [
-    "BaseSchema", "BaseResponse", "ErrorResponse",
-    "Group", "GroupCreate", "GroupUpdate", "GroupInDB",
-    "Scan", "ScanCreate", "ScanUpdate", "ScanInDB"
-]
+# 스키마 모듈들을 개별적으로 import하지 않음
+# FastAPI가 자동으로 스키마를 감지하도록 함
