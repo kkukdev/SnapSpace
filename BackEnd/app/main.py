@@ -17,8 +17,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
+    title="Digital Twin API",
+    version="1.0.0",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
     openapi_url="/api/v1/openapi.json",
