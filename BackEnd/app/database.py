@@ -28,16 +28,16 @@ def get_db():
 def create_tables():
     """데이터베이스 테이블 생성"""
     try:
-        print("🔧 테이블 생성 시작...")
+        print("🔧 테이블 생성 시작...", flush=True)
         Base.metadata.create_all(bind=engine)
-        print("✅ 모든 테이블이 성공적으로 생성되었습니다!")
+        print("✅ 모든 테이블이 성공적으로 생성되었습니다!", flush=True)
         
         # 생성된 테이블 목록 확인
         from sqlalchemy import inspect
         inspector = inspect(engine)
         tables = inspector.get_table_names()
-        print(f"📋 생성된 테이블: {tables}")
+        print(f"📋 생성된 테이블: {tables}", flush=True)
         
     except Exception as e:
-        print(f"❌ 테이블 생성 중 오류 발생: {e}")
+        print(f"❌ 테이블 생성 중 오류 발생: {e}", flush=True)
         raise
