@@ -149,7 +149,8 @@ class GroupService(BaseService):
                 )
             
             # SQLAlchemy 모델을 Pydantic 스키마로 변환
-            group_schema = Group.model_validate(db_group)
+            from app.schemas.group import GroupWithScans
+            group_schema = GroupWithScans.model_validate(db_group)
             
             return self.create_response(
                 message="그룹과 스캔 정보 조회가 완료되었습니다.",
@@ -159,6 +160,38 @@ class GroupService(BaseService):
             return self.create_response(
                 message=f"그룹 조회 중 오류가 발생했습니다: {str(e)}",
                 success=False
+            )
+
+    def get_group_scans_only(self, db: Session, group_id: int):
+        """그룹의 스캔 목록만 조회 (그룹 정보 제외)"""
+        try:
+            db_group = group.get_with_scans(db, group_id=group_id)
+            if not db_group:
+                from app.schemas.group import GroupScansResponse
+                return GroupScansResponse(
+                    message="그룹을 찾을 수 없습니다.",
+                    success=False,
+                    data=[],
+                    total=0
+                )
+            
+            # 스캔 데이터만 추출
+            from app.schemas.group import GroupScansResponse, ScanInGroup
+            scans = [ScanInGroup.model_validate(scan) for scan in db_group.scans]
+            
+            return GroupScansResponse(
+                message="그룹의 스캔 목록 조회가 완료되었습니다.",
+                success=True,
+                data=scans,
+                total=len(scans)
+            )
+        except Exception as e:
+            from app.schemas.group import GroupScansResponse
+            return GroupScansResponse(
+                message=f"스캔 목록 조회 중 오류가 발생했습니다: {str(e)}",
+                success=False,
+                data=[],
+                total=0
             )
 
     def search_groups_by_metadata(

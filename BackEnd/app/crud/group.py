@@ -69,7 +69,15 @@ class GroupCRUD(BaseCRUD[Group, GroupCreate, GroupUpdate]):
 
     def get_with_scans(self, db: Session, *, group_id: int) -> Optional[Group]:
         """스캔 정보와 함께 그룹 조회"""
-        return db.query(Group).filter(Group.group_id == group_id).first()
+        from sqlalchemy.orm import joinedload
+        from app.models.scan import Scan
+        from sqlalchemy import asc
+        
+        group = db.query(Group).options(joinedload(Group.scans)).filter(Group.group_id == group_id).first()
+        if group and group.scans:
+            # 스캔 데이터를 scan_id 순서로 정렬
+            group.scans.sort(key=lambda x: x.scan_id)
+        return group
 
     def get_scans_count(self, db: Session, *, group_id: int) -> int:
         """그룹의 스캔 수 조회"""
