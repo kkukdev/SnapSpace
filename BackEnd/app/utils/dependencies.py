@@ -18,4 +18,4 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 def get_db() -> Generator[Session, None, None]:
     """데이터베이스 세션을 가져오는 의존성"""
-    return _get_db()
+    yield from _get_db()
