@@ -52,7 +52,7 @@ class ScanService(BaseService):
             if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기
                 db.close()
 
-    def get_scan(self, db: Session, scan_id: int) -> ScanCreateResponse:
+    def get_scan(self, db: Session, scan_id: int):
         """스캔 조회"""
         # 의존성 주입된 db가 제너레이터인 경우를 대비해 새로운 세션 생성
         if hasattr(db, '__iter__'):  # 제너레이터인지 확인
@@ -61,21 +61,17 @@ class ScanService(BaseService):
         try:
             db_scan = scan.get_by_scan_id(db, scan_id=scan_id)
             if not db_scan:
-                return ScanCreateResponse(
-                    message="스캔을 찾을 수 없습니다.",
-                    success=False,
-                    data=None
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="스캔을 찾을 수 없습니다."
                 )
-            return ScanCreateResponse(
-                message="스캔 조회가 완료되었습니다.",
-                success=True,
-                data=db_scan
-            )
+            return db_scan
+        except HTTPException:
+            raise
         except Exception as e:
-            return ScanCreateResponse(
-                message=f"스캔 조회 중 오류가 발생했습니다: {str(e)}",
-                success=False,
-                data=None
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"스캔 조회 중 오류가 발생했습니다: {str(e)}"
             )
         finally:
             if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기

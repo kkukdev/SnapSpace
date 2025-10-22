@@ -10,6 +10,18 @@ from app.schemas.scan import ScanCreate, ScanUpdate
 class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
     """스캔 CRUD 클래스"""
     
+    def get_multi(
+        self, db: Session, *, skip: int = 0, limit: int = 100
+    ) -> List[Scan]:
+        """다중 레코드 조회 (scan_id 기준 오름차순 정렬)"""
+        return (
+            db.query(Scan)
+            .order_by(Scan.scan_id.asc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    
     def create(self, db: Session, *, obj_in: ScanCreate) -> Scan:
         """스캔 생성 (scan_id 자동 생성)"""
         # scan_id는 자동 생성되므로 명시적으로 제외하고 생성
