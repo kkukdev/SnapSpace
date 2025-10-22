@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.routers import health
-from app.routers.api import app, token, scans, groups
+from app.routers.api import app, scans, groups
 from app.config import settings
 from app.database import create_tables
 from contextlib import asynccontextmanager
@@ -28,7 +28,6 @@ app = FastAPI(
 # 라우터 등록
 app.include_router(health.router, tags=["health"])
 app.include_router(app.router, prefix="/api/v1/app", tags=["app"])
-app.include_router(token.router, prefix="/api/v1/token", tags=["token"])
 app.include_router(scans.router, prefix="/api/v1/scans", tags=["scans"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
 
