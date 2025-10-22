@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from pydantic import Field
 from dotenv import load_dotenv
 import os
 
@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # PostgreSQL Database settings
-    DB_HOST: str = os.getenv("POSTGRES_HOST")
-    DB_PORT: int = int(os.getenv("POSTGRES_PORT"))
-    DB_NAME: str = os.getenv("POSTGRES_DB")
-    DB_USER: str = os.getenv("POSTGRES_USER")
-    DB_PASSWORD: str = os.getenv("POSTGRES_PASSWORD")
+    DB_HOST: str = Field(default=os.getenv("POSTGRES_HOST"), alias="POSTGRES_HOST")
+    DB_PORT: int = Field(default=os.getenv("POSTGRES_PORT"), alias="POSTGRES_PORT")
+    DB_NAME: str = Field(default=os.getenv("POSTGRES_DB"), alias="POSTGRES_DB")
+    DB_USER: str = Field(default=os.getenv("POSTGRES_USER"), alias="POSTGRES_USER")
+    DB_PASSWORD: str = Field(default=os.getenv("POSTGRES_PASSWORD"), alias="POSTGRES_PASSWORD")
     
     @property
     def DATABASE_URL(self) -> str:
@@ -26,6 +26,5 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
-
 
 settings = Settings()

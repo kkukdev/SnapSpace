@@ -16,9 +16,9 @@ class GroupBase(BaseModel):
     meta_data: GroupMetaData = Field(..., description="그룹 메타데이터")
 
 
-class GroupCreate(GroupBase):
+class GroupCreate(BaseModel):
     """그룹 생성 스키마"""
-    pass
+    meta_data: Dict[str, Any] = Field(..., description="그룹 메타데이터")
 
 
 class GroupUpdate(BaseModel):
@@ -26,9 +26,10 @@ class GroupUpdate(BaseModel):
     meta_data: Optional[GroupMetaData] = Field(None, description="그룹 메타데이터")
 
 
-class GroupInDB(GroupBase):
+class GroupInDB(BaseModel):
     """데이터베이스 그룹 스키마"""
     group_id: int = Field(..., description="그룹 고유 번호")
+    meta_data: Dict[str, Any] = Field(..., description="그룹 메타데이터")
     created_at: datetime = Field(..., description="그룹 데이터가 처음 DB에 기록된 시간")
     updated_at: datetime = Field(..., description="그룹 데이터가 마지막으로 수정된 시간")
     
@@ -39,3 +40,11 @@ class GroupInDB(GroupBase):
 class Group(GroupInDB):
     """그룹 응답 스키마"""
     pass
+
+
+class GroupCreateResponse(BaseModel):
+    """그룹 생성 응답 스키마 (BaseResponse 활용)"""
+    message: str = Field(..., description="응답 메시지")
+    success: bool = Field(True, description="요청 성공 여부")
+    data: Optional[Group] = Field(None, description="그룹 데이터")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="응답 시간")

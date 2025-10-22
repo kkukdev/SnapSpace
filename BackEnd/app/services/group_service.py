@@ -1,8 +1,10 @@
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
+from app.database import SessionLocal
 
 from app.crud.group import group
-from app.schemas.group import GroupCreate, GroupUpdate
+from app.schemas.group import GroupCreate, GroupUpdate, GroupCreateResponse
 from app.schemas.base import BaseResponse
 from app.services.base import BaseService
 
@@ -13,37 +15,55 @@ class GroupService(BaseService):
     def __init__(self):
         super().__init__()
 
-    def create_group(self, db: Session, group_data: GroupCreate) -> BaseResponse:
+    def create_group(self, db: Session, group_data: GroupCreate) -> GroupCreateResponse:
         """그룹 생성"""
+        # 의존성 주입된 db가 제너레이터인 경우를 대비해 새로운 세션 생성
+        if hasattr(db, '__iter__'):  # 제너레이터인지 확인
+            db = SessionLocal()
+        
         try:
-            db_group = group.create(db, obj_in=group_data)
-            return self.create_response(
-                message="그룹이 성공적으로 생성되었습니다.",
+            # 직접 Group 모델 인스턴스 생성
+            from app.models.group import Group
+            db_group = Group(meta_data=group_data.meta_data)
+            db.add(db_group)
+            db.commit()
+            db.refresh(db_group)
+            
+            return GroupCreateResponse(
+                message="created",
+                success=True,
                 data=db_group
             )
         except Exception as e:
-            return self.create_response(
-                message=f"그룹 생성 중 오류가 발생했습니다: {str(e)}",
-                success=False
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"그룹 생성 중 오류가 발생했습니다: {str(e)}"
             )
+        finally:
+            if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기
+                db.close()
 
-    def get_group(self, db: Session, group_id: int) -> BaseResponse:
+    def get_group(self, db: Session, group_id: int) -> GroupCreateResponse:
         """그룹 조회"""
         try:
             db_group = group.get_by_id(db, group_id=group_id)
             if not db_group:
-                return self.create_response(
-                    message="그룹을 찾을 수 없습니다.",
-                    success=False
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="그룹을 찾을 수 없습니다."
                 )
-            return self.create_response(
+            return GroupCreateResponse(
                 message="그룹 조회가 완료되었습니다.",
+                success=True,
                 data=db_group
             )
+        except HTTPException:
+            raise
         except Exception as e:
-            return self.create_response(
-                message=f"그룹 조회 중 오류가 발생했습니다: {str(e)}",
-                success=False
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"그룹 조회 중 오류가 발생했습니다: {str(e)}"
             )
 
     def get_groups(self, db: Session, skip: int = 0, limit: int = 100) -> BaseResponse:

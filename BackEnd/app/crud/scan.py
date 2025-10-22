@@ -10,7 +10,22 @@ from app.schemas.scan import ScanCreate, ScanUpdate
 class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
     """스캔 CRUD 클래스"""
     
-    def get_by_scan_id(self, db: Session, *, scan_id: str) -> Optional[Scan]:
+    def create(self, db: Session, *, obj_in: ScanCreate) -> Scan:
+        """스캔 생성 (scan_id 자동 생성)"""
+        # scan_id는 자동 생성되므로 명시적으로 제외하고 생성
+        db_obj = Scan(
+            group_id=obj_in.group_id,
+            meta_data=obj_in.meta_data,
+            status=obj_in.status.value if obj_in.status else "UPLOADED",
+            file_path=obj_in.file_path,
+            memos=obj_in.memos
+        )
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+    
+    def get_by_scan_id(self, db: Session, *, scan_id: int) -> Optional[Scan]:
         """스캔 ID로 조회"""
         return db.query(Scan).filter(Scan.scan_id == scan_id).first()
 
@@ -51,7 +66,7 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
         )
 
     def update_status(
-        self, db: Session, *, scan_id: str, status: str
+        self, db: Session, *, scan_id: int, status: str
     ) -> Optional[Scan]:
         """스캔 상태 업데이트"""
         db_obj = self.get_by_scan_id(db, scan_id=scan_id)
@@ -63,7 +78,7 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
         return db_obj
 
     def update_file_path(
-        self, db: Session, *, scan_id: str, file_path: str
+        self, db: Session, *, scan_id: int, file_path: str
     ) -> Optional[Scan]:
         """스캔 파일 경로 업데이트"""
         db_obj = self.get_by_scan_id(db, scan_id=scan_id)
@@ -75,7 +90,7 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
         return db_obj
 
     def update_memos(
-        self, db: Session, *, scan_id: str, memos: List[Dict[str, Any]]
+        self, db: Session, *, scan_id: int, memos: List[Dict[str, Any]]
     ) -> Optional[Scan]:
         """스캔 메모 업데이트"""
         db_obj = self.get_by_scan_id(db, scan_id=scan_id)
