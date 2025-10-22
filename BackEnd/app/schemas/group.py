@@ -13,17 +13,17 @@ class GroupMetaData(BaseModel):
 
 class GroupBase(BaseModel):
     """그룹 기본 스키마"""
-    meta_data: GroupMetaData = Field(..., description="그룹 메타데이터")
-
-
-class GroupCreate(BaseModel):
-    """그룹 생성 스키마"""
     meta_data: Dict[str, Any] = Field(..., description="그룹 메타데이터")
+
+
+class GroupCreate(GroupBase):
+    """그룹 생성 스키마"""
+    pass
 
 
 class GroupUpdate(BaseModel):
     """그룹 수정 스키마"""
-    meta_data: Optional[GroupMetaData] = Field(None, description="그룹 메타데이터")
+    meta_data: Optional[Dict[str, Any]] = Field(None, description="그룹 메타데이터")
 
 
 class GroupInDB(BaseModel):

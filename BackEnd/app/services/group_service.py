@@ -1,10 +1,9 @@
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from app.database import SessionLocal
 
 from app.crud.group import group
-from app.schemas.group import GroupCreate, GroupUpdate, GroupCreateResponse
+from app.schemas.group import GroupCreate, GroupUpdate, GroupCreateResponse, Group
 from app.schemas.base import BaseResponse
 from app.services.base import BaseService
 
@@ -17,22 +16,17 @@ class GroupService(BaseService):
 
     def create_group(self, db: Session, group_data: GroupCreate) -> GroupCreateResponse:
         """그룹 생성"""
-        # 의존성 주입된 db가 제너레이터인 경우를 대비해 새로운 세션 생성
-        if hasattr(db, '__iter__'):  # 제너레이터인지 확인
-            db = SessionLocal()
-        
         try:
-            # 직접 Group 모델 인스턴스 생성
-            from app.models.group import Group
-            db_group = Group(meta_data=group_data.meta_data)
-            db.add(db_group)
-            db.commit()
-            db.refresh(db_group)
+            # CRUD의 create 메서드 사용
+            db_group = group.create(db, obj_in=group_data)
+            
+            # SQLAlchemy 모델을 Pydantic 스키마로 변환
+            group_schema = Group.model_validate(db_group)
             
             return GroupCreateResponse(
                 message="created",
                 success=True,
-                data=db_group
+                data=group_schema
             )
         except Exception as e:
             db.rollback()
@@ -40,23 +34,24 @@ class GroupService(BaseService):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"그룹 생성 중 오류가 발생했습니다: {str(e)}"
             )
-        finally:
-            if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기
-                db.close()
 
     def get_group(self, db: Session, group_id: int) -> GroupCreateResponse:
         """그룹 조회"""
         try:
-            db_group = group.get_by_id(db, group_id=group_id)
+            db_group = group.get_by_group_id(db, group_id=group_id)
             if not db_group:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="그룹을 찾을 수 없습니다."
                 )
+            
+            # SQLAlchemy 모델을 Pydantic 스키마로 변환
+            group_schema = Group.model_validate(db_group)
+            
             return GroupCreateResponse(
                 message="그룹 조회가 완료되었습니다.",
                 success=True,
-                data=db_group
+                data=group_schema
             )
         except HTTPException:
             raise
@@ -72,10 +67,13 @@ class GroupService(BaseService):
             groups = group.get_multi(db, skip=skip, limit=limit)
             total_count = group.count(db)
             
+            # SQLAlchemy 모델들을 Pydantic 스키마로 변환
+            groups_schema = [Group.model_validate(group_obj) for group_obj in groups]
+            
             return self.create_response(
                 message="그룹 목록 조회가 완료되었습니다.",
                 data={
-                    "groups": groups,
+                    "groups": groups_schema,
                     "total": total_count,
                     "skip": skip,
                     "limit": limit
@@ -90,7 +88,7 @@ class GroupService(BaseService):
     def update_group(self, db: Session, group_id: int, group_data: GroupUpdate) -> BaseResponse:
         """그룹 수정"""
         try:
-            db_group = group.get_by_id(db, group_id=group_id)
+            db_group = group.get_by_group_id(db, group_id=group_id)
             if not db_group:
                 return self.create_response(
                     message="그룹을 찾을 수 없습니다.",
@@ -98,9 +96,13 @@ class GroupService(BaseService):
                 )
             
             updated_group = group.update(db, db_obj=db_group, obj_in=group_data)
+            
+            # SQLAlchemy 모델을 Pydantic 스키마로 변환
+            group_schema = Group.model_validate(updated_group)
+            
             return self.create_response(
                 message="그룹이 성공적으로 수정되었습니다.",
-                data=updated_group
+                data=group_schema
             )
         except Exception as e:
             return self.create_response(
@@ -111,7 +113,7 @@ class GroupService(BaseService):
     def delete_group(self, db: Session, group_id: int) -> BaseResponse:
         """그룹 삭제"""
         try:
-            db_group = group.get_by_id(db, group_id=group_id)
+            db_group = group.get_by_group_id(db, group_id=group_id)
             if not db_group:
                 return self.create_response(
                     message="그룹을 찾을 수 없습니다.",
@@ -146,9 +148,12 @@ class GroupService(BaseService):
                     success=False
                 )
             
+            # SQLAlchemy 모델을 Pydantic 스키마로 변환
+            group_schema = Group.model_validate(db_group)
+            
             return self.create_response(
                 message="그룹과 스캔 정보 조회가 완료되었습니다.",
-                data=db_group
+                data=group_schema
             )
         except Exception as e:
             return self.create_response(
@@ -165,10 +170,13 @@ class GroupService(BaseService):
                 db, metadata_filter=metadata_filter, skip=skip, limit=limit
             )
             
+            # SQLAlchemy 모델들을 Pydantic 스키마로 변환
+            groups_schema = [Group.model_validate(group_obj) for group_obj in groups]
+            
             return self.create_response(
                 message="메타데이터 검색이 완료되었습니다.",
                 data={
-                    "groups": groups,
+                    "groups": groups_schema,
                     "filter": metadata_filter,
                     "skip": skip,
                     "limit": limit

@@ -1,14 +1,14 @@
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
 from app.models.base import BaseModel as SQLAlchemyBaseModel
 
 ModelType = TypeVar("ModelType", bound=SQLAlchemyBaseModel)
-CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
-UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
+CreateSchemaType = TypeVar("CreateSchemaType", bound=PydanticBaseModel)
+UpdateSchemaType = TypeVar("UpdateSchemaType", bound=PydanticBaseModel)
 
 
 class BaseCRUD(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
