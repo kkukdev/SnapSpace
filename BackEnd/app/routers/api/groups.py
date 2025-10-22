@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.schemas.base import BaseResponse
-from app.schemas.group import Group, GroupCreate, GroupCreateResponse, GroupUpdate
+from app.schemas.group import Group, GroupCreate, GroupCreateResponse, GroupUpdate, GroupScansResponse
 from app.services.group_service import group_service
 from app.utils.dependencies import get_db
 
@@ -304,7 +304,7 @@ async def delete_group(
 
 @router.get(
     "/{group_id}/scans",
-    response_model=BaseResponse,
+    response_model=GroupScansResponse,
     summary="그룹의 스캔 목록 조회",
     description="특정 그룹에 속한 스캔 목록을 조회합니다.",
     tags=["groups"],
@@ -314,37 +314,91 @@ async def delete_group(
             "content": {
                 "application/json": {
                     "example": {
-                        "message": "그룹과 스캔 정보 조회가 완료되었습니다.",
+                        "message": "그룹의 스캔 목록 조회가 완료되었습니다.",
                         "success": True,
-                        "data": {
-                            "group_id": 1,
-                            "meta_data": {
-                                "name": "제조공장 A",
-                                "location": "서울시 강남구",
-                                "type": "manufacturing"
+                        "data": [
+                            {
+                                "scan_id": 1,
+                                "group_id": 1,
+                                "meta_data": {
+                                    "anchors": [
+                                        {
+                                            "qr_code": "QR_ANCHOR_001",
+                                            "position": {"x": 1.25, "y": 1.5, "z": -3.4}
+                                        }
+                                    ],
+                                    "scan_info": {
+                                        "name": "1공정라인",
+                                        "description": "스마트폰 생산 라인입니다.",
+                                        "floor": "1",
+                                        "section": "B-1"
+                                    }
+                                },
+                                "status": "UPLOADED",
+                                "file_path": "/uploads/scans/scan_001.pdf",
+                                "memos": [
+                                    {
+                                        "type": "text",
+                                        "content": "Check conveyor belt alignment",
+                                        "position": { "x": 1.25, "y": 1.5, "z": -3.4 }
+                                    }
+                                ],
+                                "created_at": "2024-01-15T09:00:00Z",
+                                "updated_at": "2024-01-15T09:00:00Z"
                             },
-                            "scans": [
-                                {
-                                    "scan_id": 1,
-                                    "status": "UPLOADED",
-                                    "file_path": "/uploads/scans/scan_001.pdf",
-                                    "created_at": "2024-01-15T09:00:00Z"
-                                }
-                            ],
-                            "created_at": "2024-01-15T09:00:00Z",
-                            "updated_at": "2024-01-15T09:00:00Z"
-                        },
+                            {
+                                "scan_id": 2,
+                                "group_id": 1,
+                                "meta_data": {
+                                    "anchors": [
+                                        {
+                                            "qr_code": "QR_ANCHOR_002",
+                                            "position": {"x": 2.5, "y": 3.0, "z": -1.8}
+                                        }
+                                    ],
+                                    "scan_info": {
+                                        "name": "2공정라인",
+                                        "description": "스마트폰 조립 라인입니다.",
+                                        "floor": "1",
+                                        "section": "B-2"
+                                    }
+                                },
+                                "status": "COMPLETED",
+                                "file_path": "/uploads/scans/scan_002.pdf",
+                                "memos": [
+                                    {
+                                        "type": "voice",
+                                        "content": "/path/to/voice_memo_02.mp3",
+                                        "position": { "x": 2.5, "y": 3.0, "z": -1.8 }
+                                    }
+                                ],
+                                "created_at": "2024-01-15T10:00:00Z",
+                                "updated_at": "2024-01-15T11:00:00Z"
+                            }
+                        ],
+                        "total": 2,
                         "timestamp": "2024-01-15T09:00:00Z"
                     }
                 }
             }
         },
         404: {
-            "description": "그룹을 찾을 수 없음"
+            "description": "그룹을 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "그룹을 찾을 수 없습니다.",
+                        "success": False,
+                        "data": [],
+                        "total": 0,
+                        "timestamp": "2024-01-15T09:00:00Z"
+                    }
+                }
+            }
         }
     }
 )
-async def get_group_with_scans(
+async def get_group_scans(
     group_id: int,
     db: Session = Depends(get_db)
 ):
@@ -356,4 +410,4 @@ async def get_group_with_scans(
     ### 📋 파라미터
     - **group_id**: 조회할 그룹의 고유 ID
     """
-    return group_service.get_group_with_scans(db=db, group_id=group_id)
+    return group_service.get_group_scans_only(db=db, group_id=group_id)

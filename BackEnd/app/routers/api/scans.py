@@ -196,10 +196,65 @@ async def create_scan(
 
 @router.get(
     "/{scan_id}",
-    response_model=Scan,
+    response_model=ScanCreateResponse,
     summary="스캔 단일 조회",
     description="스캔 ID로 특정 스캔을 조회합니다.",
-    tags=["scans"]
+    tags=["scans"],
+    responses={
+        200: {
+            "description": "스캔 조회 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔 조회가 완료되었습니다.",
+                        "success": True,
+                        "data": {
+                            "scan_id": 1,
+                            "group_id": 1,
+                            "meta_data": {
+                                "anchors": [
+                                    {
+                                        "qr_code": "QR_ANCHOR_001",
+                                        "position": {"x": 1.25, "y": 1.5, "z": -3.4}
+                                    }
+                                ],
+                                "scan_info": {
+                                    "name": "1공정라인",
+                                    "description": "스마트폰 생산 라인입니다.",
+                                    "floor": "1",
+                                    "section": "B-1"
+                                }
+                            },
+                            "status": "UPLOADED",
+                            "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "memos": [
+                                {
+                                    "type": "text",
+                                    "content": "Check conveyor belt alignment",
+                                    "position": { "x": 1.25, "y": 1.5, "z": -3.4 }
+                                }
+                            ],
+                            "created_at": "2024-01-15T09:00:00Z",
+                            "updated_at": "2024-01-15T12:00:00Z"
+                        },
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "스캔을 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔을 찾을 수 없습니다.",
+                        "success": False,
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        }
+    }
 )
 async def get_scan(
     scan_id: int,
