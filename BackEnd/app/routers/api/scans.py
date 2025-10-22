@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.schemas.scan import Scan, ScanCreate, ScanListResponse, ScanCreateResponse
+from app.schemas.scan import Scan, ScanCreate, ScanUpdate, ScanListResponse, ScanCreateResponse
 from app.services.scan_service import scan_service
 from app.utils.dependencies import get_db
 
@@ -214,5 +214,134 @@ async def get_scan(
     - **scan_id**: 조회할 스캔의 고유 ID
     """
     return scan_service.get_scan(db=db, scan_id=scan_id)
+
+
+@router.put(
+    "/{scan_id}",
+    response_model=ScanCreateResponse,
+    summary="스캔 수정",
+    description="스캔 ID로 특정 스캔의 데이터를 수정합니다.",
+    tags=["scans"],
+    responses={
+        200: {
+            "description": "스캔 수정 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔이 성공적으로 수정되었습니다.",
+                        "success": True,
+                        "data": {
+                            "scan_id": 1,
+                            "group_id": 1,
+                            "meta_data": {
+                                "anchors": [
+                                    {
+                                        "qr_code": "QR_ANCHOR_001",
+                                        "position": {"x": 1.25, "y": 1.5, "z": -3.4}
+                                    }
+                                ],
+                                "scan_info": {
+                                    "name": "1공정라인",
+                                    "description": "스마트폰 생산 라인입니다.",
+                                    "floor": "1",
+                                    "section": "B-1"
+                                }
+                            },
+                            "status": "UPLOADED",
+                            "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "memos": [
+                                {
+                                    "type": "text",
+                                    "content": "Check conveyor belt alignment",
+                                    "position": { "x": 1.25, "y": 1.5, "z": -3.4 }
+                                }
+                            ],
+                            "created_at": "2024-01-15T09:00:00Z",
+                            "updated_at": "2024-01-15T12:00:00Z"
+                        },
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "스캔을 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔을 찾을 수 없습니다.",
+                        "success": False,
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "요청 데이터 검증 실패",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "loc": ["body", "status"],
+                                "msg": "value is not a valid enumeration member; permitted: 'UPLOADED', 'COMPLETED'",
+                                "type": "type_error.enum"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
+async def update_scan(
+    scan_id: int,
+    scan_data: ScanUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    ## 📄 스캔 수정
+    
+    스캔 ID로 특정 스캔의 데이터를 수정합니다. 모든 필드는 선택사항이며, 제공된 필드만 업데이트됩니다.
+    
+    ### 📋 파라미터
+    - **scan_id**: 수정할 스캔의 고유 ID
+    
+    ### 📋 요청 데이터 (모든 필드 선택사항)
+    - **meta_data**: 스캔 메타데이터 (JSON 형태)
+    - **status**: 스캔 상태 (UPLOADED, COMPLETED)
+    - **file_path**: 스캔 파일 경로
+    - **memos**: 메모 정보 (JSON 형태)
+    
+    ### 📝 예시 요청
+    ```json
+    {
+        "meta_data": {
+            "anchors": [
+                {
+                    "qr_code": "QR_ANCHOR_001",
+                    "position": {"x": 1.25, "y": 1.5, "z": -3.4}
+                }
+            ],
+            "scan_info": {
+                "name": "1공정라인",
+                "description": "스마트폰 생산 라인입니다.",
+                "floor": "1",
+                "section": "B-1"
+            }
+        },
+        "status": "UPLOADED",
+        "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+        "memos": [
+            {
+                "type": "text",
+                "content": "Check conveyor belt alignment",
+                "position": { "x": 1.25, "y": 1.5, "z": -3.4 }
+            }
+        ]
+    }
+    ```
+    """
+    return scan_service.update_scan(db=db, scan_id=scan_id, scan_data=scan_data)
 
 
