@@ -345,3 +345,73 @@ async def update_scan(
     return scan_service.update_scan(db=db, scan_id=scan_id, scan_data=scan_data)
 
 
+@router.delete(
+    "/{scan_id}",
+    response_model=ScanCreateResponse,
+    summary="스캔 삭제",
+    description="스캔 ID로 특정 스캔을 삭제합니다.",
+    tags=["scans"],
+    responses={
+        200: {
+            "description": "스캔 삭제 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔이 성공적으로 삭제되었습니다.",
+                        "success": True,
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "스캔을 찾을 수 없음",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔을 찾을 수 없습니다.",
+                        "success": False,
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "서버 내부 오류",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "스캔 삭제 중 오류가 발생했습니다: [오류 메시지]",
+                        "success": False,
+                        "timestamp": "2024-01-15T12:00:00Z"
+                    }
+                }
+            }
+        }
+    }
+)
+async def delete_scan(
+    scan_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    ## 📄 스캔 삭제
+    
+    스캔 ID로 특정 스캔을 데이터베이스에서 완전히 삭제합니다.
+    
+    ### ⚠️ 주의사항
+    - 이 작업은 **되돌릴 수 없습니다**
+    - 삭제된 스캔 데이터는 복구할 수 없습니다
+    - 관련된 파일들도 함께 삭제를 고려해야 합니다
+    
+    ### 📋 파라미터
+    - **scan_id**: 삭제할 스캔의 고유 ID
+    
+    ### 🔍 응답
+    - **200**: 삭제 성공
+    - **404**: 스캔을 찾을 수 없음
+    - **500**: 서버 내부 오류
+    """
+    return scan_service.delete_scan(db=db, scan_id=scan_id)
+
+
