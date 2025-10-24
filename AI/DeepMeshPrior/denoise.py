@@ -8,6 +8,7 @@ import glob
 import argparse
 import trimesh
 import json
+import open3d as o3d
 from util.objmesh import ObjMesh
 from util.models import Dataset, Mesh
 from util.networks import Net
@@ -135,9 +136,18 @@ writer = None
 if FLAGS.no_log:
     print("[info] tensorboard logging disabled (--no-log).")
 else:
-    os.makedirs(FLAGS.log_dir, exist_ok=True)
-    log_dir = os.path.join(FLAGS.log_dir, run_suffix)
-    writer = SummaryWriter(log_dir=log_dir)
+    # Windows 경로 문제 해결을 위해 절대 경로 사용
+    log_dir = os.path.abspath(os.path.join(FLAGS.log_dir, run_suffix))
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # TensorBoard SummaryWriter를 try-catch로 감싸서 에러 처리
+    try:
+        writer = SummaryWriter(log_dir=log_dir)
+        print(f"[info] TensorBoard logging enabled: {log_dir}")
+    except Exception as e:
+        print(f"[error] Failed to initialize TensorBoard writer: {e}")
+        print("[info] Disabling TensorBoard logging...")
+        writer = None
 log_file = out_dir + "/condition.json"
 condition = {"input":input_file, "label":label_file, "gt": gt_file, "iter": FLAGS.iter ,"lap": FLAGS.lap, "skip": FLAGS.skip, "init_mad": init_mad, "lr": FLAGS.lr}
 
