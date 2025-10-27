@@ -1,27 +1,5 @@
 # ----------------------
-# 1. PyTorch CPU
-# ----------------------
---find-links https://download.pytorch.org/whl/cpu
-torch==2.6.0
-torchvision==0.21.0
-torchaudio==2.6.0
-
-# ----------------------
-# 2. PyG 의존 패키지
-# ----------------------
---find-links https://data.pyg.org/whl/torch-2.6.0+cpu.html
-torch_scatter==2.1.2
-torch_sparse==0.6.18
-torch_cluster==1.6.3
-torch_spline_conv==1.2.2
-
-# ----------------------
-# 3. PyG 메인 패키지
-# ----------------------
-torch_geometric==2.7.0
-
-# ----------------------
-# 4. 나머지 패키지
+# 2. 나머지 패키지
 # ----------------------
 absl-py==2.3.1
 aiohappyeyeballs==2.6.1
