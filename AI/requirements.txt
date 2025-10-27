@@ -1,7 +1,7 @@
 # ----------------------
 # 1. PyTorch CPU
 # ----------------------
---find-links https://download.pytorch.org/whl/cpu
+--find-links https://download.pytorch.org/whl/cu126
 torch==2.6.0
 torchvision==0.21.0
 torchaudio==2.6.0
@@ -9,7 +9,7 @@ torchaudio==2.6.0
 # ----------------------
 # 2. PyG 의존 패키지
 # ----------------------
---find-links https://data.pyg.org/whl/torch-2.6.0+cpu.html
+--find-links https://data.pyg.org/whl/torch-2.6.0+cu126.html
 torch_scatter==2.1.2
 torch_sparse==0.6.18
 torch_cluster==1.6.3
