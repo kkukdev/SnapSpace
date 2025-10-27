@@ -18,6 +18,7 @@ function ApiTester() {
   const [activeTab, setActiveTab] = useState('health')
   const [responses, setResponses] = useState({})
   const [loading, setLoading] = useState({})
+  const [uploadProgress, setUploadProgress] = useState({})
   const [currentApiUrl, setCurrentApiUrl] = useState(API_BASE_URL)
   const [formData, setFormData] = useState({
     group: { meta_data: '{}' },
@@ -30,7 +31,7 @@ function ApiTester() {
   const safeJsonParse = (jsonString, defaultValue = {}) => {
     try {
       return JSON.parse(jsonString || '{}')
-    } catch (error) {
+    } catch {
       return defaultValue
     }
   }
@@ -38,7 +39,7 @@ function ApiTester() {
   const safeJsonParseArray = (jsonString, defaultValue = []) => {
     try {
       return JSON.parse(jsonString || '[]')
-    } catch (error) {
+    } catch {
       return defaultValue
     }
   }
@@ -47,11 +48,27 @@ function ApiTester() {
     // 새로운 요청 시작 시 모든 기존 응답과 로딩 상태 초기화
     setResponses({})
     setLoading({ [key]: true })
+    setUploadProgress({})
+    
     try {
       const config = {
         method,
         url: `${currentApiUrl}${url}`,
         headers: isFile ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }
+      }
+      
+      // 파일 업로드 시 진행률 콜백 추가
+      if (isFile) {
+        config.onUploadProgress = (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          setUploadProgress({
+            [key]: {
+              loaded: progressEvent.loaded,
+              total: progressEvent.total,
+              percentage: percentCompleted
+            }
+          })
+        }
       }
       
       if (data) {
@@ -73,6 +90,18 @@ function ApiTester() {
       }
 
       const response = await axios(config)
+      
+      // 업로드 완료 시 진행률 100%로 설정
+      if (isFile) {
+        setUploadProgress({
+          [key]: {
+            loaded: response.data?.data?.file_size || 0,
+            total: response.data?.data?.file_size || 0,
+            percentage: 100
+          }
+        })
+      }
+      
       setResponses(prev => ({
         ...prev,
         [key]: {
@@ -83,6 +112,11 @@ function ApiTester() {
         }
       }))
     } catch (error) {
+      // 업로드 실패 시 진행률 초기화
+      if (isFile) {
+        setUploadProgress({})
+      }
+      
       setResponses(prev => ({
         ...prev,
         [key]: {
@@ -129,6 +163,38 @@ function ApiTester() {
         <pre className="response-body">
           {JSON.stringify(response.data, null, 2)}
         </pre>
+      </div>
+    )
+  }
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const renderProgressBar = (apiKey) => {
+    const progress = uploadProgress[apiKey]
+    if (!progress) return null
+
+    return (
+      <div className="upload-progress">
+        <div className="progress-info">
+          <span className="progress-text">
+            업로드 중... {progress.percentage}%
+          </span>
+          <span className="progress-size">
+            {formatFileSize(progress.loaded)} / {formatFileSize(progress.total)}
+          </span>
+        </div>
+        <div className="progress-bar">
+          <div 
+            className="progress-fill" 
+            style={{ width: `${progress.percentage}%` }}
+          />
+        </div>
       </div>
     )
   }
@@ -391,6 +457,7 @@ function ApiTester() {
                   POST /api/v1/upload/
                 </ApiButton>
               </div>
+              {renderProgressBar('upload-file')}
               {renderResponse('upload-status')}
               {renderResponse('upload-file')}
             </div>
