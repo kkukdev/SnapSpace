@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # API settings
     API_V1_STR: str = "/api/v1"
     
+    # File upload settings
+    UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+    MAX_FILE_SIZE: int = 250 * 1024 * 1024  # 250MB
+    ALLOWED_EXTENSIONS: list = [".ply", ".obj", ".stl", ".3ds", ".dae", ".x3d", ".fbx", ".glb", ".gltf"]
+    
     class Config:
         env_file = ".env"
 

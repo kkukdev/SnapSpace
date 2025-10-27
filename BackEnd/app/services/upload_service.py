@@ -1,0 +1,103 @@
+import os
+import aiofiles
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any
+from fastapi import UploadFile, HTTPException, status
+
+from app.config import settings
+from app.services.base import BaseService
+
+
+class UploadService(BaseService):
+    """파일 업로드 서비스 클래스"""
+
+    def __init__(self):
+        super().__init__()
+
+    async def validate_file_extension(self, filename: str) -> None:
+        """파일 확장자 검증"""
+        file_extension = Path(filename).suffix.lower()
+        if file_extension not in settings.ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"지원하지 않는 파일 형식입니다. 허용된 확장자: {', '.join(settings.ALLOWED_EXTENSIONS)}"
+            )
+
+    async def ensure_upload_directory(self) -> Path:
+        """업로드 디렉토리 생성 및 경로 반환"""
+        upload_path = Path(settings.UPLOAD_DIR)
+        upload_path.mkdir(exist_ok=True)
+        return upload_path
+
+    def generate_filename(self, original_filename: str) -> str:
+        """고유한 파일명 생성"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name, extension = os.path.splitext(original_filename)
+        return f"{timestamp}_{name}{extension}"
+
+    async def save_file_in_chunks(self, file: UploadFile, file_path: Path) -> int:
+        """청크 단위로 파일을 저장하고 총 파일 크기를 반환"""
+        total_size = 0
+        chunk_size = 8192  # 8KB 청크
+        
+        async with aiofiles.open(file_path, 'wb') as f:
+            while chunk := await file.read(chunk_size):
+                total_size += len(chunk)
+                
+                # 파일 크기 제한 검증
+                if total_size > settings.MAX_FILE_SIZE:
+                    # 파일 삭제
+                    await aiofiles.os.remove(file_path)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"파일이 너무 큽니다. 최대 크기: {settings.MAX_FILE_SIZE // (1024*1024)}MB"
+                    )
+                
+                await f.write(chunk)
+        
+        return total_size
+
+    async def upload_file(self, file: UploadFile) -> Dict[str, Any]:
+        """파일 업로드 처리"""
+        try:
+            # 파일명 검증
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="파일명이 없습니다"
+                )
+            
+            # 파일 확장자 검증
+            await self.validate_file_extension(file.filename)
+            
+            # 업로드 디렉토리 준비
+            upload_dir = await self.ensure_upload_directory()
+            
+            # 고유한 파일명 생성
+            filename = self.generate_filename(file.filename)
+            file_path = upload_dir / filename
+            
+            # 청크 단위로 파일 저장
+            total_size = await self.save_file_in_chunks(file, file_path)
+            
+            return {
+                "original_filename": file.filename,
+                "saved_filename": filename,
+                "file_size": total_size,
+                "file_path": str(file_path)
+            }
+            
+        except HTTPException:
+            # FastAPI HTTP 예외는 그대로 전파
+            raise
+        except Exception as e:
+            # 기타 모든 예외 처리
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
+            )
+
+
+# 싱글톤 인스턴스
+upload_service = UploadService()
