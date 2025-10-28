@@ -22,7 +22,7 @@
         android:visibility="gone"
         android:clipChildren="false">
 
-        <com.lvonasek.arcore3dscanner.main.HandMotionView
+        <com.snapspace.scanner.main.HandMotionView
             android:id="@+id/ar_hand_image"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -32,7 +32,7 @@
 
     </FrameLayout>
 
-    <com.lvonasek.arcore3dscanner.main.DistanceMeasuring
+    <com.snapspace.scanner.main.DistanceMeasuring
         android:id="@+id/distance"
         android:layout_width="fill_parent"
         android:layout_height="fill_parent"

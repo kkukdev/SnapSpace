@@ -9,4 +9,4 @@
 -keep class com.huawei.hms.**{*;}
 -keep class com.huawei.hms.ads.** { *; }
 -keep class com.huawei.openalliance.ad.** { *; }
--keep class com.lvonasek.arcore3dscanner.main.JNI**
+-keep class com.snapspace.scanner.main.JNI**

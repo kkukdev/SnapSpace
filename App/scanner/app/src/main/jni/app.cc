@@ -1053,197 +1053,197 @@ extern "C"
 #endif
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onARServiceConnected(JNIEnv *env, jclass, jobject context,
-                                                                    jdouble res, jdouble dmin, jdouble dmax, jint noise, jboolean holesFilling, jboolean poseCorr,
-                                                                    jboolean distortion, jboolean offset, jboolean flashlight, jint mode, jboolean clearing, jbyteArray dataset)
+    Java_com_snapspace_scanner_main_JNI_onARServiceConnected(JNIEnv *env, jclass, jobject context,
+                                                             jdouble res, jdouble dmin, jdouble dmax, jint noise, jboolean holesFilling, jboolean poseCorr,
+                                                             jboolean distortion, jboolean offset, jboolean flashlight, jint mode, jboolean clearing, jbyteArray dataset)
     {
         return app.OnARServiceConnected(env, context, res, dmin, dmax, noise, holesFilling, poseCorr,
                                         distortion, offset, flashlight, mode, clearing, jbyteArray2string(env, dataset));
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onGlSurfaceChanged(
+    Java_com_snapspace_scanner_main_JNI_onGlSurfaceChanged(
         JNIEnv *, jclass, jint width, jint height, jboolean fullhd)
     {
         app.OnSurfaceChanged(width, height, fullhd);
     }
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onGlSurfaceDrawFrame(JNIEnv *, jclass, jboolean facemode, jfloat yaw, jint viewmode, jboolean anchors, jboolean grid, jboolean smooth)
+    Java_com_snapspace_scanner_main_JNI_onGlSurfaceDrawFrame(JNIEnv *, jclass, jboolean facemode, jfloat yaw, jint viewmode, jboolean anchors, jboolean grid, jboolean smooth)
     {
         return app.OnDrawFrame(facemode, yaw, viewmode, anchors, grid, smooth);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onToggleButtonClicked(
+    Java_com_snapspace_scanner_main_JNI_onToggleButtonClicked(
         JNIEnv *, jclass, jboolean t3dr_is_running)
     {
         app.OnToggleButtonClicked(t3dr_is_running);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onClearButtonClicked(JNIEnv *, jclass)
+    Java_com_snapspace_scanner_main_JNI_onClearButtonClicked(JNIEnv *, jclass)
     {
         app.OnClearButtonClicked();
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onUndoButtonClicked(JNIEnv *, jclass, jboolean fromUser, jboolean texturize)
+    Java_com_snapspace_scanner_main_JNI_onUndoButtonClicked(JNIEnv *, jclass, jboolean fromUser, jboolean texturize)
     {
         app.OnUndoButtonClicked(fromUser, texturize);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onUndoPreviewUpdate(JNIEnv *env, jclass clazz, jint frames)
+    Java_com_snapspace_scanner_main_JNI_onUndoPreviewUpdate(JNIEnv *env, jclass clazz, jint frames)
     {
         app.OnUndoPreviewUpdate(frames);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_onPause(JNIEnv *, jclass)
+    Java_com_snapspace_scanner_main_JNI_onPause(JNIEnv *, jclass)
     {
         app.OnPause();
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_extract(JNIEnv *env, jclass, jbyteArray path, jint mode)
+    Java_com_snapspace_scanner_main_JNI_extract(JNIEnv *env, jclass, jbyteArray path, jint mode)
     {
         app.Extract(jbyteArray2string(env, path), mode);
     }
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_load(JNIEnv *env, jclass, jbyteArray name)
+    Java_com_snapspace_scanner_main_JNI_load(JNIEnv *env, jclass, jbyteArray name)
     {
         return app.Load(jbyteArray2string(env, name));
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_optimize(JNIEnv *env, jclass, jbyteArray name)
+    Java_com_snapspace_scanner_main_JNI_optimize(JNIEnv *env, jclass, jbyteArray name)
     {
         app.Optimize(jbyteArray2string(env, name));
     }
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_save(JNIEnv *env, jclass, jbyteArray name)
+    Java_com_snapspace_scanner_main_JNI_save(JNIEnv *env, jclass, jbyteArray name)
     {
         return (jboolean)app.Save(jbyteArray2string(env, name));
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_saveWithTextures(JNIEnv *env, jclass, jbyteArray name)
+    Java_com_snapspace_scanner_main_JNI_saveWithTextures(JNIEnv *env, jclass, jbyteArray name)
     {
         app.SaveWithTextures(jbyteArray2string(env, name));
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_setTextureParams(JNIEnv *, jclass, jint detail, jint res, jint count)
+    Java_com_snapspace_scanner_main_JNI_setTextureParams(JNIEnv *, jclass, jint detail, jint res, jint count)
     {
         app.SetTextureParams(detail, res, count);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_texturize(JNIEnv *env, jclass, jbyteArray input, jbyteArray output, jboolean poisson, jboolean twoPass)
+    Java_com_snapspace_scanner_main_JNI_texturize(JNIEnv *env, jclass, jbyteArray input, jbyteArray output, jboolean poisson, jboolean twoPass)
     {
         app.Texturize(jbyteArray2string(env, input), jbyteArray2string(env, output), poisson, twoPass);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_setView(JNIEnv *, jclass, jfloat pitch, jfloat yaw,
-                                                       jfloat x, jfloat y, jfloat z, jfloat o,
-                                                       jboolean gyro)
+    Java_com_snapspace_scanner_main_JNI_setView(JNIEnv *, jclass, jfloat pitch, jfloat yaw,
+                                                jfloat x, jfloat y, jfloat z, jfloat o,
+                                                jboolean gyro)
     {
         app.SetView(pitch, yaw, x, y, z, o, gyro);
     }
 
     extern "C" JNIEXPORT jfloat JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_getDistance(JNIEnv *, jclass, jfloat x1,
-                                                           jfloat y1, jfloat x2, jfloat y2)
+    Java_com_snapspace_scanner_main_JNI_getDistance(JNIEnv *, jclass, jfloat x1,
+                                                    jfloat y1, jfloat x2, jfloat y2)
     {
         return app.GetDistance(x1, y1, x2, y2);
     }
 
     JNIEXPORT jfloat JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_getFloorLevel(JNIEnv *, jclass, jfloat x, jfloat y, jfloat z)
+    Java_com_snapspace_scanner_main_JNI_getFloorLevel(JNIEnv *, jclass, jfloat x, jfloat y, jfloat z)
     {
         return app.GetFloorLevel(x, y, z);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_restore(JNIEnv *, jclass)
+    Java_com_snapspace_scanner_main_JNI_restore(JNIEnv *, jclass)
     {
         app.Restore();
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_applyEffect(JNIEnv *, jclass, jint effect, jfloat value, jint axis)
+    Java_com_snapspace_scanner_main_JNI_applyEffect(JNIEnv *, jclass, jint effect, jfloat value, jint axis)
     {
         app.ApplyEffect((oc::Effector::Effect)effect, value, axis);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_previewEffect(JNIEnv *, jclass, jint effect, jfloat value, jint axis)
+    Java_com_snapspace_scanner_main_JNI_previewEffect(JNIEnv *, jclass, jint effect, jfloat value, jint axis)
     {
         app.PreviewEffect((oc::Effector::Effect)effect, value, axis);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_applySelect(JNIEnv *, jclass, jfloat x, jfloat y, jboolean triangle)
+    Java_com_snapspace_scanner_main_JNI_applySelect(JNIEnv *, jclass, jfloat x, jfloat y, jboolean triangle)
     {
         app.ApplySelection(x, y, triangle);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_completeSelection(JNIEnv *, jclass, jboolean inverse)
+    Java_com_snapspace_scanner_main_JNI_completeSelection(JNIEnv *, jclass, jboolean inverse)
     {
         app.CompleteSelection(inverse);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_multSelection(JNIEnv *, jclass, jboolean increase)
+    Java_com_snapspace_scanner_main_JNI_multSelection(JNIEnv *, jclass, jboolean increase)
     {
         app.MultSelection(increase);
     }
 
     extern "C" JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_circleSelection(JNIEnv *, jclass, jfloat x, jfloat y,
-                                                               jfloat radius, jboolean invert)
+    Java_com_snapspace_scanner_main_JNI_circleSelection(JNIEnv *, jclass, jfloat x, jfloat y,
+                                                        jfloat radius, jboolean invert)
     {
         app.CircleSelection(x, y, radius, invert);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_rectSelection(JNIEnv *, jclass, jfloat x1, jfloat y1,
-                                                             jfloat x2, jfloat y2, jboolean invert)
+    Java_com_snapspace_scanner_main_JNI_rectSelection(JNIEnv *, jclass, jfloat x1, jfloat y1,
+                                                      jfloat x2, jfloat y2, jboolean invert)
     {
         app.RectSelection(x1, y1, x2, y2, invert);
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_showNormals(JNIEnv *, jclass, jboolean on)
+    Java_com_snapspace_scanner_main_JNI_showNormals(JNIEnv *, jclass, jboolean on)
     {
         app.ShowNormals(on);
     }
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_animFinished(JNIEnv *, jclass)
+    Java_com_snapspace_scanner_main_JNI_animFinished(JNIEnv *, jclass)
     {
         return (jboolean)app.AnimFinished();
     }
 
     JNIEXPORT jboolean JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_didARjump(JNIEnv *, jclass)
+    Java_com_snapspace_scanner_main_JNI_didARjump(JNIEnv *, jclass)
     {
         return (jboolean)app.DidARJump();
     }
 
     JNIEXPORT jfloat JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_getView(JNIEnv *, jclass, jint axis)
+    Java_com_snapspace_scanner_main_JNI_getView(JNIEnv *, jclass, jint axis)
     {
         return app.GetView(axis);
     }
 
     JNIEXPORT jbyteArray JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_getEvent(JNIEnv *env, jclass)
+    Java_com_snapspace_scanner_main_JNI_getEvent(JNIEnv *env, jclass)
     {
         std::string message = app.GetEvent();
         int byteCount = (int)message.length();
@@ -1254,13 +1254,13 @@ extern "C"
     }
 
     JNIEXPORT void JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_setPhotoMode(JNIEnv *env, jclass clazz, jboolean on)
+    Java_com_snapspace_scanner_main_JNI_setPhotoMode(JNIEnv *env, jclass clazz, jboolean on)
     {
         app.SetPhotoMode(on);
     }
 
     JNIEXPORT jint JNICALL
-    Java_com_lvonasek_arcore3dscanner_main_JNI_getScanSize(JNIEnv *env, jclass clazz)
+    Java_com_snapspace_scanner_main_JNI_getScanSize(JNIEnv *env, jclass clazz)
     {
         return app.GetScanSize();
     }
