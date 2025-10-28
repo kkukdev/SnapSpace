@@ -1,60 +1,15 @@
-# System
 *.DS_Store
-Thumbs.db
-.DS_Store?
-*.swp
-*.swo
-*~
-
-# IDE
-.idea/
+*.idea
 *.iml
-*.swp
-.vscode/
-.classpath
-.project
-.c9/
-*.launch
-.settings/
-
-# Gradle
-.gradle/
-gradle/wrapper/gradle-wrapper.jar
-!gradle/wrapper/gradle-wrapper.properties
-
-# Android
-bin/
-build/
-captures/
-gen/
-release/
-.gradle
-.m2
-local.properties
 *.apk
 *.ap_
+*bin/
 *.class
 *.dex
-proguard/
-intermediates/
-.android/
-
-# NDK
+*.*/
+*build/
+*gen/
+*release/
+*local.properties
 arcore/jni/x86
 arcore/jni/x86_64
-
-# Logs
-*.log
-*.log.*
-build.log
-
-# Temporary files
-*.tmp
-*.bak
-*.swp
-*~
-
-# Environment
-.env
-.env.local
-.env.*.local
