@@ -5,8 +5,8 @@ from typing import Optional, Dict, Any
 from websockets import connect, WebSocketServerProtocol
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
-from app.config.settings import settings
-from app.models.websocket_models import (
+from app.config import settings
+from app.schemas.websocket_schemas import (
     WSMessageType, FileListMessage, ProcessingStatusUpdate,
     ProcessingStartMessage, ProcessingProgressMessage, 
     ProcessingCompleteMessage, ProcessingErrorMessage,
@@ -80,9 +80,13 @@ class WebSocketManager:
         except ConnectionClosed:
             logger.warning("WebSocket connection closed")
             self.is_connected = False
+            # 재연결 시도
+            asyncio.create_task(self.reconnect())
         except Exception as e:
             logger.error(f"Message loop error: {e}")
             self.is_connected = False
+            # 재연결 시도
+            asyncio.create_task(self.reconnect())
     
     async def send_message(self, message: Any) -> bool:
         """백엔드 서버에 메시지 전송"""

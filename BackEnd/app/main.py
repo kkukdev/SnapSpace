@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health
+from app.routers import health, websocket
 from app.routers.api import upload, scans, groups
 from app.config import settings
 from app.database import create_tables
@@ -40,6 +40,7 @@ app.include_router(health.router, tags=["health"])
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["upload"])
 app.include_router(scans.router, prefix="/api/v1/scans", tags=["scans"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
+app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 
 
 if __name__ == "__main__":

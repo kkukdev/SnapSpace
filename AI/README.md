@@ -4,7 +4,7 @@
 AI 서버 환경 변수 세팅을 위해 .env 파일을 생성해주세요.
 ```bash
 # ai.env 파일 작성 양식
-BACKEND_WEBSOCKET_URL=ws://localhost:8001/ws/ai
+BACKEND_WEBSOCKET_URL=ws://localhost:8000/ws
 WEBSOCKET_PING_INTERVAL=30
 WEBSOCKET_PING_TIMEOUT=10
 WEBSOCKET_RECONNECT_INTERVAL=5

@@ -5,7 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.websocket_manager import websocket_manager
-from app.config.settings import settings
+from app.config import settings
+from app.routers import health, websocket
 
 # 로깅 설정
 logging.basicConfig(
@@ -52,22 +53,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    return {"message": "AI Service is running"}
+app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+app.include_router(health.router, tags=["health"])
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-@app.get("/websocket/status")
-async def websocket_status():
-    """WebSocket 연결 상태 확인"""
-    return {
-        "connected": websocket_manager.is_connected,
-        "reconnect_attempts": websocket_manager.reconnect_attempts,
-        "backend_url": settings.backend_websocket_url
-    }
 
 if __name__ == "__main__":
     import uvicorn
