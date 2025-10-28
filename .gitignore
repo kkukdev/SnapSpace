@@ -357,4 +357,10 @@ fabric.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,kotlin,java,androidstudio
 
+# ----- Unignore specific third_party path -----
 !App/third_party/
+!App/third_party/**
+!App/third_party/tango_3d_reconstruction/
+!App/third_party/tango_3d_reconstruction/**
+!App/third_party/tango_3d_reconstruction/lib/
+!App/third_party/tango_3d_reconstruction/lib/**
