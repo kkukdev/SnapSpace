@@ -34,3 +34,11 @@ source install_requirements.sh
 # prompt 환경 (ex. Powershell)
 source install_requirements.bat
 ```
+
+### 서버 실행
+
+AI 폴더에 위치한 상태로 다음과 같이 명령어를 입력합니다.
+
+```bash
+python -m app.main
+```
