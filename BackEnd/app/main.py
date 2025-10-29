@@ -5,6 +5,13 @@ from app.routers.api import upload, scans, groups
 from app.config import settings
 from app.database import create_tables
 from contextlib import asynccontextmanager
+import logging
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 @asynccontextmanager
