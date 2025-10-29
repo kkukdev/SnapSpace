@@ -45,9 +45,10 @@ class WebSocketManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to connect to backend: {e}")
+            logger.error(f"Failed to connect to backend")
+            await self.reconnect()
             return False
-    
+
     async def disconnect(self):
         """WebSocket 연결 종료"""
         if self._message_loop_task:
