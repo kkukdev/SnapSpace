@@ -32,7 +32,13 @@ class UploadService(BaseService):
     async def ensure_upload_directory(self) -> Path:
         """업로드 디렉토리 생성 및 경로 반환"""
         upload_path = Path(settings.UPLOAD_DIR)
-        upload_path.mkdir(exist_ok=True)
+        try:
+            upload_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"업로드 디렉토리를 생성할 수 없습니다: {str(e)}"
+            )
         return upload_path
 
     def generate_filename(self, original_filename: str) -> str:
@@ -79,8 +85,17 @@ class UploadService(BaseService):
                 if buffer:
                     await f.write(buffer)
             
+            # 파일이 실제로 저장되었는지 확인
+            if not file_path.exists():
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="파일이 저장되지 않았습니다."
+                )
+            
             return total_size
             
+        except HTTPException:
+            raise
         except Exception as e:
             # 실패 시 파일 삭제
             if file_path.exists():
@@ -177,20 +192,48 @@ class UploadService(BaseService):
             filename = self.generate_filename(file.filename)
             file_path = upload_dir / filename
             
+            # 파일 포인터를 처음으로 리셋 (이전에 읽혔을 수 있음)
+            await file.seek(0)
+            
             # 최적화된 파일 저장
             total_size = await self.save_file_optimized(file, file_path)
+            
+            # 파일이 실제로 존재하는지 최종 확인
+            if not file_path.exists():
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="파일이 저장되지 않았습니다. 저장 경로를 확인하세요."
+                )
+            
+            # 파일 크기 확인
+            actual_file_size = file_path.stat().st_size
+            
+            # 파일 존재 및 접근 가능 여부 최종 확인
+            file_exists = file_path.exists()
+            file_readable = file_path.is_file() and os.access(file_path, os.R_OK)
             
             upload_result = {
                 "original_filename": file.filename,
                 "saved_filename": filename,
                 "file_size": total_size,
-                "file_path": str(file_path)
+                "actual_file_size": actual_file_size,
+                "file_path": str(file_path.absolute()),
+                "file_exists": file_exists,
+                "file_readable": file_readable,
+                "upload_success": file_exists and file_readable and actual_file_size > 0
             }
+            
+            # 파일이 제대로 저장되지 않은 경우
+            if not upload_result["upload_success"]:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"파일이 제대로 저장되지 않았습니다. 존재: {file_exists}, 읽기 가능: {file_readable}, 크기: {actual_file_size} bytes"
+                )
             
             # 웹소켓으로 업로드된 파일 정보 전송
             try:
                 file_info = [{
-                    "file_path": str(file_path),
+                    "file_path": str(file_path.absolute()),
                     "group_id": "",  # 업로드 시점에는 아직 group_id가 없을 수 있음
                     "metadata": {
                         "original_filename": file.filename,
