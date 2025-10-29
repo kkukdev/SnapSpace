@@ -1,0 +1,161 @@
+import asyncio
+import os
+import logging
+from typing import Dict, Optional, List
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+class FileProcessor:
+    def __init__(self):
+        self.executor = ThreadPoolExecutor(max_workers=settings.max_concurrent_tasks)
+        self.processing_tasks: Dict[int, asyncio.Task] = {}
+        self.processing_status: Dict[int, Dict] = {}
+    
+    async def process_file(self, scan_id: int, file_path: str, group_id: str, metadata: Dict) -> bool:
+        """파일 처리 시작"""
+        try:
+            # 처리 상태 초기화
+            self.processing_status[scan_id] = {
+                "status": "PROCESSING",
+                "progress": 0,
+                "started_at": datetime.now(),
+                "file_path": file_path,
+                "group_id": group_id,
+                "metadata": metadata
+            }
+            
+            from app.services.websocket_manager import websocket_manager
+            # Backend에 처리 시작 알림
+            await websocket_manager.send_processing_start(scan_id)
+            
+            # 비동기 파일 처리 시작
+            task = asyncio.create_task(self._process_file_async(scan_id, file_path))
+            self.processing_tasks[scan_id] = task
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to start processing file {scan_id}: {e}")
+
+            from app.services.websocket_manager import websocket_manager
+            await websocket_manager.send_processing_error(scan_id, str(e))
+            return False
+    
+    async def _process_file_async(self, scan_id: int, file_path: str):
+        """비동기 파일 처리"""
+        try:
+            # 파일 존재 확인
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
+            
+            # 진행률 업데이트
+            await self._update_progress(scan_id, 10)
+            
+            # AI 파이프라인 실행
+            output_path = await self._run_ai_pipeline(scan_id, file_path)
+            
+            # 진행률 업데이트
+            await self._update_progress(scan_id, 90)
+            
+            # 처리 완료
+            self.processing_status[scan_id]["status"] = "COMPLETED"
+            self.processing_status[scan_id]["progress"] = 100
+            self.processing_status[scan_id]["completed_at"] = datetime.now()
+            self.processing_status[scan_id]["output_path"] = output_path
+            
+            from app.services.websocket_manager import websocket_manager
+            # Backend에 완료 알림
+            await websocket_manager.send_processing_complete(scan_id, output_path)
+            
+            logger.info(f"File processing completed: {scan_id} -> {output_path}")
+            
+        except Exception as e:
+            logger.error(f"File processing failed for {scan_id}: {e}")
+            self.processing_status[scan_id]["status"] = "ERROR"
+            self.processing_status[scan_id]["error"] = str(e)
+
+            from app.services.websocket_manager import websocket_manager
+            await websocket_manager.send_processing_error(scan_id, str(e))
+        
+        finally:
+            # 작업 완료 후 정리
+            if scan_id in self.processing_tasks:
+                del self.processing_tasks[scan_id]
+    
+    async def _run_ai_pipeline(self, scan_id: int, file_path: str) -> str:
+        """AI 파이프라인 실행"""
+        loop = asyncio.get_event_loop()
+        
+        # ThreadPoolExecutor에서 실행
+        output_path = await loop.run_in_executor(
+            self.executor,
+            self._run_ai_pipeline_sync,
+            scan_id,
+            file_path
+        )
+        
+        return output_path
+    
+    def _run_ai_pipeline_sync(self, scan_id: int, file_path: str) -> str:
+        """동기 AI 파이프라인 실행"""
+        try:
+            # 출력 디렉토리 생성
+            output_dir = Path(settings.outputs_directory) / "final"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 파일명 생성
+            input_name = Path(file_path).stem
+            output_path = output_dir / f"{input_name}_processed.obj"
+            
+            # TODO: 실제 AI 파이프라인 연동
+            # 여기서 기존 ai_pipeline 코드를 호출
+            # 예: mesh_optimizer.py의 함수들 사용
+            
+            # 임시로 파일 복사 (실제 구현 시 AI 파이프라인으로 교체)
+            import shutil
+            shutil.copy2(file_path, output_path)
+            
+            logger.info(f"AI pipeline completed: {file_path} -> {output_path}")
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"AI pipeline failed: {e}")
+            raise
+    
+    async def _update_progress(self, scan_id: int, progress: int):
+        """진행률 업데이트"""
+        if scan_id in self.processing_status:
+            self.processing_status[scan_id]["progress"] = progress
+
+            from app.services.websocket_manager import websocket_manager
+            await websocket_manager.send_processing_progress(scan_id, progress)
+    
+    def get_processing_status(self, scan_id: int) -> Optional[Dict]:
+        """처리 상태 조회"""
+        return self.processing_status.get(scan_id)
+    
+    def get_all_processing_status(self) -> Dict[int, Dict]:
+        """모든 처리 상태 조회"""
+        return self.processing_status.copy()
+    
+    def cancel_processing(self, scan_id: int) -> bool:
+        """처리 취소"""
+        if scan_id in self.processing_tasks:
+            self.processing_tasks[scan_id].cancel()
+            del self.processing_tasks[scan_id]
+            
+            if scan_id in self.processing_status:
+                self.processing_status[scan_id]["status"] = "CANCELLED"
+            
+            logger.info(f"Processing cancelled for scan_id: {scan_id}")
+            return True
+        
+        return False
+
+# 전역 파일 처리기 인스턴스
+file_processor = FileProcessor()

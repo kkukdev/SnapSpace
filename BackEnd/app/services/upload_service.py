@@ -233,6 +233,7 @@ class UploadService(BaseService):
             # 웹소켓으로 업로드된 파일 정보 전송
             try:
                 file_info = [{
+                    "scan_id": "0",
                     "file_path": str(file_path.absolute()),
                     "group_id": "",  # 업로드 시점에는 아직 group_id가 없을 수 있음
                     "metadata": {

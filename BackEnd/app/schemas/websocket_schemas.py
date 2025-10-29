@@ -32,7 +32,7 @@ class ProcessingStatusUpdate(BaseModel):
 
 class ProcessingStartMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_START
-    scan_id: str
+    scan_id: int
 
 class ProcessingProgressMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_PROGRESS
