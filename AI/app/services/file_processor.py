@@ -108,20 +108,32 @@ class FileProcessor:
             output_dir = Path(settings.outputs_directory) / "final"
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # 파일명 생성
-            input_name = Path(file_path).stem
-            output_path = output_dir / f"{input_name}_processed.obj"
+            # AI 파이프라인 실행
+            from app.services.ai_pipeline import AIPipeline
             
-            # TODO: 실제 AI 파이프라인 연동
-            # 여기서 기존 ai_pipeline 코드를 호출
-            # 예: mesh_optimizer.py의 함수들 사용
+            # 진행률 콜백 함수 정의
+            def progress_callback(progress: int, message: str):
+                # 비동기 함수를 동기 컨텍스트에서 호출하기 위해 asyncio.run 사용
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 이미 실행 중인 이벤트 루프가 있으면 Task로 생성
+                        asyncio.create_task(self._update_progress(scan_id, progress))
+                    else:
+                        # 이벤트 루프가 없으면 새로 생성
+                        asyncio.run(self._update_progress(scan_id, progress))
+                except RuntimeError:
+                    # 이벤트 루프 관련 에러 무시
+                    pass
+                logger.info(f"[AI Pipeline] {progress}% - {message}")
             
-            # 임시로 파일 복사 (실제 구현 시 AI 파이프라인으로 교체)
-            import shutil
-            shutil.copy2(file_path, output_path)
+            # AI 파이프라인 실행
+            ai_pipeline = AIPipeline(progress_callback=progress_callback)
+            final_output_path = ai_pipeline.run_full_pipeline(file_path, str(output_dir))
             
-            logger.info(f"AI pipeline completed: {file_path} -> {output_path}")
-            return str(output_path)
+            logger.info(f"AI pipeline completed: {file_path} -> {final_output_path}")
+            return final_output_path
             
         except Exception as e:
             logger.error(f"AI pipeline failed: {e}")
