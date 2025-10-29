@@ -1,5 +1,6 @@
 import os
 import aiofiles
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, AsyncGenerator
@@ -8,6 +9,9 @@ import asyncio
 
 from app.config import settings
 from app.services.base import BaseService
+from app.services.websocket_manager import websocket_manager
+
+logger = logging.getLogger(__name__)
 
 
 class UploadService(BaseService):
@@ -176,12 +180,31 @@ class UploadService(BaseService):
             # 최적화된 파일 저장
             total_size = await self.save_file_optimized(file, file_path)
             
-            return {
+            upload_result = {
                 "original_filename": file.filename,
                 "saved_filename": filename,
                 "file_size": total_size,
                 "file_path": str(file_path)
             }
+            
+            # 웹소켓으로 업로드된 파일 정보 전송
+            try:
+                file_info = [{
+                    "file_path": str(file_path),
+                    "group_id": "",  # 업로드 시점에는 아직 group_id가 없을 수 있음
+                    "metadata": {
+                        "original_filename": file.filename,
+                        "saved_filename": filename,
+                        "file_size": total_size,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }]
+                await websocket_manager.send_file_list(file_info)
+            except Exception as e:
+                # 웹소켓 전송 실패는 업로드 자체를 실패시키지 않음
+                logger.warning(f"Failed to send file upload notification via websocket: {e}")
+            
+            return upload_result
             
         except HTTPException:
             # FastAPI HTTP 예외는 그대로 전파
