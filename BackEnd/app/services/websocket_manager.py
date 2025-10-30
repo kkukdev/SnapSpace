@@ -5,12 +5,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import WebSocket
 from datetime import datetime
 
-from app.schemas.websocket_schemas import (
-    WSMessageType, FileListMessage, ProcessingStatusUpdate,
-    ProcessingStartMessage, ProcessingProgressMessage,
-    ProcessingCompleteMessage, ProcessingErrorMessage,
-    HeartbeatMessage, ConnectionStatusMessage
-)
+from app.schemas.websocket_schemas import WSMessageType, FileListMessage
 
 logger = logging.getLogger(__name__)
 
@@ -46,30 +41,35 @@ class WebSocketManager:
             del self.connection_info[websocket]
             logger.info(f"AI server disconnected: {client_id}")
     
-    async def send_to_ai(self, message: dict, websocket: WebSocket = None):
+    async def send_to_ai(self, message: Any, websocket: WebSocket = None):
         """AI 서버에게 메시지 전송"""
+        # Pydantic 모델을 dict로 변환
+        if hasattr(message, 'dict'):
+            message_data = message.dict()
+        elif hasattr(message, 'model_dump'):  # Pydantic v2
+            message_data = message.model_dump()
+        else:
+            message_data = message
+
         if websocket:
             # 특정 AI 서버에게 전송
             try:
-                await websocket.send_text(json.dumps(message, default=str))
-                logger.debug(f"Message sent to AI: {message}")
+                await websocket.send_text(json.dumps(message_data, default=str))
+                logger.debug(f"Message sent to AI: {message_data}")
             except Exception as e:
                 logger.error(f"Failed to send message to specific AI: {e}")
         else:
             # 모든 AI 서버에게 전송
             for connection in self.ai_connections:
                 try:
-                    await connection.send_text(json.dumps(message, default=str))
-                    logger.debug(f"Message sent to AI: {message}")
+                    await connection.send_text(json.dumps(message_data, default=str))
+                    logger.debug(f"Message sent to AI: {message_data}")
                 except Exception as e:
                     logger.error(f"Failed to send message to AI: {e}")
     
     async def send_file_list(self, files: List[dict], websocket: WebSocket = None):
         """AI 서버에게 파일 목록 전송"""
-        message = {
-            "type": "file_list",
-            "files": files
-        }
+        message = FileListMessage(files=files)
         await self.send_to_ai(message, websocket)
     
     async def broadcast_to_clients(self, message: dict):

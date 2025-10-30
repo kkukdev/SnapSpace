@@ -25,7 +25,17 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # File upload settings
-    UPLOAD_DIR: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+    # 프로젝트 루트의 storage/uploads 폴더 사용
+    if os.path.exists("/project_root/storage"):
+        # Docker 컨테이너 내부 (프로젝트 루트의 storage가 /project_root/storage로 마운트됨)
+        UPLOAD_DIR: str = "/project_root/storage/uploads"
+    else:
+        # 로컬 환경: 프로젝트 루트 찾기
+        # BackEnd/app/config.py -> BackEnd/app -> BackEnd -> 프로젝트 루트
+        _config_file_dir = os.path.dirname(__file__)  # BackEnd/app
+        _backend_dir = os.path.dirname(_config_file_dir)  # BackEnd
+        _project_root = os.path.dirname(_backend_dir)  # 프로젝트 루트 (S13P31S102)
+        UPLOAD_DIR: str = os.path.abspath(os.path.join(_project_root, "storage", "uploads"))
     MAX_FILE_SIZE: int = 250 * 1024 * 1024  # 250MB
     ALLOWED_EXTENSIONS: list = [".ply", ".obj", ".stl", ".3ds", ".dae", ".x3d", ".fbx", ".glb", ".gltf"]
     

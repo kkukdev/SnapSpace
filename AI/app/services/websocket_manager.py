@@ -12,6 +12,7 @@ from app.schemas.websocket_schemas import (
     ProcessingCompleteMessage, ProcessingErrorMessage,
     HeartbeatMessage, ConnectionStatusMessage
 )
+from app.services.file_processor import file_processor
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,10 @@ class WebSocketManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to connect to backend: {e}")
+            logger.error(f"Failed to connect to backend")
+            await self.reconnect()
             return False
-    
+
     async def disconnect(self):
         """WebSocket 연결 종료"""
         if self._message_loop_task:
@@ -155,10 +157,16 @@ class WebSocketManager:
             file_list = FileListMessage(**message_data)
             logger.info(f"Received file list with {len(file_list.files)} files")
             
-            # TODO: 파일 처리 로직 구현 (4단계에서)
             for file_request in file_list.files:
                 logger.info(f"Processing file: {file_request.scan_id}")
-                # 여기서 실제 파일 처리 로직이 들어갈 예정
+                
+                # 파일 처리 시작 (비동기로 실행)
+                asyncio.create_task(file_processor.process_file(
+                    file_request.scan_id,
+                    file_request.file_path,
+                    file_request.group_id,
+                    file_request.metadata
+                ))
                 
         except Exception as e:
             logger.error(f"Error handling file list: {e}")
