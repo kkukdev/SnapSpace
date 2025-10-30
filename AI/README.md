@@ -1,9 +1,11 @@
-## 서버 실행 방법
+## 서버 실행 방법(개발 모드)
+
+| Backend에서 docker-compose로 실행시, AI서버도 자동으로 실행됩니다.
 
 ### ai.env 파일 생성
 AI 서버 환경 변수 세팅을 위해 .env 파일을 생성해주세요.
 ```bash
-# ai.env 파일 작성 양식
+# ai.env 파일 작성 양식(예시)
 BACKEND_WEBSOCKET_URL=ws://localhost:8000/ws
 WEBSOCKET_PING_INTERVAL=30
 WEBSOCKET_PING_TIMEOUT=10
