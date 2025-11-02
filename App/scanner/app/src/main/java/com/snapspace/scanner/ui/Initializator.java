@@ -59,7 +59,7 @@ public class Initializator extends AbstractActivity
       }
     } else {
       closeOnResume = true;
-      Intent intent = new Intent(this, FileManager.class);
+      Intent intent = new Intent(this, HomeActivity.class);
       intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
       startActivity(intent);
     }

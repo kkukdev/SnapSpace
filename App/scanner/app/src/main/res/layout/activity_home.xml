@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- 헤더 -->
+        <LinearLayout
+            android:id="@+id/header"
+            android:layout_width="match_parent"
+            android:layout_height="80dp"
+            android:gravity="center"
+            android:orientation="horizontal"
+            tools:ignore="UselessParent">
+
+            <TextView
+                android:id="@+id/header_title"
+                android:layout_width="0sp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="@string/app_name"
+                android:textColor="#E9E9E9"
+                android:textSize="36sp" />
+
+        </LinearLayout>
+
+        <!-- 2x2 버튼 그리드 -->
+        <LinearLayout
+            android:id="@+id/button_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="80dp"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <LinearLayout
+                android:id="@+id/button_grid_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="20dp"
+                android:layout_marginLeft="20dp"
+                android:layout_marginRight="20dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/space_scan_button_layout"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="10dp"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/space_scan_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="160dp"
+                        android:padding="15dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_space_scan"
+                        android:background="#2A2A2A"
+                        tools:ignore="Suspicious0dp" />
+
+                    <TextView
+                        android:id="@+id/space_scan_button_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textSize="20sp"
+                        android:text="공간 스캔" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/object_scan_button_layout"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="10dp"
+                    android:orientation="vertical">
+
+                    <ImageView
+                        android:id="@+id/object_scan_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="160dp"
+                        android:padding="15dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_object_scan"
+                        android:background="#2A2A2A"
+                        tools:ignore="Suspicious0dp" />
+
+                    <TextView
+                        android:id="@+id/object_scan_button_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textSize="20sp"
+                        android:text="오브젝트 스캔" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- 스캔 미리보기 버튼 -->
+            <Button
+                android:id="@+id/preview_button"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="center"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="20dp"
+                android:layout_marginLeft="20dp"
+                android:layout_marginRight="20dp"
+                android:text="스캔 미리보기"
+                android:background="#2A2A2A"
+                android:textSize="20sp" />
+
+            <!-- 서버 업로드 버튼 -->
+            <Button
+                android:id="@+id/upload_button"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="center"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="20dp"
+                android:layout_marginLeft="20dp"
+                android:layout_marginRight="20dp"
+                android:text="서버 업로드"
+                android:background="#2A2A2A"
+                android:textSize="20sp" />
+
+        </LinearLayout>
+
+        <!-- 프로세싱 진행 표시 -->
+        <ProgressBar
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:id="@+id/progressBar"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:id="@+id/processing_layout"
+            android:visibility="gone"
+            android:gravity="center">
+
+            <TextView
+                android:text="처리 중..."
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="75dp"
+                android:layout_marginBottom="25dp"
+                android:gravity="center"
+                android:textSize="20sp"
+                android:id="@+id/info_text"
+                android:textAlignment="center" />
+
+            <Button
+                android:text="@string/action_cancel"
+                android:layout_width="200dp"
+                android:layout_height="wrap_content"
+                android:id="@+id/service_cancel"
+                android:background="@drawable/background_button" />
+        </LinearLayout>
+
+    </FrameLayout>
+
+</RelativeLayout>
