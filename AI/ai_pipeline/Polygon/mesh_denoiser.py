@@ -213,6 +213,7 @@ def _ai_denoise_with_deepmeshprior(
 def main():
     parser = argparse.ArgumentParser(description="Standalone mesh denoiser (algorithmic or AI)")
     parser.add_argument("--input", "-i", help="Input OBJ file path")
+    parser.add_argument("--output-dir", required=True, help="최종 산출물 저장 디렉토리")
     parser.add_argument("--mode", choices=["algo", "ai", "auto_flat"], default="algo", help="Denoise mode")
     parser.add_argument("--algo", choices=["taubin", "laplacian", "simple"], default="taubin")
     parser.add_argument("--iter", type=int, default=15)
@@ -297,6 +298,24 @@ def main():
             wall_ortho_dot=args.wall_ortho_dot, # ← 옵션 전달
             do_preclean=args.preclean,
         )
+        # 출력 디렉토리로 이동 (파일명 규칙 유지)
+        try:
+            os.makedirs(args.output_dir, exist_ok=True)
+            base = os.path.splitext(os.path.basename(in_path))[0]
+            target = os.path.join(args.output_dir, f"{base}_auto_flat.obj")
+            if os.path.abspath(out) != os.path.abspath(target):
+                try:
+                    shutil.move(out, target)
+                except Exception:
+                    # move 실패 시 복사 후 원본 삭제 시도
+                    shutil.copyfile(out, target)
+                    try:
+                        os.remove(out)
+                    except Exception:
+                        pass
+            out = target
+        except Exception as e:
+            print(f"[warn] Failed to place output into output_dir: {e}")
         if args.visualize:
             m = _load_mesh(out)
             m.compute_vertex_normals()

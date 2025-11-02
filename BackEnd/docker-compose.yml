@@ -1,4 +1,4 @@
-name: postgres-fastapi
+name: sdt-server
 
 services:
   postgres:
@@ -60,10 +60,12 @@ services:
       - BACKEND_WEBSOCKET_URL=ws://backend:8000/ws
       - HOST=0.0.0.0
       - PORT=8001
-      - UPLOADS_DIRECTORY=project_root/storage/uploads
-      - OUTPUTS_DIRECTORY=project_root/storage/outputs
+      - UPLOADS_DIRECTORY=/project_root/storage/uploads
+      - OUTPUTS_DIRECTORY=/project_root/storage/outputs
       - MAX_CONCURRENT_TASKS=3
       - LOG_LEVEL=INFO
+      - DISPLAY=:0
+      - QT_QPA_PLATFORM=offscreen
     depends_on:
       - backend
     volumes:

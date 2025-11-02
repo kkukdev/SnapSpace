@@ -104,10 +104,6 @@ class FileProcessor:
     def _run_ai_pipeline_sync(self, scan_id: int, file_path: str) -> str:
         """동기 AI 파이프라인 실행"""
         try:
-            # 출력 디렉토리 생성
-            output_dir = Path(settings.outputs_directory) / "final"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
             # AI 파이프라인 실행
             from app.services.ai_pipeline import AIPipeline
             
@@ -128,9 +124,14 @@ class FileProcessor:
                     pass
                 logger.info(f"[AI Pipeline] {progress}% - {message}")
             
-            # AI 파이프라인 실행
+            # AI 파이프라인 실행 (outputs 루트 전달)
+            # 절대 경로로 변환 (상대 경로인 경우 /project_root 기준)
+            outputs_dir = settings.outputs_directory
+            if not os.path.isabs(outputs_dir):
+                # 상대 경로인 경우 /project_root를 기준으로 절대 경로 생성
+                outputs_dir = os.path.join("/project_root", outputs_dir.lstrip("/"))
             ai_pipeline = AIPipeline(progress_callback=progress_callback)
-            final_output_path = ai_pipeline.run_full_pipeline(file_path, str(output_dir))
+            final_output_path = ai_pipeline.run_full_pipeline(file_path, outputs_dir)
             
             logger.info(f"AI pipeline completed: {file_path} -> {final_output_path}")
             return final_output_path
