@@ -121,10 +121,11 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
         // 공간 스캔 버튼 클릭
         if (id == R.id.space_scan_button) {
-            startScanning();
+            startScanning("space_scan");
         }
         // 오브젝트 스캔 버튼 클릭
         else if (id == R.id.object_scan_button) {
+            startScanning("object_scan");
             Toast.makeText(HomeActivity.this, "오브젝트 스캔 기능 준비 중...", Toast.LENGTH_SHORT).show();
         }
         // 스캔 미리보기 버튼 클릭
@@ -142,13 +143,15 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     }
 
     // 스캔 시작 메서드
-    private void startScanning()
+    private void startScanning(String mode)
     {
         SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(HomeActivity.this);
         SharedPreferences.Editor e = pref.edit();
 
         e.putBoolean(getString(R.string.pref_later), false);
         e.putString(getString(R.string.pref_mode), "realtime");
+
+        e.putString("scan_mode", mode);
 
         e.commit();
 

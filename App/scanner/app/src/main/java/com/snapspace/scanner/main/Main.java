@@ -139,6 +139,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 
     boolean texturize = (mToPostprocess != null) || (Math.abs(Service.getRunning(this)) == Service.SERVICE_SAVE);
     double res = mRes, dmin = 0.01f, dmax = 7;
+
     mCameraControl.setOffset(0);
     if (mRes > 0.0099f) {
       mCameraControl.setOffset(mRes * 100);
@@ -147,6 +148,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     if (mode == 3) { res *= 2.0f; }
 
     SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(this);
+    String scanMode = pref.getString("scan_mode", "space_scan");
     mAnchors      = pref.getBoolean(getString(R.string.pref_anchor), false);
     int noise     = Integer.parseInt(pref.getString(getString(R.string.pref_noise), "9"));
     boolean analy = pref.getBoolean(getString(R.string.pref_subset), false);
@@ -158,6 +160,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     boolean flash = pref.getBoolean(getString(R.string.pref_flash), false) && !isFaceModeOn(this) && !texturize;
     boolean poiss = pref.getBoolean(getString(R.string.pref_poisson), false);
     dmax = Integer.parseInt(pref.getString(getString(R.string.pref_limit), "4"));
+
+    if (scanMode.equals("object_scan")) {
+      res = 0.01f;
+      dmin = 0.01f;
+      dmax = 2.0f;
+    }
 
     if (pref.getBoolean(getString(R.string.pref_gps), false)) {
       mGPS = new GPS();
