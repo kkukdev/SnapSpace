@@ -1,29 +1,23 @@
 package com.snapspace.scanner.ui;
 
 import android.Manifest;
-import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.view.MotionEvent;
+import android.util.Log;
 import android.view.View;
-import android.widget.GridView;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import com.lvonasek.utils.Compatibility;
 import com.snapspace.scanner.R;
 import com.snapspace.scanner.main.Exporter;
 import com.snapspace.scanner.main.Main;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
 
@@ -165,7 +159,6 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
     private void finishScanning()
     {
-//        mCancel.setVisibility(View.GONE);
         showProgress();
         Date date = new Date() ;
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
@@ -178,6 +171,15 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             File file2save = Exporter.export(file, filename);
 
             Exporter.makeStructure(AbstractActivity.getPath(false));
+
+            File plyFile = new File(file.getParent(), "pointcloud.ply");
+            if (plyFile.exists()) {
+                File objFolderPath = new File(AbstractActivity.getPath(false), filename + Exporter.EXT_OBJ);
+                File plyDestination = new File(objFolderPath, "pointcloud.ply");
+                if (plyFile.renameTo(plyDestination)) {
+                    Log.d(TAG, "PLY file " + plyDestination.toString() + " moved to OBJ folder");
+                }
+            }
 
             //remove temp dir
             if (!isPostProcessLaterOn(HomeActivity.this))

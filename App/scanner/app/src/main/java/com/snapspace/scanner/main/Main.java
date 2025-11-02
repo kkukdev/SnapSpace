@@ -902,8 +902,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         JNI.onToggleButtonClicked(false);
         mGLView.stop();
         finish();
+
         File input = new File(getTempPath(), "model" + Exporter.EXT_OBJ);
+
         if (JNI.save(input.getAbsolutePath().getBytes())) {
+          // PLY 파일 생성 추가
+          String path = getTempPath().getAbsolutePath() + "/";
+          JNI.extract((path + "pointcloud.ply").getBytes(), Exporter.EXPORT_TYPE_POINTCLOUD);
+
           Service.finish(input.getAbsolutePath());
         } else {
           Service.reset(Main.this);
