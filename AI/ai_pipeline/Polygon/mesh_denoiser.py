@@ -438,3 +438,6 @@ def _auto_flatten_floor_walls(
 # ----------------------------------------
 if __name__ == "__main__":
     main()
+
+
+# python mesh_denoiser.py --input ../../datasets/obj/mainhall.obj --algo laplacian --iter 25 --visualize
