@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.preference.PreferenceManager;
+import android.util.Log; // <-- [추가] 로그 import
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -20,7 +21,7 @@ import android.widget.BaseAdapter;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.Toast; // <-- [추가] Toast import
 
 import androidx.core.content.FileProvider;
 import com.snapspace.scanner.BuildConfig;
@@ -30,6 +31,7 @@ import com.snapspace.scanner.R;
 import com.snapspace.scanner.main.Exporter;
 import com.snapspace.scanner.main.Main;
 import com.snapspace.scanner.sketchfab.OAuth;
+import com.snapspace.scanner.fastapi.FastApiService; // <-- 'fastapi'가 'network'로 변경됨 (이전 코드 기준)
 import com.lvonasek.utils.GestureDetector;
 
 import java.io.File;
@@ -41,6 +43,15 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Scanner;
+
+// --- [추가] Retrofit 및 OkHttp import ---
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.RequestBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+// --- import 끝 ---
 
 class FileAdapter extends BaseAdapter
 {
@@ -98,6 +109,8 @@ class FileAdapter extends BaseAdapter
     }, mContext);
   }
 
+  // ... (getCount, getItem, getItemId, getView, hasParent, toParent, loadIcon, getPath... 등 다른 메소드는 동일) ...
+  // ... (이하 기존 코드 생략) ...
   @Override
   public int getCount()
   {
@@ -427,44 +440,47 @@ class FileAdapter extends BaseAdapter
     } else if ((key.endsWith(Exporter.EXT_DATASET)) || (key.endsWith(Exporter.EXT_PLY))) {
       mContext.showProgress();
       new Thread(() -> {
+        // .dataset 이나 .ply는 FastAPI로 보낼지, 다른 앱으로 보낼지 묻습니다.
         final String zip = Exporter.compressModel(new File(getPath(), key));
         mContext.runOnUiThread(() -> {
-          Intent intent = new Intent(Intent.ACTION_SEND);
-          intent.setType("application/zip");
-          intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zip)));
-          mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
+          mContext.showProgress(); // 프로그레스 숨기기
+          showShareDialog(zip, key, false);
         });
       }).start();
     } else {
+      // .obj 파일일 경우 (기존 로직)
       AlertDialog.Builder dialog = new AlertDialog.Builder(mContext);
       dialog.setTitle(R.string.share_via);
+      // R.array.shares에 "FastAPI" 항목을 추가해야 합니다.
+      // 여기서는 0: 기타 앱, 1: 온라인 변환기, 2: FastAPI (Sketchfab 대신)로 가정합니다.
+      // strings.xml의 <string-array name="shares"> 항목 수정이 필요합니다.
+      // 예: <item>FastAPI</item>
       dialog.setItems(R.array.shares, (dialog1, which) -> {
         mContext.showProgress();
         new Thread(() -> {
           File file = new File(getPath(), key);
+          // '온라인 변환기'가 아니라면 항상 압축합니다.
           final String zip = which == 1 ? AbstractActivity.getModel(file).getAbsolutePath() : Exporter.compressModel(file);
           mContext.runOnUiThread(() -> {
             Intent intent;
             switch (which) {
-              case 0: //intent
+              case 0: //intent (기타 앱 공유)
                 intent = new Intent(Intent.ACTION_SEND);
                 intent.setType("application/zip");
                 intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zip)));
                 mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
                 break;
-              case 1: //online
+              case 1: //online (이건 zip이 아님, .obj 경로)
                 intent = new Intent(mContext, Uploader.class);
                 intent.putExtra(AbstractActivity.FILE_KEY, zip);
                 intent.putExtra(AbstractActivity.URL_KEY, "https://anyconv.com/mesh-converter/");
                 mContext.startActivity(intent);
                 break;
-              case 2: //sketchfab
-                intent = new Intent(mContext, OAuth.class);
-                intent.putExtra(AbstractActivity.FILE_KEY, zip);
-                mContext.startActivity(intent);
+              case 2: // [수정] FastAPI (Sketchfab 대신)
+                uploadToFastApi(zip); // <--- 여기를 수정했습니다.
                 break;
             }
-            mContext.refreshUI();
+            mContext.refreshUI(); // 업로드 후 새로고침은 불필요할 수 있음
           });
         }).start();
       });
@@ -473,6 +489,34 @@ class FileAdapter extends BaseAdapter
       d.show();
     }
   }
+
+  /**
+   * [신규] .dataset과 .ply를 위한 공유 다이얼로그
+   */
+  private void showShareDialog(String zipFilePath, String key, boolean isObj) {
+    AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
+    builder.setTitle(R.string.share_via);
+    CharSequence[] items = new CharSequence[]{"FastAPI로 업로드", "기타 앱으로 공유"};
+
+    builder.setItems(items, (dialog, which) -> {
+      if (which == 0) {
+        // "FastAPI로 업로드" 선택
+        uploadToFastApi(zipFilePath);
+      } else {
+        // "기타 앱으로 공유" 선택
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zipFilePath)));
+        mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
+      }
+    });
+    builder.setOnCancelListener(dialog -> {
+      // 다이얼로그가 취소되면 임시 zip파일 삭제
+      deleteTempZip(zipFilePath);
+    });
+    builder.show();
+  }
+
 
   public void rename() {
     String key = (String)getItem(mSelected.get(0));
@@ -521,4 +565,95 @@ class FileAdapter extends BaseAdapter
   public void forwardTouch(MotionEvent event) {
     mGesture.onTouchEvent(event);
   }
+
+  // -----------------------------------------------------------------
+  // --- [추가] FastAPI 업로드를 위한 신규 메소드 ---
+  // -----------------------------------------------------------------
+
+  /**
+   * (신규 메소드) FastApiService를 사용하여 ZIP 파일을 POST로 전송합니다.
+   *
+   * @param zipFilePath 업로드할 ZIP 파일의 전체 경로
+   */
+  private void uploadToFastApi(String zipFilePath) {
+    Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath);
+    mContext.showProgress(); // 업로드 중 프로그레스 바 표시
+
+    // 1. FastApiService의 Retrofit 인스턴스와 인터페이스를 가져옵니다.
+    FastApiService.FastApiInterface service =
+            FastApiService.getRetrofitInstance().create(FastApiService.FastApiInterface.class);
+
+    // 2. 파일(File) 객체를 생성합니다.
+    File file = new File(zipFilePath);
+
+    // 3. 파일을 MultipartBody.Part로 변환합니다.
+    RequestBody requestFile = RequestBody.create(MediaType.parse("application/zip"), file);
+    // "file"은 FastApiInterface에서 @Part("file")에 설정한 '이름'과 일치해야 합니다.
+    MultipartBody.Part filePart = MultipartBody.Part.createFormData("file", file.getName(), requestFile);
+
+    // 4. Retrofit Call 객체를 생성합니다.
+    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(filePart);
+
+    // 5. 요청을 비동기(Asynchronous)로 실행합니다.
+    call.enqueue(new Callback<FastApiService.FastSuccessResponse>() {
+      @Override
+      public void onResponse(Call<FastApiService.FastSuccessResponse> call, Response<FastApiService.FastSuccessResponse> response) {
+        // 6. 응답이 메인 스레드로 돌아옵니다.
+        mContext.showProgress(); // 프로그레스 바 숨기기
+        deleteTempZip(zipFilePath); // 업로드 완료 후 임시 zip파일 삭제
+
+        if (response.isSuccessful()) {
+          // HTTP 200-299 범위: 성공
+          FastApiService.FastSuccessResponse responseBody = response.body();
+          if (responseBody != null && responseBody.isSuccess()) {
+            String msg = "FastAPI 업로드 성공: " + responseBody.getData().getSavedFilename();
+            Log.d("FileAdapter", msg);
+            Toast.makeText(mContext, msg, Toast.LENGTH_LONG).show();
+          } else {
+            String msg = "FastAPI 업로드 성공 (서버 응답: " + (responseBody != null ? responseBody.getMessage() : "null") + ")";
+            Log.d("FileAdapter", msg);
+            Toast.makeText(mContext, msg, Toast.LENGTH_SHORT).show();
+          }
+        } else {
+          // HTTP 4xx, 5xx 등: 실패
+          String errorMsg = "FastAPI 응답 실패: " + response.code();
+          try {
+            String errorBodyStr = response.errorBody().string();
+            errorMsg += ", " + errorBodyStr;
+          } catch (Exception e) { e.printStackTrace(); }
+          Log.e("FileAdapter", errorMsg);
+          Toast.makeText(mContext, errorMsg, Toast.LENGTH_LONG).show();
+        }
+      }
+
+      @Override
+      public void onFailure(Call<FastApiService.FastSuccessResponse> call, Throwable t) {
+        // 7. 네트워크 오류, DNS 오류, 타임아웃 등
+        mContext.showProgress(); // 프로그레스 바 숨기기
+        deleteTempZip(zipFilePath); // 오류 발생 시 임시 zip파일 삭제
+        String errorMsg = "FastAPI 요청 실패: " + t.getMessage();
+        Log.e("FileAdapter", errorMsg, t);
+        Toast.makeText(mContext, errorMsg, Toast.LENGTH_LONG).show();
+      }
+    });
+  }
+
+  /**
+   * (신규 헬퍼 메소드) 임시 ZIP 파일을 삭제합니다.
+   */
+  private void deleteTempZip(String zipFilePath) {
+    try {
+      File tempZip = new File(zipFilePath);
+      if (tempZip.exists()) {
+        if (tempZip.delete()) {
+          Log.d("FileAdapter", "임시 ZIP 파일 삭제 성공: " + zipFilePath);
+        } else {
+          Log.w("FileAdapter", "임시 ZIP 파일 삭제 실패: " + zipFilePath);
+        }
+      }
+    } catch (Exception e) {
+      Log.e("FileAdapter", "임시 ZIP 파일 삭제 중 오류", e);
+    }
+  }
 }
+
