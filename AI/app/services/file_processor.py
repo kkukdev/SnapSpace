@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
+from app.utils.path_utils import convert_to_network_path, normalize_network_path
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,15 @@ class FileProcessor:
     async def _process_file_async(self, scan_id: int, file_path: str):
         """비동기 파일 처리"""
         try:
+            # 백엔드에서 받은 경로를 네트워크 경로로 변환
+            network_file_path = convert_to_network_path(file_path, settings.network_storage_base)
+            
             # 파일 존재 확인
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            if not os.path.exists(network_file_path):
+                raise FileNotFoundError(f"File not found: {network_file_path} (원본 경로: {file_path})")
+            
+            # 변환된 경로 사용
+            file_path = network_file_path
             
             # 진행률 업데이트
             await self._update_progress(scan_id, 10)
@@ -125,11 +132,8 @@ class FileProcessor:
                 logger.info(f"[AI Pipeline] {progress}% - {message}")
             
             # AI 파이프라인 실행 (outputs 루트 전달)
-            # 절대 경로로 변환 (상대 경로인 경우 /project_root 기준)
-            outputs_dir = settings.outputs_directory
-            if not os.path.isabs(outputs_dir):
-                # 상대 경로인 경우 /project_root를 기준으로 절대 경로 생성
-                outputs_dir = os.path.join("/project_root", outputs_dir.lstrip("/"))
+            # 네트워크 경로로 변환
+            outputs_dir = normalize_network_path(settings.network_storage_base, settings.outputs_directory)
             ai_pipeline = AIPipeline(progress_callback=progress_callback)
             final_output_path = ai_pipeline.run_full_pipeline(file_path, outputs_dir)
             
