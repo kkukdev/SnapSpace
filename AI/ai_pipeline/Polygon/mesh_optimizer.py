@@ -118,7 +118,7 @@ def preclean_with_open3d(input_path):
 # ===========================================================
 # 3️⃣ PyMeshLab 기반 클린업 (Poisson + 평탄화)
 # ===========================================================
-def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=2, smooth_iter=15):
+def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_iter=15):
     """
     전체 클린업 파이프라인의 핵심 함수입니다.
 
