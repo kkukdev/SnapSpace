@@ -14,7 +14,7 @@ Open3D + PyMeshLab을 결합하여 다음 작업을 수행합니다.
 
 ------------------------------------------------------------
 💻 실행 예시:
-python mesh_optimizer.py --input ../../datasets/obj/mainhall.obj --visualize
+python mesh_optimizer.🔹 py --input ../../datasets/obj/mainhall.obj --visualize
 
 ⚙️ 옵션 설명:
 --input       : 입력 OBJ 파일 경로 (필수)
@@ -109,7 +109,8 @@ def preclean_with_open3d(input_path):
 # ===========================================================
 # 3️⃣ PyMeshLab 기반 클린업 (Poisson + 평탄화)
 # ===========================================================
-def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_iter=15):
+def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_iter=15,
+                          trim_dist_ratio=0.01, min_comp_diam_ratio=0.02, hole_max_ratio=0.03, trimmed=None):
     """
     전체 클린업 파이프라인의 핵심 함수입니다.
 
@@ -150,6 +151,45 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     except Exception as e:
         print(f"⚠️ Poisson 실패: {e}")
 
+    # === 새로 추가: 포아송 결과 트리밍 ===
+    try:
+        # 장면 스케일(대각선) 계산
+        o3d_m = o3d.io.read_triangle_mesh(input_path)  # precleaned 기준
+        aabb = o3d_m.get_axis_aligned_bounding_box()
+        diag = np.linalg.norm(aabb.get_max_bound() - aabb.get_min_bound())
+        diag = float(diag) if diag > 0 else 1.0
+        trim_dist = max(1e-5, float(trim_dist_ratio) * diag)
+
+        # 현재 MeshSet의 현재 메쉬(포아송 결과)를 임시 저장
+        cur_tmp = input_path.replace(".obj", "_poisson_tmp.obj")
+        ms.save_current_mesh(cur_tmp)
+
+        trimmed = _trim_poisson_to_original_neighborhood(cur_tmp, input_path, trim_dist)
+
+        # 트리밍 결과를 다시 로드하여 현재 메쉬로 교체
+        ms.load_new_mesh(trimmed)
+        ms.set_current_mesh(ms.mesh_number() - 1)
+        # === 연결성·지름 기반 잔여 덩어리 제거 (트리밍 뒤) ===
+        try:
+            # 트리밍 결과의 대각선 길이(diag)로 절대 임계값 환산
+            o3d_m2 = o3d.io.read_triangle_mesh(trimmed)
+            aabb2 = o3d_m2.get_axis_aligned_bounding_box()
+            diag2 = np.linalg.norm(aabb2.get_max_bound() - aabb2.get_min_bound())
+            diag2 = float(diag2) if diag2 > 0 else 1.0
+            min_diam = max(1e-4, float(min_comp_diam_ratio) * diag2)
+
+            # 작은/얇은 연결 컴포넌트 자동 제거
+            ms.apply_filter("meshing_remove_connected_component_by_diameter", mincomponentdiag=min_diam)
+            ms.apply_filter("meshing_remove_connected_component_by_face_number", mincomponentsize=min_faces)
+            ms.apply_filter("meshing_remove_unreferenced_vertices")
+        except Exception as e:
+            print(f"⚠️ 컴포넌트 정리 생략: {e}")
+
+    except Exception as e:
+        print(f"⚠️ Poisson 트리밍 생략: {e}")
+        trimmed = cur_tmp # 최소한 포아송 결과를 가리키게
+
+
     # Step 4️⃣ 평탄화 (Smoothing)
     print("🔹 평탄화 (Smoothing)")
     try:
@@ -166,8 +206,18 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     # Step 5️⃣ 홀 메움 + 노멀 재계산
     print("🔹 홀 메우기 + 노멀 재계산")
     try:
-        ms.apply_filter("meshing_close_holes", maxholesize=1000)
+        # 공간 대각선 비율 기반으로 상한 설정
+        mesh_for_aabb = trimmed if trimmed is not None else input_path.replace(".obj", "_poisson_tmp.obj")
+        o3d_m3 = o3d.io.read_triangle_mesh(mesh_for_aabb)
+        aabb3 = o3d_m3.get_axis_aligned_bounding_box()
+        diag3 = np.linalg.norm(aabb3.get_max_bound() - aabb3.get_min_bound())
+        diag3 = float(diag3) if diag3 > 0 else 1.0
+        max_hole = max(10.0, float(hole_max_ratio) * diag3 * 1000.0)  # Meshlab은 보통 '픽셀/엣지 길이' 단위 추정 → 여유값
+
+        ms.apply_filter("meshing_close_holes", maxholesize=max_hole)
         ms.apply_filter("compute_normal_for_point_clouds", k=10)
+        ms.apply_filter("compute_normals_for_faces")
+        ms.apply_filter("compute_normals_for_vertices")
     except Exception as e:
         print(f"⚠️ 후처리 실패: {e}")
 
@@ -193,6 +243,42 @@ def visualize_mesh(mesh_path):
     o3d.visualization.draw_geometries([mesh], window_name="Cleaned Mesh Viewer")
 
 
+def _trim_poisson_to_original_neighborhood(poisson_path, original_path, trim_dist):
+    # Open3D 로드
+    pm = o3d.io.read_triangle_mesh(poisson_path); pm.compute_vertex_normals()
+    om = o3d.io.read_triangle_mesh(original_path); om.compute_vertex_normals()
+    if pm.is_empty() or om.is_empty():
+        return poisson_path  # 안전장치
+
+    # 원본 정점 KDTree
+    orig_pts = np.asarray(om.vertices, dtype=np.float64)
+    orig_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(orig_pts))
+    kdt = o3d.geometry.KDTreeFlann(orig_pcd)
+
+    # 각 정점의 최근접 거리
+    V = np.asarray(pm.vertices, dtype=np.float64)
+    keep_vtx = np.zeros(len(V), dtype=bool)
+    for i, v in enumerate(V):
+        # NaN/Inf 방어
+        if not np.all(np.isfinite(v)):
+            continue
+        k, idx, dist2 = kdt.search_knn_vector_3d(v, 1)
+        if k > 0 and dist2[0] < (trim_dist ** 2):
+            keep_vtx[i] = True
+
+    # 정점 마스크 기반 삼각형 제거(세 꼭짓점 모두 버려질 때 제거)
+    T = np.asarray(pm.triangles)
+    drop_tri = ~(keep_vtx[T].any(axis=1))  # 세 꼭짓점 모두 False면 제거
+    keep_tri = keep_vtx[T].all(axis=1)
+    drop_tri = ~keep_tri
+    pm.remove_triangles_by_mask(drop_tri)
+    pm.remove_unreferenced_vertices()
+
+    outp = poisson_path.replace(".obj", "_trimmed.obj")
+    o3d.io.write_triangle_mesh(outp, pm, write_triangle_uvs=False)
+    return outp
+
+
 # ===========================================================
 # 5️⃣ 실행부 (CLI 인터페이스)
 # ===========================================================
@@ -200,10 +286,26 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D Mesh Cleaner (Safe Mode)")
     parser.add_argument("--input", type=str, required=True, help="입력 .obj 파일 경로")
     parser.add_argument("--visualize", action="store_true", help="Open3D 뷰어로 결과 시각화")
+    # 실행부 (CLI 인터페이스) 위쪽에 옵션 추가
+    parser.add_argument("--poisson-depth", type=int, default=12)
+    parser.add_argument("--trim-dist-ratio", type=float, default=0.02)
+    parser.add_argument("--min-comp-faces", type=int, default=30)
+    parser.add_argument("--min-comp-diam", type=float, default=0.012)
+    parser.add_argument("--hole-max-ratio", type=float, default=0.06)
+
     args = parser.parse_args()
 
     start = time.time()
-    output = clean_and_reconstruct(args.input)
+    output = clean_and_reconstruct(
+        args.input,
+        min_faces=args.min_comp_faces,
+        poisson_depth=args.poisson_depth,
+        smooth_iter=15,
+        trim_dist_ratio=args.trim_dist_ratio,
+        min_comp_diam_ratio=args.min_comp_diam,
+        hole_max_ratio=args.hole_max_ratio
+    )
+
     print(f"\n✅ 전체 파이프라인 완료 (총 {time.time() - start:.2f}초)")
 
     if args.visualize:
