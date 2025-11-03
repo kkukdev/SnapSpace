@@ -59,12 +59,37 @@ class UploadService(BaseService):
         """zip 파일 압축 해제 (비동기로 실행하여 이벤트 룹 블로킹 방지)"""
         def _extract():
             """동기 압축 해제 함수"""
-            # 압축 해제할 디렉토리 생성
-            extract_to.mkdir(parents=True, exist_ok=True)
+            # 임시 디렉토리에 먼저 압축 해제
+            temp_dir = extract_to.parent / f"{extract_to.name}_temp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
             
             # zip 파일 압축 해제
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_to)
+                zip_ref.extractall(temp_dir)
+            
+            # 압축 해제된 내용 확인
+            extracted_items = list(temp_dir.iterdir())
+            
+            # 첫 번째 레벨에 폴더가 하나만 있고, 그게 폴더인 경우
+            if len(extracted_items) == 1 and extracted_items[0].is_dir():
+                # 그 폴더의 내용을 extract_to로 이동
+                inner_folder = extracted_items[0]
+                if extract_to.exists():
+                    shutil.rmtree(extract_to)
+                # 내부 폴더의 내용을 extract_to로 이동
+                extract_to.mkdir(parents=True, exist_ok=True)
+                for item in inner_folder.iterdir():
+                    shutil.move(str(item), str(extract_to / item.name))
+                inner_folder.rmdir()  # 빈 내부 폴더 삭제
+                temp_dir.rmdir()  # 빈 임시 디렉토리 삭제
+            else:
+                # 여러 파일/폴더가 있거나 단일 파일인 경우, 전체를 extract_to로 이동
+                if extract_to.exists():
+                    shutil.rmtree(extract_to)
+                # 임시 디렉토리의 모든 내용을 extract_to로 이동
+                for item in extracted_items:
+                    shutil.move(str(item), str(extract_to / item.name))
+                temp_dir.rmdir()  # 빈 임시 디렉토리 삭제
             
             return extract_to
         
