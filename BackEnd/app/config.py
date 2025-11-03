@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         _project_root = os.path.dirname(_backend_dir)  # 프로젝트 루트 (S13P31S102)
         UPLOAD_DIR: str = os.path.abspath(os.path.join(_project_root, "storage", "uploads"))
     MAX_FILE_SIZE: int = 250 * 1024 * 1024  # 250MB
-    ALLOWED_EXTENSIONS: list = [".ply", ".obj", ".stl", ".3ds", ".dae", ".x3d", ".fbx", ".glb", ".gltf"]
+    ALLOWED_EXTENSIONS: list = [".ply", ".obj", ".stl", ".3ds", ".dae", ".x3d", ".fbx", ".glb", ".gltf", ".zip"]
     
     class Config:
         env_file = ".env"
