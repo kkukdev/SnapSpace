@@ -26,10 +26,14 @@ public class FastApiService { // <-- 클래스 이름 변경
      * Retrofit 인스턴스를 가져옵니다. (싱글톤 패턴)
      */
     public static Retrofit getRetrofitInstance() {
+        OkHttpClient client = new OkHttpClient.Builder()
+                .connectTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(60,TimeUnit.SECONDS).build();
         if (retrofit == null) {
+            Gson gson = new GsonBuilder().setLenient().create();
             retrofit = new retrofit2.Retrofit.Builder()
-                    .baseUrl(FAST_API_URL) // 1. 새 서버 주소로 설정
-                    .addConverterFactory(GsonConverterFactory.create()) // 2. JSON <-> Java 객체 변환기 설정
+                    .baseUrl(FAST_API_URL).client(client) // 1. 새 서버 주소로 설정
+                    .addConverterFactory(GsonConverterFactory.create(gson)) // 2. JSON <-> Java 객체 변환기 설정
                     .build();
         }
         return retrofit;
