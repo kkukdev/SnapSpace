@@ -61,6 +61,7 @@
         </activity>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.main.Main"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.Settings"/>
+        <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.HomeActivity"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.sketchfab.Uploader"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.FileManager"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.Uploader"/>

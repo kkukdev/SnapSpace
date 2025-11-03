@@ -510,6 +510,7 @@ namespace oc
         }
         else if (mode == -200)
         {
+            LOGI("PLY Extract started: path=%s", path.c_str());
 
             // get orientation
             float yaw = glm::radians(reconstruction.dataset->ReadYaw());
@@ -519,8 +520,12 @@ namespace oc
 
             // export pointcloud
             std::vector<Mesh> mesh = reconstruction.scan.Export();
+            LOGI("PLY Export: mesh count=%d", (int)mesh.size());
+
+            int totalVertices = 0;
             for (Mesh &m : mesh)
             {
+                totalVertices += m.vertices.size();
                 for (unsigned int i = 0; i < m.vertices.size(); i++)
                 {
                     p = m.vertices[i];
@@ -533,7 +538,10 @@ namespace oc
                 m.MirrorZ();
                 m.SwapYZ();
             }
+
+            LOGI("PLY Export: total vertices=%d", totalVertices);
             File3d(path, true).WriteModel(mesh);
+            LOGI("PLY Extract completed");
         }
         reconstruction.render_mutex_.unlock();
         reconstruction.binder_mutex_.unlock();
@@ -632,10 +640,26 @@ namespace oc
         }
         else
         {
+            // PLY 경로 생성
+            std::string plyPath;
+            size_t lastSlash = filename.find_last_of("/\\");
+
+            if (lastSlash != std::string::npos)
+            {
+                std::string folder = filename.substr(0, lastSlash + 1);
+                plyPath = folder + "pointcloud.ply";
+            }
+            else
+            {
+                plyPath = "pointcloud.ply";
+            }
+
+            // static meshes 초기화
             for (Mesh &m : reconstruction.scene.static_meshes_)
                 m.Destroy();
             reconstruction.scene.static_meshes_.clear();
 
+            // 스캔 Export
             reconstruction.lost = false;
             sprintf(reconstruction.pose_feedback, "");
             for (Mesh &m : reconstruction.scan.Export())
@@ -644,17 +668,58 @@ namespace oc
                 m.GenerateFaceNormals();
                 reconstruction.scene.static_meshes_.push_back(m);
             }
+
+            // OBJ 저장
             File3d(filename, true).WriteModel(reconstruction.scene.static_meshes_);
             for (Mesh &m : reconstruction.scene.static_meshes_)
                 count += m.vertices.size();
 
+            // PLY 저장
+            if (count > 0)
+            {
+                LOGI("Saving PLY file: %s", plyPath.c_str());
+
+                float yaw = glm::radians(reconstruction.dataset->ReadYaw());
+                float s = glm::sin(-yaw);
+                float c = glm::cos(-yaw);
+                glm::vec3 p, v;
+
+                std::vector<Mesh> plyMeshes = reconstruction.scan.Export();
+                LOGI("PLY mesh count: %d", (int)plyMeshes.size());
+
+                int plyVertices = 0;
+                for (Mesh &m : plyMeshes)
+                {
+                    plyVertices += m.vertices.size();
+                    for (unsigned int i = 0; i < m.vertices.size(); i++)
+                    {
+                        p = m.vertices[i];
+                        v = m.vertices[i];
+                        v.x = p.x * s - p.z * c;
+                        v.z = p.x * c + p.z * s;
+                        m.vertices[i] = v;
+                    }
+                    m.indices.clear();
+                    m.MirrorZ();
+                    m.SwapYZ();
+                }
+
+                LOGI("PLY vertices: %d", plyVertices);
+                File3d(plyPath, true).WriteModel(plyMeshes);
+                LOGI("PLY saved successfully");
+            }
+
+            // Clear 호출
             if (ar)
                 ar->Clear();
             reconstruction.scan.Clear();
+
+            // 정리
             for (Mesh &m : reconstruction.scene.static_meshes_)
                 m.Destroy();
             reconstruction.scene.static_meshes_.clear();
 
+            // CSV 저장
             if (count > 0)
             {
                 ExporterCSVPoses().Process(reconstruction.dataset, reconstruction.dataset->GetPath() + "/posesOBJ.csv", false);

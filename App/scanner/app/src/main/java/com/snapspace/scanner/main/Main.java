@@ -65,14 +65,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private boolean m3drRunning = false;
 
   private FrameLayout mHandMotionView;
-  private LinearLayout mLayoutQuickMenu;
+//  private LinearLayout mLayoutQuickMenu;
   private LinearLayout mLayoutRec;
-  private LinearLayout mLayoutUndo;
+//  private LinearLayout mLayoutUndo;
   private LinearLayout mLayoutView;
   private LinearLayout mLayoutWait;
-  private ImageButton mViewButton;
+//  private ImageButton mViewButton;
   private ImageButton mToggleButton;
-  private ImageButton mUndoButton;
+//  private ImageButton mUndoButton;
   private Button mEditorButton;
   private Button mThumbnailButton;
   private float mRes = 0.02f;
@@ -134,11 +134,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   void bindAR() {
     int mode = getARMode();
     if (!isFaceModeOn(this)) {
-      runOnUiThread(() -> mViewButton.setVisibility(View.VISIBLE));
+//      runOnUiThread(() -> mViewButton.setVisibility(View.VISIBLE));
     }
 
     boolean texturize = (mToPostprocess != null) || (Math.abs(Service.getRunning(this)) == Service.SERVICE_SAVE);
     double res = mRes, dmin = 0.01f, dmax = 7;
+
     mCameraControl.setOffset(0);
     if (mRes > 0.0099f) {
       mCameraControl.setOffset(mRes * 100);
@@ -147,6 +148,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     if (mode == 3) { res *= 2.0f; }
 
     SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(this);
+    String scanMode = pref.getString("scan_mode", "space_scan");
     mAnchors      = pref.getBoolean(getString(R.string.pref_anchor), false);
     int noise     = Integer.parseInt(pref.getString(getString(R.string.pref_noise), "9"));
     boolean analy = pref.getBoolean(getString(R.string.pref_subset), false);
@@ -158,6 +160,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     boolean flash = pref.getBoolean(getString(R.string.pref_flash), false) && !isFaceModeOn(this) && !texturize;
     boolean poiss = pref.getBoolean(getString(R.string.pref_poisson), false);
     dmax = Integer.parseInt(pref.getString(getString(R.string.pref_limit), "4"));
+
+    // 오브젝트 모드인 경우, 해상도 및 최대/최소 거리 조정
+    if (scanMode.equals("object_scan")) {
+      res = 0.01f;
+      dmin = 0.01f;
+      dmax = 2.0f;
+    }
 
     if (pref.getBoolean(getString(R.string.pref_gps), false)) {
       mGPS = new GPS();
@@ -257,43 +266,43 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 
     // Setup UI elements and listeners.
     mHandMotionView = findViewById(R.id.ar_hand_layout);
-    mLayoutQuickMenu = findViewById(R.id.layout_quickmenu);
+//    mLayoutQuickMenu = findViewById(R.id.layout_quickmenu);
     mLayoutRec = findViewById(R.id.layout_rec);
-    mLayoutUndo = findViewById(R.id.layout_undo);
+//    mLayoutUndo = findViewById(R.id.layout_undo);
     mLayoutView = findViewById(R.id.layout_view);
     mLayoutWait = findViewById(R.id.layout_wait);
     findViewById(R.id.clear_button).setOnClickListener(this);
     findViewById(R.id.save_button).setOnClickListener(this);
-    mViewButton = findViewById(R.id.view_button);
-    mViewButton.setVisibility(View.GONE);
-    mViewButton.setOnClickListener(this);
+//    mViewButton = findViewById(R.id.view_button);
+//    mViewButton.setVisibility(View.GONE);
+//    mViewButton.setOnClickListener(this);
     mToggleButton = findViewById(R.id.toggle_button);
     mToggleButton.setOnClickListener(this);
-    mUndoButton = findViewById(R.id.undo_button);
-    mUndoButton.setOnClickListener(this);
-    findViewById(R.id.undo_apply).setOnClickListener(this);
-    findViewById(R.id.undo_cancel).setOnClickListener(this);
-    findViewById(R.id.undo_back).setOnClickListener(this);
-    findViewById(R.id.undo_back_fast).setOnClickListener(this);
-    findViewById(R.id.undo_fwd).setOnClickListener(this);
-    findViewById(R.id.undo_fwd_fast).setOnClickListener(this);
+//    mUndoButton = findViewById(R.id.undo_button);
+//    mUndoButton.setOnClickListener(this);
+//    findViewById(R.id.undo_apply).setOnClickListener(this);
+//    findViewById(R.id.undo_cancel).setOnClickListener(this);
+//    findViewById(R.id.undo_back).setOnClickListener(this);
+//    findViewById(R.id.undo_back_fast).setOnClickListener(this);
+//    findViewById(R.id.undo_fwd).setOnClickListener(this);
+//    findViewById(R.id.undo_fwd_fast).setOnClickListener(this);
 
     if (isFaceModeOn(this)) {
       findViewById(R.id.clear_button).setVisibility(View.GONE);
-      findViewById(R.id.view_button).setVisibility(View.GONE);
+//      findViewById(R.id.view_button).setVisibility(View.GONE);
       mToggleButton.setVisibility(View.GONE);
-      mUndoButton.setVisibility(View.GONE);
+//      mUndoButton.setVisibility(View.GONE);
     }
 
-    CheckBox photoMode = findViewById(R.id.photo_mode);
-    photoMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
-      mPhotoMode = isChecked;
-      m3drRunning = false;
-      mToggleButton.setImageResource(isChecked ? R.drawable.ic_capture : R.drawable.ic_record);
-      JNI.setPhotoMode(isChecked);
-    });
-    CheckBox showNormals = findViewById(R.id.show_normals);
-    showNormals.setOnCheckedChangeListener((buttonView, isChecked) -> mEditor.swapNormals());
+//    CheckBox photoMode = findViewById(R.id.photo_mode);
+//    photoMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
+//      mPhotoMode = isChecked;
+//      m3drRunning = false;
+//      mToggleButton.setImageResource(isChecked ? R.drawable.ic_capture : R.drawable.ic_record);
+//      JNI.setPhotoMode(isChecked);
+//    });
+//    CheckBox showNormals = findViewById(R.id.show_normals);
+//    showNormals.setOnCheckedChangeListener((buttonView, isChecked) -> mEditor.swapNormals());
 
     // Buttons and record info
     mEditorButton = findViewById(R.id.editor_button);
@@ -400,46 +409,48 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       if (JNI.getScanSize() > 0) {
         CommonDialogs.confirmDialog(this, R.string.scan_discard, JNI::onClearButtonClicked);
       }
-    } else if (id == R.id.view_button) {
-      boolean visible = mLayoutQuickMenu.getVisibility() == View.VISIBLE;
-      mLayoutQuickMenu.setVisibility(visible ? View.GONE : View.VISIBLE);
-      mViewButton.setImageResource(visible ? R.drawable.ic_arrow_up : R.drawable.ic_arrow_down);
-    } else if (id == R.id.undo_button) {
-      pauseScanning();
-      mIndicators.setOverrideMessage(getString(R.string.scan_rewind));
-      mLayoutRec.setVisibility(View.GONE);
-      mLayoutUndo.setVisibility(View.VISIBLE);
-      mLayoutQuickMenu.setVisibility(View.GONE);
-      mViewButton.setImageResource(R.drawable.ic_arrow_up);
-    } else if (id == R.id.undo_apply) {
-      mIndicators.setOverrideMessage(null);
-      mLayoutUndo.setVisibility(View.GONE);
-      mLayoutWait.setVisibility(View.VISIBLE);
-      new Thread(() -> {
-        JNI.onUndoButtonClicked(true, true);
-        runOnUiThread(() -> {
-          mLayoutRec.setVisibility(View.VISIBLE);
-          mLayoutWait.setVisibility(View.GONE);
-        });
-      }).start();
-    } else if (id == R.id.undo_cancel) {
-      mIndicators.setOverrideMessage(null);
-      new Thread(() -> {
-        JNI.onUndoPreviewUpdate(Integer.MAX_VALUE);
-        runOnUiThread(() -> {
-          mLayoutRec.setVisibility(View.VISIBLE);
-          mLayoutUndo.setVisibility(View.GONE);
-        });
-      }).start();
-    } else if (id == R.id.undo_back) {
-      new Thread(() -> JNI.onUndoPreviewUpdate(-1)).start();
-    } else if (id == R.id.undo_back_fast) {
-      new Thread(() -> JNI.onUndoPreviewUpdate(-10)).start();
-    } else if (id == R.id.undo_fwd) {
-      new Thread(() -> JNI.onUndoPreviewUpdate(1)).start();
-    } else if (id == R.id.undo_fwd_fast) {
-      new Thread(() -> JNI.onUndoPreviewUpdate(10)).start();
-    } else if (id == R.id.save_button) {
+    }
+//    else if (id == R.id.view_button) {
+//      boolean visible = mLayoutQuickMenu.getVisibility() == View.VISIBLE;
+//      mLayoutQuickMenu.setVisibility(visible ? View.GONE : View.VISIBLE);
+//      mViewButton.setImageResource(visible ? R.drawable.ic_arrow_up : R.drawable.ic_arrow_down);
+//    } else if (id == R.id.undo_button) {
+//      pauseScanning();
+//      mIndicators.setOverrideMessage(getString(R.string.scan_rewind));
+//      mLayoutRec.setVisibility(View.GONE);
+//      mLayoutUndo.setVisibility(View.VISIBLE);
+//      mLayoutQuickMenu.setVisibility(View.GONE);
+//      mViewButton.setImageResource(R.drawable.ic_arrow_up);
+//    } else if (id == R.id.undo_apply) {
+//      mIndicators.setOverrideMessage(null);
+//      mLayoutUndo.setVisibility(View.GONE);
+//      mLayoutWait.setVisibility(View.VISIBLE);
+//      new Thread(() -> {
+//        JNI.onUndoButtonClicked(true, true);
+//        runOnUiThread(() -> {
+//          mLayoutRec.setVisibility(View.VISIBLE);
+//          mLayoutWait.setVisibility(View.GONE);
+//        });
+//      }).start();
+//    } else if (id == R.id.undo_cancel) {
+//      mIndicators.setOverrideMessage(null);
+//      new Thread(() -> {
+//        JNI.onUndoPreviewUpdate(Integer.MAX_VALUE);
+//        runOnUiThread(() -> {
+//          mLayoutRec.setVisibility(View.VISIBLE);
+//          mLayoutUndo.setVisibility(View.GONE);
+//        });
+//      }).start();
+//    } else if (id == R.id.undo_back) {
+//      new Thread(() -> JNI.onUndoPreviewUpdate(-1)).start();
+//    } else if (id == R.id.undo_back_fast) {
+//      new Thread(() -> JNI.onUndoPreviewUpdate(-10)).start();
+//    } else if (id == R.id.undo_fwd) {
+//      new Thread(() -> JNI.onUndoPreviewUpdate(1)).start();
+//    } else if (id == R.id.undo_fwd_fast) {
+//      new Thread(() -> JNI.onUndoPreviewUpdate(10)).start();
+//    }
+    else if (id == R.id.save_button) {
       if (isFaceModeOn(this)) {
         save();
         finish();
@@ -837,7 +848,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       if (height != displayMetrics.heightPixels) {
         runOnUiThread(() -> {
           mLayoutRec.setMinimumHeight((int) (getNavigationBarHeight() + convertDpToPx(45 + 4)));
-          mLayoutUndo.setMinimumHeight((int) (getNavigationBarHeight() + convertDpToPx(45 + 4)));
+//          mLayoutUndo.setMinimumHeight((int) (getNavigationBarHeight() + convertDpToPx(45 + 4)));
         });
       }
     }
@@ -902,8 +913,11 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         JNI.onToggleButtonClicked(false);
         mGLView.stop();
         finish();
+
         File input = new File(getTempPath(), "model" + Exporter.EXT_OBJ);
+
         if (JNI.save(input.getAbsolutePath().getBytes())) {
+          // JNI.save() 내부에서 PLY까지 한번에 처리
           Service.finish(input.getAbsolutePath());
         } else {
           Service.reset(Main.this);
