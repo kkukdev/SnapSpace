@@ -161,6 +161,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     boolean poiss = pref.getBoolean(getString(R.string.pref_poisson), false);
     dmax = Integer.parseInt(pref.getString(getString(R.string.pref_limit), "4"));
 
+    // 오브젝트 모드인 경우, 해상도 및 최대/최소 거리 조정
     if (scanMode.equals("object_scan")) {
       res = 0.01f;
       dmin = 0.01f;
@@ -914,10 +915,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         File input = new File(getTempPath(), "model" + Exporter.EXT_OBJ);
 
         if (JNI.save(input.getAbsolutePath().getBytes())) {
-          // PLY 파일 생성 추가
-          String path = getTempPath().getAbsolutePath() + "/";
-          JNI.extract((path + "pointcloud.ply").getBytes(), Exporter.EXPORT_TYPE_POINTCLOUD);
-
+          // JNI.save() 내부에서 PLY까지 한번에 처리
           Service.finish(input.getAbsolutePath());
         } else {
           Service.reset(Main.this);

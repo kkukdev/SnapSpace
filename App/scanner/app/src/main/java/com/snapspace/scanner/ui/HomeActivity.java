@@ -56,7 +56,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
             if (absState == Service.SERVICE_SAVE) {
                 showProgress();
-                startActivity(new Intent(this, Main.class));  // ← FileManager처럼!
+                startActivity(new Intent(this, Main.class));
             }
             else if (absState == Service.SERVICE_POSTPROCESS) {
                 finishScanning();
@@ -170,28 +170,33 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
 
         new Thread(() -> {
-            File file = new File(Service.getLink(HomeActivity.this));
-            File file2save = Exporter.export(file, filename);
+            // OBJ 파일 처리
+            File objFile = new File(Service.getLink(HomeActivity.this));
+            File objFileSaved = Exporter.export(objFile, filename);
+            Log.d(TAG, "OBJ 파일 처리를 완료했습니다: " + objFileSaved.getAbsolutePath());
 
-            Exporter.makeStructure(AbstractActivity.getPath(false));
-
-            File plyFile = new File(file.getParent(), "pointcloud.ply");
+            // PLY 파일 처리
+            File plyFile = new File(objFile.getParent(), "pointcloud.ply");
             if (plyFile.exists()) {
-                File objFolderPath = new File(AbstractActivity.getPath(false), filename + Exporter.EXT_OBJ);
-                File plyDestination = new File(objFolderPath, "pointcloud.ply");
-                if (plyFile.renameTo(plyDestination)) {
-                    Log.d(TAG, "PLY file " + plyDestination.toString() + " moved to OBJ folder");
-                }
+                File plyFileSaved = Exporter.export(plyFile, filename);
+                Log.d(TAG, "PLY 파일 처리를 완료했습니다: " + plyFileSaved.getAbsolutePath());
+            } else {
+                Log.d(TAG, "PLY 파일을 찾을 수 없습니다: " + plyFile.getAbsolutePath());
             }
 
-            //remove temp dir
-            if (!isPostProcessLaterOn(HomeActivity.this))
-                deleteRecursive(new File(file.getParent()));
+            // 폴더 구조 정렬
+            Exporter.makeStructure(AbstractActivity.getPath(false));
 
-            //finish
+            // 임시 디렉토리 삭제
+            if (!isPostProcessLaterOn(HomeActivity.this)) {
+                deleteRecursive(new File(objFile.getParent()));
+                Log.d(TAG, "임시 디렉토리를 삭제하였습니다");
+            }
+
+            // 최종 정리
             Service.reset(HomeActivity.this);
             Intent intent = new Intent(HomeActivity.this, Main.class);
-            intent.putExtra(FILE_KEY, file2save.getAbsolutePath());
+            intent.putExtra(FILE_KEY, objFileSaved.getAbsolutePath());
             showProgress();
             startActivity(intent);
         }).start();

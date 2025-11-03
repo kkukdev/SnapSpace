@@ -168,10 +168,17 @@ public class Exporter
       return;
     Collections.sort(files, String::compareTo);
     ArrayList<String> models = new ArrayList<>();
-    for(String s : files)
-      if(new File(s).isFile())
-        if(getModelType(s) >= 0)
-          models.add(s);
+    for(String s : files) {
+      if(new File(s).isFile()) {
+        if(getModelType(s) >= 0) {
+          // OBJ 이름을 가진 경우만 폴더로 변환
+          if (!s.endsWith(Exporter.EXT_PLY)) {
+            models.add(s);
+          }
+        }
+      }
+    }
+
 
     //restructure models
     for (String s : models) {
@@ -189,6 +196,16 @@ public class Exporter
         res.add(gpsFile.getName());
       if (Exporter.FILE_EXT[getModelType(s)].compareTo(Exporter.EXT_OBJ) == 0) {
         res.addAll(getObjResources(new File(s)));
+
+        // PLY 파일 이동
+        String objFilename = new File(s).getName();
+        String plyFilename = objFilename.substring(0, objFilename.length() - 4) + ".ply";
+        File plyFile = new File(path, plyFilename);
+
+        if (plyFile.exists()) {
+          res.add(plyFilename);
+          Log.d(AbstractActivity.TAG, "PLY 파일 이동을 완료했습니다: " + plyFilename);
+        }
       }
       res.add(new File(s).getName());
 
