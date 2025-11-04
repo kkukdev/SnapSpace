@@ -107,6 +107,9 @@ function ApiTester() {
         if (isFile) {
           const formData = new FormData()
           formData.append('file', data.file || data)
+          // group_id 추가 (groupId가 있으면 사용, 없으면 기본값 "1")
+          const finalGroupId = groupId ? String(groupId) : (data.group_id ? String(data.group_id) : "1")
+          formData.append('group_id', finalGroupId)
           config.data = formData
         } else {
           // JSON 문자열이 포함된 데이터 처리
@@ -501,7 +504,7 @@ function ApiTester() {
                 <input
                   type="file"
                   onChange={(e) => handleFormChange('file', 'selected', e.target.files[0])}
-                  accept=".ply,.obj,.stl,.zip"
+                  accept=".ply, .stl, .obj, .3ds, .dae, .x3d, .fbx, .glb, .gltf, .zip"
                 />
               </div>
               <div className="form-group">

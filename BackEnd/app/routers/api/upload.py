@@ -114,6 +114,10 @@ async def upload_file(
     group_id: Optional[str] = Form(None)
 ):
     """파일 업로드"""
+    # group_id가 없으면 기본값 "1" 사용
+    if group_id is None or group_id == "":
+        group_id = "1"
+    
     # 서비스 레이어에서 파일 업로드 처리
     upload_result = await upload_service.upload_file(file, group_id=group_id)
     

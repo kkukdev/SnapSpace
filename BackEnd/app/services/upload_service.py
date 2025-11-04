@@ -36,8 +36,8 @@ class UploadService(BaseService):
         base_upload_path = Path(settings.UPLOAD_DIR)
         
         if group_id is None or group_id == "":
-            # group_id가 없으면 기본 업로드 디렉토리 사용
-            upload_path = base_upload_path
+            # group_id가 없으면 1번 디렉토리 사용
+            upload_path = base_upload_path / str(1)
         else:
             # storage/uploads/{group_id} 구조
             upload_path = base_upload_path / str(group_id)
