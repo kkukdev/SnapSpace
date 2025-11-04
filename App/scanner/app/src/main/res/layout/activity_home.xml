@@ -30,7 +30,7 @@
 
         </LinearLayout>
 
-        <!-- 2x2 버튼 그리드 -->
+        <!-- 버튼 그리드 -->
         <LinearLayout
             android:id="@+id/button_grid"
             android:layout_width="match_parent"
@@ -39,6 +39,7 @@
             android:orientation="vertical"
             android:gravity="center">
 
+            <!-- 2 x 1 버튼 그리드 -->
             <LinearLayout
                 android:id="@+id/button_grid_row"
                 android:layout_width="match_parent"
@@ -117,7 +118,7 @@
                 android:layout_marginBottom="20dp"
                 android:layout_marginLeft="20dp"
                 android:layout_marginRight="20dp"
-                android:text="스캔 미리보기"
+                android:text="스캔 결과 보기"
                 android:background="#2A2A2A"
                 android:textSize="20sp" />
 
@@ -138,14 +139,6 @@
         </LinearLayout>
 
         <!-- 프로세싱 진행 표시 -->
-        <ProgressBar
-            style="?android:attr/progressBarStyleLarge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:id="@+id/progressBar"
-            android:visibility="gone" />
-
         <LinearLayout
             android:orientation="vertical"
             android:layout_width="wrap_content"
@@ -154,6 +147,14 @@
             android:id="@+id/processing_layout"
             android:visibility="gone"
             android:gravity="center">
+
+            <ProgressBar
+                style="?android:attr/progressBarStyleLarge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:id="@+id/progressBar"
+                android:visibility="gone" />
 
             <TextView
                 android:text="처리 중..."

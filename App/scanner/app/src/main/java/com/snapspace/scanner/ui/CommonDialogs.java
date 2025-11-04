@@ -8,19 +8,21 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 
+import com.snapspace.scanner.R;
+
 public class CommonDialogs {
 
     public static void confirmDialog(Activity context, int title, Runnable proceed) {
         AlertDialog.Builder dialog = new AlertDialog.Builder(context);
         dialog.setTitle(title);
         dialog.setMessage(com.snapspace.scanner.R.string.continue_question);
-        dialog.setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+        dialog.setPositiveButton(R.string.button_confirm, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 proceed.run();
             }
         });
-        dialog.setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
+        dialog.setNegativeButton(R.string.button_cancel, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
