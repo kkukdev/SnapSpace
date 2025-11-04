@@ -47,48 +47,81 @@ class AIPipeline:
     
     def run_mesh_optimizer(self, src_input_path: str, temp_dir: Path, optimized_dir: Path) -> Path:
         """
-        mesh_optimizer.py 실행
+        mesh_optimizer.py 실행 (네트워크 성능 최적화: 로컬 임시 디렉토리 사용)
         
         Args:
             src_input_path: 업로드된 원본 OBJ 경로 (uploads)
-            polygon_dir: 중간 산출물 디렉토리 (outputs/polygon)
+            temp_dir: 임시 디렉토리 (네트워크)
+            optimized_dir: 최적화 결과 디렉토리 (네트워크)
             
         Returns:
-            polygon_dir에 저장된 *_cleaned.obj 경로
+            optimized_dir에 저장된 *_cleaned.obj 경로
         """
         self._update_progress(10, "메쉬 최적화 시작...")
+        
+        from app.config import settings
+        import tempfile
+        
+        # 네트워크 경로인지 확인
+        is_network_path = (src_input_path.startswith('\\\\') or src_input_path.startswith('//'))
+        
+        # 로컬 임시 디렉토리 생성 (네트워크 I/O 성능 향상)
+        if is_network_path:
+            if settings.local_temp_dir:
+                local_temp_base = Path(settings.local_temp_dir)
+            else:
+                local_temp_base = Path(tempfile.gettempdir()) / "ai_pipeline"
+            
+            local_temp_base.mkdir(parents=True, exist_ok=True)
+            local_temp_dir = Path(tempfile.mkdtemp(prefix="mesh_opt_", dir=str(local_temp_base)))
+            local_optimized_dir = local_temp_dir / "optimized"
+            local_optimized_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"[성능 최적화] 네트워크 경로 감지, 로컬 임시 디렉토리 사용: {local_temp_dir}")
+            
+            # 입력 파일을 로컬로 복사 (한 번만 네트워크 I/O)
+            input_filename = Path(src_input_path).name
+            local_input_path = local_temp_dir / input_filename
+            self._update_progress(12, "입력 파일을 로컬로 복사 중...")
+            shutil.copy2(src_input_path, local_input_path)
+            logger.info(f"입력 파일 복사 완료: {src_input_path} -> {local_input_path}")
+            
+            work_input = local_input_path
+            work_temp_dir = local_temp_dir
+            work_optimized_dir = local_optimized_dir
+        else:
+            # 로컬 경로는 그대로 사용
+            if src_input_path.startswith('\\\\') or src_input_path.startswith('//'):
+                work_input = Path(src_input_path)
+            else:
+                work_input = Path(src_input_path).resolve()
+            work_temp_dir = Path(temp_dir)
+            work_optimized_dir = Path(optimized_dir)
+            local_temp_dir = None
 
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        # 네트워크 디렉토리도 생성 (최종 결과 복사용)
         optimized_dir.mkdir(parents=True, exist_ok=True)
 
-        src_input = Path(src_input_path).resolve()
-        work_input = src_input  # processing 미사용: 업로드 파일 경로 그대로
-
-        # 절대 경로 보장 (resolve()는 현재 디렉토리를 기준으로 하므로 사용하지 않음)
-        if os.path.isabs(str(temp_dir)):
-            temp_dir_abs = Path(temp_dir)
-        else:
-            temp_dir_abs = Path("/project_root") / str(temp_dir).lstrip("/")
+        # 절대 경로로 변환 (subprocess의 cwd와 관계없이 동작하도록)
+        work_input_abs = work_input.resolve() if hasattr(work_input, 'resolve') else Path(work_input).resolve()
+        work_temp_dir_abs = work_temp_dir.resolve() if hasattr(work_temp_dir, 'resolve') else Path(work_temp_dir).resolve()
+        work_optimized_dir_abs = work_optimized_dir.resolve() if hasattr(work_optimized_dir, 'resolve') else Path(work_optimized_dir).resolve()
         
-        if os.path.isabs(str(optimized_dir)):
-            optimized_dir_abs = Path(optimized_dir)
-        else:
-            optimized_dir_abs = Path("/project_root") / str(optimized_dir).lstrip("/")
-
         cmd = [
-            "python",
+            sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
             str(self.polygon_path / "mesh_optimizer.py"),
-            "--input", str(work_input),
-            "--temp-dir", str(temp_dir_abs),
-            "--optimized-dir", str(optimized_dir_abs),
+            "--input", str(work_input_abs),
+            "--temp-dir", str(work_temp_dir_abs),
+            "--optimized-dir", str(work_optimized_dir_abs),
         ]
 
         try:
             logger.info(f"[optimizer] cwd={self.polygon_path} cmd={' '.join(cmd)}")
             
-            # Python unbuffered 모드로 실행하기 위해 환경 변수 설정
+            # Python unbuffered 모드 및 UTF-8 인코딩 설정
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'  # Windows에서 이모지 출력을 위한 UTF-8 인코딩
             
             # 실시간 출력을 위해 Popen 사용
             process = subprocess.Popen(
@@ -97,6 +130,8 @@ class AIPipeline:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # stderr를 stdout에 병합
                 text=True,
+                encoding='utf-8',  # UTF-8 인코딩 명시
+                errors='replace',  # 인코딩 오류 시 대체 문자 사용
                 bufsize=1,  # 라인 버퍼링
                 universal_newlines=True,
                 env=env  # 환경 변수 전달
@@ -177,27 +212,38 @@ class AIPipeline:
                 logger.error(f"[Optimizer] {error_msg}")
                 raise subprocess.CalledProcessError(return_code, cmd, output_text)
 
-            # 최종 cleaned 경로는 optimized_dir_abs 기준
-            base_stem = work_input.with_suffix("").name
-            cleaned = optimized_dir_abs / f"{base_stem}_cleaned.obj"
+            # 최종 cleaned 경로는 work_optimized_dir 기준 (로컬 또는 네트워크)
+            # work_input은 이미 절대 경로로 변환되었으므로 with_suffix 사용
+            base_stem = work_input_abs.with_suffix("").name
+            cleaned_local = work_optimized_dir_abs / f"{base_stem}_cleaned.obj"
             
-            logger.info(f"[Optimizer] 최종 파일 경로 확인: {cleaned}")
-            logger.info(f"[Optimizer] optimized_dir 존재 여부: {optimized_dir_abs.exists()}")
+            logger.info(f"[Optimizer] 최종 파일 경로 확인 (로컬): {cleaned_local}")
+            
+            # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
+            if is_network_path and local_temp_dir:
+                if not cleaned_local.exists():
+                    raise FileNotFoundError(f"로컬 최적화 결과가 없습니다: {cleaned_local}")
+                
+                self._update_progress(48, "최종 결과를 네트워크로 복사 중...")
+                cleaned_network = optimized_dir / f"{base_stem}_cleaned.obj"
+                shutil.copy2(cleaned_local, cleaned_network)
+                logger.info(f"최종 결과 복사 완료: {cleaned_local} -> {cleaned_network}")
+                
+                # 로컬 임시 디렉토리 정리
+                try:
+                    shutil.rmtree(local_temp_dir)
+                    logger.info(f"로컬 임시 디렉토리 정리 완료: {local_temp_dir}")
+                except Exception as e:
+                    logger.warning(f"로컬 임시 디렉토리 정리 실패 (무시): {e}")
+                
+                cleaned = cleaned_network
+            else:
+                cleaned = cleaned_local
             
             if not cleaned.exists():
-                # 디버깅: optimized_dir의 모든 파일 목록 출력
-                if optimized_dir_abs.exists():
-                    all_files = list(optimized_dir_abs.glob("*"))
-                    logger.error(f"[Optimizer] 파일 생성 실패!")
-                    logger.error(f"[Optimizer] 기대 경로: {cleaned}")
-                    logger.error(f"[Optimizer] optimized_dir ({optimized_dir_abs}) 전체 파일 목록:")
-                    for f in all_files:
-                        logger.error(f"[Optimizer]   - {f.name} ({'파일' if f.is_file() else '디렉토리'})")
-                else:
-                    logger.error(f"[Optimizer] optimized_dir 자체가 존재하지 않습니다: {optimized_dir_abs}")
-                
                 raise FileNotFoundError(f"메쉬 최적화 결과가 없습니다: {cleaned}")
-            self._update_progress(30, f"메쉬 최적화 완료: {cleaned}")
+            
+            self._update_progress(50, f"메쉬 최적화 완료: {cleaned}")
             return cleaned
 
         except subprocess.CalledProcessError as e:
@@ -222,27 +268,69 @@ class AIPipeline:
     
     def run_mesh_denoiser(self, cleaned_polygon_path: Path, final_dir: Path) -> Path:
         """
-        mesh_denoiser.py 실행 (auto_flat 모드)
+        mesh_denoiser.py 실행 (auto_flat 모드, 네트워크 성능 최적화: 로컬 임시 디렉토리 사용)
         
         Args:
             cleaned_polygon_path: polygon 단계 산출물 *_cleaned.obj 경로
-            final_dir: 최종 산출물 디렉토리 (outputs/final)
+            final_dir: 최종 산출물 디렉토리 (네트워크)
             
         Returns:
             final_dir에 저장된 *_auto_flat.obj 경로
         """
         self._update_progress(50, "메쉬 노이즈 제거 시작...")
-
+        
+        from app.config import settings
+        import tempfile
+        
+        # 네트워크 경로인지 확인
+        cleaned_input_str = str(cleaned_polygon_path)
+        is_network_path = (cleaned_input_str.startswith('\\\\') or cleaned_input_str.startswith('//'))
+        
+        # 로컬 임시 디렉토리 생성 (네트워크 I/O 성능 향상)
+        if is_network_path:
+            if settings.local_temp_dir:
+                local_temp_base = Path(settings.local_temp_dir)
+            else:
+                local_temp_base = Path(tempfile.gettempdir()) / "ai_pipeline"
+            
+            local_temp_base.mkdir(parents=True, exist_ok=True)
+            local_temp_dir = Path(tempfile.mkdtemp(prefix="mesh_denoise_", dir=str(local_temp_base)))
+            local_output_dir = local_temp_dir / "output"
+            local_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"[성능 최적화] 네트워크 경로 감지, 로컬 임시 디렉토리 사용: {local_temp_dir}")
+            
+            # 입력 파일을 로컬로 복사 (한 번만 네트워크 I/O)
+            input_filename = Path(cleaned_polygon_path).name
+            local_input_path = local_temp_dir / input_filename
+            self._update_progress(52, "입력 파일을 로컬로 복사 중...")
+            shutil.copy2(cleaned_polygon_path, local_input_path)
+            logger.info(f"입력 파일 복사 완료: {cleaned_polygon_path} -> {local_input_path}")
+            
+            work_input = local_input_path
+            work_output_dir = local_output_dir
+        else:
+            # 로컬 경로는 그대로 사용
+            if cleaned_input_str.startswith('\\\\') or cleaned_input_str.startswith('//'):
+                work_input = cleaned_polygon_path
+            else:
+                work_input = cleaned_polygon_path.resolve()
+            work_output_dir = Path(final_dir)
+            local_temp_dir = None
+        
+        # 네트워크 디렉토리도 생성 (최종 결과 복사용)
         final_dir.mkdir(parents=True, exist_ok=True)
-
-        work_input = cleaned_polygon_path.resolve()  # processing 미사용
+        
+        # 절대 경로로 변환
+        work_input_abs = work_input.resolve() if hasattr(work_input, 'resolve') else Path(work_input).resolve()
+        work_output_dir_abs = work_output_dir.resolve() if hasattr(work_output_dir, 'resolve') else Path(work_output_dir).resolve()
 
         cmd = [
-            "python",
+            sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
             str(self.polygon_path / "mesh_denoiser.py"),
-            "-i", str(work_input),
+            "-i", str(work_input_abs),
             "--mode", "auto_flat",
-            "--output-dir", str(final_dir.resolve()),
+            "--output-dir", str(work_output_dir_abs),
             "--proj-dist", "0.008",
             "--floor-ratio", "0.5",
             "--wall-ratio", "2.0",
@@ -257,9 +345,10 @@ class AIPipeline:
         try:
             logger.info(f"[denoiser] cwd={self.polygon_path} cmd={' '.join(cmd)}")
             
-            # Python unbuffered 모드로 실행하기 위해 환경 변수 설정
+            # Python unbuffered 모드 및 UTF-8 인코딩 설정
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
+            env['PYTHONIOENCODING'] = 'utf-8'  # Windows에서 이모지 출력을 위한 UTF-8 인코딩
             
             # 실시간 출력을 위해 Popen 사용
             process = subprocess.Popen(
@@ -268,6 +357,8 @@ class AIPipeline:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,  # stderr를 stdout에 병합
                 text=True,
+                encoding='utf-8',  # UTF-8 인코딩 명시
+                errors='replace',  # 인코딩 오류 시 대체 문자 사용
                 bufsize=1,  # 라인 버퍼링
                 universal_newlines=True,
                 env=env  # 환경 변수 전달
@@ -348,10 +439,34 @@ class AIPipeline:
                 logger.error(f"[Denoiser] {error_msg}")
                 raise subprocess.CalledProcessError(return_code, cmd, output_text)
 
-            base_stem = work_input.with_suffix("").name
-            final_output = final_dir / f"{base_stem}_auto_flat.obj"
+            # 최종 파일 경로 (base_stem은 원본 파일명에서 확장자 제거)
+            base_stem = work_input_abs.with_suffix("").name
+            final_output_local = work_output_dir_abs / f"{base_stem}_auto_flat.obj"
+            
+            # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
+            if is_network_path and local_temp_dir:
+                if not final_output_local.exists():
+                    raise FileNotFoundError(f"로컬 노이즈 제거 결과가 없습니다: {final_output_local}")
+                
+                self._update_progress(78, "최종 결과를 네트워크로 복사 중...")
+                final_output_network = final_dir / f"{base_stem}_auto_flat.obj"
+                shutil.copy2(final_output_local, final_output_network)
+                logger.info(f"최종 결과 복사 완료: {final_output_local} -> {final_output_network}")
+                
+                # 로컬 임시 디렉토리 정리
+                try:
+                    shutil.rmtree(local_temp_dir)
+                    logger.info(f"로컬 임시 디렉토리 정리 완료: {local_temp_dir}")
+                except Exception as e:
+                    logger.warning(f"로컬 임시 디렉토리 정리 실패 (무시): {e}")
+                
+                final_output = final_output_network
+            else:
+                final_output = final_output_local
+            
             if not final_output.exists():
                 raise FileNotFoundError(f"메쉬 노이즈 제거 결과가 없습니다: {final_output}")
+            
             self._update_progress(80, f"메쉬 노이즈 제거 완료: {final_output}")
             return final_output
 
@@ -389,18 +504,46 @@ class AIPipeline:
         self._update_progress(0, "AI 파이프라인 시작...")
         
         try:
-            # 절대 경로 보장 (resolve()는 현재 디렉토리를 기준으로 하므로 사용하지 않음)
-            if os.path.isabs(outputs_base_dir):
-                outputs_root = Path(outputs_base_dir)
+            # 네트워크 경로 또는 절대 경로 처리
+            outputs_root_str = str(outputs_base_dir)
+            
+            # 네트워크 경로인 경우 문자열 직접 조작 (Path 객체는 UNC 경로에서 parent 연산이 이상하게 동작할 수 있음)
+            if outputs_root_str.startswith('\\\\') or outputs_root_str.startswith('//'):
+                # UNC 경로 처리: \\server\share\path\outputs -> \\server\share\path\temp
+                # outputs 디렉토리 제거 후 temp, outputs 디렉토리 경로 생성
+                if outputs_root_str.endswith('\\') or outputs_root_str.endswith('/'):
+                    outputs_root_str = outputs_root_str.rstrip('\\/')
+                
+                # storage 경로 추출 (outputs가 포함된 경우 제거)
+                # 예: \\server\share\storage\outputs -> \\server\share\storage
+                if outputs_root_str.endswith('\\outputs') or outputs_root_str.endswith('/outputs'):
+                    storage_base = outputs_root_str[:-8]  # '\\outputs' 또는 '/outputs' 제거
+                elif outputs_root_str.endswith('outputs'):
+                    storage_base = outputs_root_str[:-7]  # 'outputs' 제거
+                else:
+                    storage_base = outputs_root_str
+                
+                # 경로 정규화 (끝에 백슬래시 제거, 중복 storage 제거)
+                storage_base = storage_base.rstrip('\\/')
+                
+                # storage\storage 중복 제거 (버그 방지)
+                if '\\storage\\storage' in storage_base:
+                    storage_base = storage_base.replace('\\storage\\storage', '\\storage')
+                elif '/storage/storage' in storage_base:
+                    storage_base = storage_base.replace('/storage/storage', '/storage')
+                
+                # 네트워크 경로 생성
+                temp_dir = Path(f"{storage_base}\\temp")
+                optimized_dir = Path(f"{storage_base}\\outputs\\optimized")
+                final_dir = Path(f"{storage_base}\\outputs\\final")
             else:
-                # 상대 경로인 경우 /project_root 기준으로 변환
-                outputs_root = Path("/project_root") / outputs_base_dir.lstrip("/")
+                # 일반 경로는 Path 객체 사용
+                outputs_root = Path(outputs_base_dir)
+                temp_dir = outputs_root.parent / "temp"
+                optimized_dir = outputs_root / "optimized"
+                final_dir = outputs_root / "final"
             
-            temp_dir = outputs_root.parent / "temp"
-            optimized_dir = outputs_root / "optimized"
-            final_dir = outputs_root / "final"
-            
-            logger.info(f"[AIPipeline] outputs_root: {outputs_root}")
+            logger.info(f"[AIPipeline] outputs_base_dir: {outputs_base_dir}")
             logger.info(f"[AIPipeline] temp_dir: {temp_dir}")
             logger.info(f"[AIPipeline] optimized_dir: {optimized_dir}")
             logger.info(f"[AIPipeline] final_dir: {final_dir}")
