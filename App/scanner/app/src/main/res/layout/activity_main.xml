@@ -60,6 +60,70 @@
             android:textSize="30dp" />
     </LinearLayout>
 
+    <!-- 메모 입력 레이아웃 -->
+    <LinearLayout
+        android:id="@+id/layout_memo_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="#E0000000"
+        android:elevation="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="#CC000000">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="메모"
+                android:textColor="@android:color/white"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:layout_gravity="center_vertical"/>
+
+            <Button
+                android:id="@+id/memo_close_button"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="완료"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:background="#4CAF50"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"/>
+        </LinearLayout>
+
+        <EditText
+            android:id="@+id/memo_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="10dp"
+            android:background="@android:color/white"
+            android:gravity="top|start"
+            android:padding="8dp"
+            android:hint="메모를 입력하세요..."
+            android:textColor="@android:color/black"
+            android:textColorHint="#999999"
+            android:textSize="14sp"
+            android:inputType="textMultiLine"
+            android:scrollbars="vertical"
+            android:maxLines="6"
+            android:overScrollMode="always"/>
+
+    </LinearLayout>
+
     <LinearLayout
         android:id="@+id/layout_rec"
         android:layout_width="match_parent"
@@ -108,6 +172,17 @@
                 android:background="@android:color/transparent"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_delete"
+                android:text="" />
+
+            <ImageButton
+                android:id="@+id/memo_button"
+                android:layout_width="0dp"
+                android:layout_height="45dp"
+                android:layout_weight="1"
+                android:adjustViewBounds="true"
+                android:background="@android:color/transparent"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_memo"
                 android:text="" />
 
         </LinearLayout>

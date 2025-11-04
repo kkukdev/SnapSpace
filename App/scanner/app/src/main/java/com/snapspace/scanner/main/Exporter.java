@@ -89,6 +89,16 @@ public class Exporter
       IO.copy(gpsFile, newGPS);
     }
 
+    //copy memo file
+    File memoFile = new File(file.getParent(), "memo.txt");
+    if (memoFile.exists()) {
+      File newMemo = new File(AbstractActivity.getPath(false), "memo.txt");
+      if (newMemo.exists()) {
+        newMemo.delete();
+      }
+      IO.copy(memoFile, newMemo);
+    }
+
     return file2save;
   }
 
@@ -191,31 +201,43 @@ public class Exporter
 
       //get model files
       ArrayList<String> res = new ArrayList<>();
-      File gpsFile = new File(path, "position.txt");
+      
+      // 모델 파일의 부모 디렉토리 (dataset 폴더 등)
+      String modelParentPath = new File(s).getParent();
+      
+      File gpsFile = new File(modelParentPath, "position.txt");
       if (gpsFile.exists())
         res.add(gpsFile.getName());
+
+      // 메모 파일 확인 추가
+      File memoFile = new File(modelParentPath, "memo.txt");
+      if (memoFile.exists())
+        res.add(memoFile.getName());
+      
+      // obj 파일 확인 추가
       if (Exporter.FILE_EXT[getModelType(s)].compareTo(Exporter.EXT_OBJ) == 0) {
         res.addAll(getObjResources(new File(s)));
 
         // PLY 파일 이동
         String objFilename = new File(s).getName();
         String plyFilename = objFilename.substring(0, objFilename.length() - 4) + ".ply";
-        File plyFile = new File(path, plyFilename);
+        File plyFile = new File(modelParentPath, plyFilename);
 
-        if (plyFile.exists()) {
+        if (plyFile.exists())
           res.add(plyFilename);
-          Log.d(AbstractActivity.TAG, "PLY 파일 이동을 완료했습니다: " + plyFilename);
-        }
       }
       res.add(new File(s).getName());
 
       //restructure
       for (String r : res) {
-        File f = new File(path, r);
+        File f = new File(modelParentPath, r);
         if (f.exists())
           f.renameTo(new File(temp, r));
       }
-      temp.renameTo(new File(s));
+      
+      // temp 폴더를 최종 폴더 이름으로 변경
+      File finalFolder = new File(path, new File(s).getName());
+      temp.renameTo(finalFolder);
     }
   }
 }
