@@ -9,9 +9,7 @@ import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.View;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.snapspace.scanner.R;
@@ -57,35 +55,8 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             int absState = Math.abs(serviceState);
 
             if (absState == Service.SERVICE_SAVE) {
-                // UI 초기화
-                mProgress.setVisibility(View.VISIBLE);
-
-                // processing_layout 표시
-                LinearLayout processingLayout = findViewById(R.id.processing_layout);
-                TextView infoText = findViewById(R.id.info_text);
-                if (processingLayout != null && infoText != null) {
-                    processingLayout.setVisibility(View.VISIBLE);
-                    infoText.setText("파일을 저장하고 있습니다...");
-                }
-
-                // 백그라운드 대기 및 진행 상황 표시
-                new Thread(() -> {
-                    while (Service.getRunning(this) == -Service.SERVICE_SAVE) {
-                        try {
-                            String message = Service.getMessage();
-                            if (message != null && infoText != null) {
-                                runOnUiThread(() -> infoText.setText("저장 중...\n" + message));
-                            }
-                            Thread.sleep(500);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-
-                    runOnUiThread(() -> {
-                        startActivity(new Intent(this, Main.class));
-                    });
-                }).start();
+                showProgress();
+                startActivity(new Intent(this, Main.class));
             }
             else if (absState == Service.SERVICE_POSTPROCESS) {
                 finishScanning();
@@ -155,6 +126,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         // 오브젝트 스캔 버튼 클릭
         else if (id == R.id.object_scan_button) {
             startScanning("object_scan");
+            Toast.makeText(HomeActivity.this, "오브젝트 스캔 기능 준비 중...", Toast.LENGTH_SHORT).show();
         }
         // 스캔 미리보기 버튼 클릭
         else if (id == R.id.preview_button) {
@@ -162,6 +134,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         }
         // 서버 업로드 버튼 클릭
         else if (id == R.id.upload_button) {
+            startActivity(new Intent(HomeActivity.this, FileManager.class));
             Toast.makeText(HomeActivity.this, "서버 업로드 기능 준비 중...", Toast.LENGTH_SHORT).show();
         }
         // 잘못된 입력 값
@@ -228,6 +201,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             showProgress();
             startActivity(intent);
         }).start();
+
     }
 
     public void showProgress()

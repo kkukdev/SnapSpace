@@ -112,7 +112,7 @@ public class Uploader extends AbstractActivity implements OnClickListener
 
     // Continue?
     AlertDialog.Builder builder = new AlertDialog.Builder(Uploader.this);
-    builder.setTitle(R.string.sketchfab_upload_ready);
+    builder.setTitle(R.string.fastapi_upload_ready);
 
     final int fileSizeMB = (int) f.length() / (1024 * 1024);
     final int fileSizeKB = (int) f.length() / (1024);
@@ -120,11 +120,11 @@ public class Uploader extends AbstractActivity implements OnClickListener
       builder.setMessage(getString(R.string.upload_size_is) + " " + fileSizeKB + " KB. " + getString(R.string.continue_question));
     else
     {
-      String warning = fileSizeMB >= 100 ? getString(R.string.sketchfab_pro) : "";
+      String warning = fileSizeMB >= 100 ? getString(R.string.fastapi_big) : "";
       builder.setMessage(getString(R.string.upload_size_is) + " " + fileSizeMB + " MB. " + getString(R.string.continue_question) + warning);
     }
 
-    builder.setPositiveButton(android.R.string.yes, (dialog, which) -> Service.process(getString(R.string.sketchfab_uploading), Service.SERVICE_SKETCHFAB,
+    builder.setPositiveButton(android.R.string.yes, (dialog, which) -> Service.process(getString(R.string.fastapi_uploading), Service.SERVICE_SKETCHFAB,
             Uploader.this, () -> {
               finish();
 
