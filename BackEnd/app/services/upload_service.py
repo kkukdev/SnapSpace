@@ -31,9 +31,17 @@ class UploadService(BaseService):
                 detail=f"지원하지 않는 파일 형식입니다. 허용된 확장자: {', '.join(settings.ALLOWED_EXTENSIONS)}"
             )
 
-    async def ensure_upload_directory(self) -> Path:
-        """업로드 디렉토리 생성 및 경로 반환"""
-        upload_path = Path(settings.UPLOAD_DIR)
+    async def ensure_group_upload_directory(self, group_id: Optional[str] = None) -> Path:
+        """그룹별 업로드 디렉토리 생성 및 경로 반환"""
+        base_upload_path = Path(settings.UPLOAD_DIR)
+        
+        if group_id is None or group_id == "":
+            # group_id가 없으면 기본 업로드 디렉토리 사용
+            upload_path = base_upload_path
+        else:
+            # storage/uploads/{group_id} 구조
+            upload_path = base_upload_path / str(group_id)
+        
         try:
             upload_path.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -55,8 +63,19 @@ class UploadService(BaseService):
             logger.error(f"obj 파일 검색 중 오류 발생: {str(e)}")
         return obj_files
 
+    def find_all_files(self, directory: Path) -> List[Path]:
+        """디렉토리 내 모든 파일을 재귀적으로 찾기"""
+        all_files = []
+        try:
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    all_files.append(Path(root) / file)
+        except Exception as e:
+            logger.error(f"파일 검색 중 오류 발생: {str(e)}")
+        return all_files
+
     async def extract_zip_file(self, zip_path: Path, extract_to: Path) -> Path:
-        """zip 파일 압축 해제 (비동기로 실행하여 이벤트 룹 블로킹 방지)"""
+        """zip 파일 압축 해제 (내부 폴더가 있으면 그 내부의 파일들만 저장)"""
         def _extract():
             """동기 압축 해제 함수"""
             try:
@@ -71,27 +90,36 @@ class UploadService(BaseService):
                 # 압축 해제된 내용 확인
                 extracted_items = list(temp_dir.iterdir())
                 
-                # 첫 번째 레벨에 폴더가 하나만 있고, 그게 폴더인 경우
-                if len(extracted_items) == 1 and extracted_items[0].is_dir():
-                    # 그 폴더의 내용을 extract_to로 이동
-                    inner_folder = extracted_items[0]
-                    if extract_to.exists():
-                        shutil.rmtree(extract_to)
-                    # 내부 폴더의 내용을 extract_to로 이동
-                    extract_to.mkdir(parents=True, exist_ok=True)
-                    for item in inner_folder.iterdir():
-                        shutil.move(str(item), str(extract_to / item.name))
-                    inner_folder.rmdir()  # 빈 내부 폴더 삭제
-                    temp_dir.rmdir()  # 빈 임시 디렉토리 삭제
-                else:
-                    # 여러 파일/폴더가 있거나 단일 파일인 경우, 전체를 extract_to로 이동
-                    if extract_to.exists():
-                        shutil.rmtree(extract_to)
-                    # 임시 디렉토리의 모든 내용을 extract_to로 이동
-                    extract_to.mkdir(parents=True, exist_ok=True)
-                    for item in extracted_items:
-                        shutil.move(str(item), str(extract_to / item.name))
-                    temp_dir.rmdir()  # 빈 임시 디렉토리 삭제
+                # 모든 파일을 찾기 (재귀적으로)
+                all_files = self.find_all_files(temp_dir)
+                
+                # extract_to 디렉토리 생성
+                if extract_to.exists():
+                    shutil.rmtree(extract_to)
+                extract_to.mkdir(parents=True, exist_ok=True)
+                
+                # 모든 파일을 extract_to 디렉토리로 복사 (폴더 구조 제거, 파일만 저장)
+                for file_path in all_files:
+                    # temp_dir을 기준으로 한 상대 경로
+                    try:
+                        relative_path = file_path.relative_to(temp_dir)
+                        # 파일명만 사용 (폴더 구조 무시)
+                        dest_file = extract_to / file_path.name
+                        # 파일명 중복 방지
+                        counter = 1
+                        original_dest = dest_file
+                        while dest_file.exists():
+                            stem = original_dest.stem
+                            suffix = original_dest.suffix
+                            dest_file = extract_to / f"{stem}_{counter}{suffix}"
+                            counter += 1
+                        shutil.copy2(str(file_path), str(dest_file))
+                    except Exception as e:
+                        logger.warning(f"파일 복사 중 오류 발생: {file_path}, {str(e)}")
+                        continue
+                
+                # 임시 디렉토리 삭제
+                shutil.rmtree(temp_dir)
                 
                 return extract_to
             except Exception as e:
@@ -111,6 +139,12 @@ class UploadService(BaseService):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"zip 파일 압축 해제 중 오류가 발생했습니다: {str(e)}"
             )
+
+    def generate_folder_name(self, original_filename: str) -> str:
+        """업로드용 폴더명 생성 (날짜_파일명, 확장자 제거)"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name, _ = os.path.splitext(original_filename)
+        return f"{timestamp}_{name}"
 
     def generate_filename(self, original_filename: str) -> str:
         """고유한 파일명 생성 (시스템 로컬 타임존 사용)"""
@@ -180,7 +214,8 @@ class UploadService(BaseService):
     async def upload_file_with_progress(
         self, 
         file: UploadFile,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        group_id: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """진행률 콜백과 함께 파일 업로드"""
         
@@ -192,7 +227,7 @@ class UploadService(BaseService):
             )
         
         await self.validate_file_extension(file.filename)
-        upload_dir = await self.ensure_upload_directory()
+        upload_dir = await self.ensure_group_upload_directory(group_id)
         filename = self.generate_filename(file.filename)
         file_path = upload_dir / filename
         
@@ -244,7 +279,7 @@ class UploadService(BaseService):
                     pass
             raise
 
-    async def upload_file(self, file: UploadFile) -> Dict[str, Any]:
+    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None) -> Dict[str, Any]:
         """파일 업로드 처리 (최적화된 버전)"""
         try:
             # 파일명 검증
@@ -257,8 +292,8 @@ class UploadService(BaseService):
             # 파일 확장자 검증
             await self.validate_file_extension(file.filename)
             
-            # 업로드 디렉토리 준비
-            upload_dir = await self.ensure_upload_directory()
+            # 그룹별 업로드 디렉토리 준비
+            group_upload_dir = await self.ensure_group_upload_directory(group_id)
             
             # 파일 포인터를 처음으로 리셋 (이전에 읽혔을 수 있음)
             await file.seek(0)
@@ -268,12 +303,16 @@ class UploadService(BaseService):
             
             # zip 파일인 경우 별도 처리
             if file_extension == '.zip':
-                return await self._upload_zip_file(file, upload_dir)
+                return await self._upload_zip_file(file, group_upload_dir, group_id)
             
-            # 기존 로직: 일반 파일 업로드
-            # 고유한 파일명 생성
-            filename = self.generate_filename(file.filename)
-            file_path = upload_dir / filename
+            # 일반 파일 업로드: storage/uploads/{group_id}/{날짜_파일명}/파일명 형태
+            folder_name = self.generate_folder_name(file.filename)
+            upload_folder = group_upload_dir / folder_name
+            upload_folder.mkdir(parents=True, exist_ok=True)
+            
+            # 원본 파일명 사용 (타임스탬프는 폴더명에 포함)
+            filename = file.filename
+            file_path = upload_folder / filename
             
             # 파일 포인터를 다시 처음으로 리셋
             await file.seek(0)
@@ -301,9 +340,11 @@ class UploadService(BaseService):
                 "file_size": total_size,
                 "actual_file_size": actual_file_size,
                 "file_path": str(file_path.absolute()),
+                "folder_path": str(upload_folder.absolute()),
                 "file_exists": file_exists,
                 "file_readable": file_readable,
-                "upload_success": file_exists and file_readable and actual_file_size > 0
+                "upload_success": file_exists and file_readable and actual_file_size > 0,
+                "group_id": group_id
             }
             
             # 파일이 제대로 저장되지 않은 경우
@@ -318,13 +359,13 @@ class UploadService(BaseService):
                 file_info = [{
                     "scan_id": "0",
                     "file_path": str(file_path.absolute()),
-                    "group_id": "",  # 업로드 시점에는 아직 group_id가 없을 수 있음
-                        "metadata": {
-                            "original_filename": file.filename,
-                            "saved_filename": filename,
-                            "file_size": total_size,
-                            "timestamp": datetime.now().isoformat()
-                        }
+                    "group_id": str(group_id) if group_id else "",
+                    "metadata": {
+                        "original_filename": file.filename,
+                        "saved_filename": filename,
+                        "file_size": total_size,
+                        "timestamp": datetime.now().isoformat()
+                    }
                 }]
                 await websocket_manager.send_file_list(file_info)
             except Exception as e:
@@ -343,116 +384,114 @@ class UploadService(BaseService):
                 detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
-    async def _upload_zip_file(self, file: UploadFile, upload_dir: Path) -> Dict[str, Any]:
+    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
-        # 고유한 파일명 생성 (zip 파일용, 시스템 로컬 타임존 사용)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name, _ = os.path.splitext(file.filename)
-        zip_filename = f"{timestamp}_{name}.zip"
-        zip_path = upload_dir / zip_filename
+        # 업로드 폴더 생성: storage/uploads/{group_id}/{날짜_파일명}
+        folder_name = self.generate_folder_name(file.filename)
+        upload_folder = group_upload_dir / folder_name
+        upload_folder.mkdir(parents=True, exist_ok=True)
         
-        # 파일 포인터를 처음으로 리셋 (파일이 이미 읽혔을 수 있음)
-        # 중요: upload_file에서 이미 seek(0)을 했지만, 확실하게 하기 위해 여기서도 다시 리셋
+        # 임시 zip 파일 저장 경로 (업로드 폴더 내부)
+        temp_zip_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        temp_zip_path = upload_folder / temp_zip_filename
+        
+        # 파일 포인터를 처음으로 리셋
         try:
             await file.seek(0)
         except Exception:
-            pass  # seek이 실패해도 계속 진행 (일부 파일 타입에서는 지원되지 않을 수 있음)
+            pass
         
-        # zip 파일 저장
-        total_size = await self.save_file_optimized(file, zip_path)
+        # 임시 zip 파일 저장
+        total_size = await self.save_file_optimized(file, temp_zip_path)
         
         # zip 파일 존재 확인
-        if not zip_path.exists():
+        if not temp_zip_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="zip 파일이 저장되지 않았습니다."
             )
         
-        # 압축 해제할 디렉토리 생성
-        extract_dir_name = f"{timestamp}_{name}"
-        extract_dir = upload_dir / extract_dir_name
-        
         try:
-            # zip 파일 압축 해제
-            await self.extract_zip_file(zip_path, extract_dir)
+            # zip 파일 압축 해제 (내용물만 upload_folder에 저장)
+            await self.extract_zip_file(temp_zip_path, upload_folder)
             
-            # 압축 해제된 폴더 내 .obj 파일 찾기
-            obj_files = self.find_obj_files(extract_dir)
+            # 압축 해제 후 임시 zip 파일 삭제
+            if temp_zip_path.exists():
+                temp_zip_path.unlink()
             
-            if not obj_files:
-                logger.warning(f"압축 해제된 폴더에 .obj 파일이 없습니다: {extract_dir}")
-                # obj 파일이 없어도 성공으로 처리하되, 빈 리스트 전송
-                file_info = []
-            else:
-                # 찾은 모든 .obj 파일 정보를 웹소켓으로 전송
-                file_info = []
-                for obj_file in obj_files:
-                    try:
-                        file_size = obj_file.stat().st_size if obj_file.exists() else 0
-                        relative_path = str(obj_file.relative_to(extract_dir))
-                    except Exception:
-                        file_size = 0
-                        relative_path = str(obj_file.name)
-                    
-                    file_info.append({
-                        "scan_id": "0",
-                        "file_path": str(obj_file.absolute()),
-                        "group_id": "",  # 업로드 시점에는 아직 group_id가 없을 수 있음
-                        "metadata": {
-                            "original_filename": file.filename,
-                            "extracted_from_zip": zip_filename,
-                            "obj_file": obj_file.name,
-                            "relative_path": relative_path,
-                            "file_size": file_size,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    })
+            # 업로드 폴더 내의 모든 파일 찾기
+            all_files = self.find_all_files(upload_folder)
             
-            # 웹소켓으로 obj 파일 목록 전송
+            # .obj 파일도 찾기 (호환성 유지)
+            obj_files = self.find_obj_files(upload_folder)
+            
+            # 웹소켓으로 파일 정보 전송
+            file_info = []
+            for file_path in all_files:
+                try:
+                    file_size = file_path.stat().st_size if file_path.exists() else 0
+                    relative_path = str(file_path.relative_to(upload_folder))
+                except Exception:
+                    file_size = 0
+                    relative_path = file_path.name
+                
+                file_info.append({
+                    "scan_id": "0",
+                    "file_path": str(file_path.absolute()),
+                    "group_id": str(group_id) if group_id else "",
+                    "metadata": {
+                        "original_filename": file.filename,
+                        "extracted_from_zip": True,
+                        "obj_file": file_path.name if file_path.suffix.lower() == '.obj' else None,
+                        "relative_path": relative_path,
+                        "file_size": file_size,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                })
+            
             try:
                 if file_info:
                     await websocket_manager.send_file_list(file_info)
             except Exception as e:
-                # 웹소켓 전송 실패는 업로드 자체를 실패시키지 않음
                 logger.warning(f"Failed to send zip file upload notification via websocket: {e}")
             
             # 결과 반환
             return {
                 "original_filename": file.filename,
-                "saved_filename": zip_filename,
                 "file_size": total_size,
-                "actual_file_size": zip_path.stat().st_size,
-                "file_path": str(zip_path.absolute()),
-                "extract_dir": str(extract_dir.absolute()),
+                "folder_path": str(upload_folder.absolute()),
+                "files_count": len(all_files),
                 "obj_files_count": len(obj_files),
+                "files": [str(f.absolute()) for f in all_files],
                 "obj_files": [str(obj.absolute()) for obj in obj_files],
                 "upload_success": True,
-                "is_zip": True
+                "is_zip": True,
+                "group_id": group_id
             }
             
         except HTTPException:
             # HTTPException은 그대로 전파하되, 정리 작업 수행
-            if zip_path.exists():
+            if temp_zip_path.exists():
                 try:
-                    zip_path.unlink()
+                    temp_zip_path.unlink()
                 except:
                     pass
-            if extract_dir.exists():
+            if upload_folder.exists():
                 try:
-                    shutil.rmtree(extract_dir)
+                    shutil.rmtree(upload_folder)
                 except:
                     pass
             raise
         except Exception as e:
-            # 실패 시 zip 파일 및 압축 해제 디렉토리 정리
-            if zip_path.exists():
+            # 실패 시 zip 파일 및 폴더 정리
+            if temp_zip_path.exists():
                 try:
-                    zip_path.unlink()
+                    temp_zip_path.unlink()
                 except:
                     pass
-            if extract_dir.exists():
+            if upload_folder.exists():
                 try:
-                    shutil.rmtree(extract_dir)
+                    shutil.rmtree(upload_folder)
                 except:
                     pass
             raise HTTPException(

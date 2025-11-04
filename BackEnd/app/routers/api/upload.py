@@ -1,4 +1,5 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, UploadFile, Form
+from typing import Optional
 from app.schemas.base import BaseResponse
 from app.services.upload_service import upload_service
 from app.config import settings
@@ -108,10 +109,13 @@ async def root():
         500: {"description": "서버 오류"}
     }
 )
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    group_id: Optional[str] = Form(None)
+):
     """파일 업로드"""
     # 서비스 레이어에서 파일 업로드 처리
-    upload_result = await upload_service.upload_file(file)
+    upload_result = await upload_service.upload_file(file, group_id=group_id)
     
     return BaseResponse(
         message="파일 업로드가 완료되었습니다",

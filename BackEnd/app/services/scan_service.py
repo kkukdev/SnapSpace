@@ -3,12 +3,15 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from fastapi import HTTPException, status
 from app.database import SessionLocal
+import logging
 
 from app.crud.scan import scan
 from app.crud.group import group
-from app.schemas.scan import ScanCreate, ScanUpdate, ScanCreateResponse, ScanListResponse
+from app.schemas.scan import ScanCreate, ScanUpdate, ScanCreateResponse, ScanListResponse, Scan
 from app.schemas.base import BaseResponse
 from app.services.base import BaseService
+
+logger = logging.getLogger(__name__)
 
 
 class ScanService(BaseService):
@@ -25,7 +28,7 @@ class ScanService(BaseService):
         
         try:
             # 그룹 존재 여부 확인
-            db_group = group.get_by_id(db, group_id=scan_data.group_id)
+            db_group = group.get_by_group_id(db, group_id=scan_data.group_id)
             if not db_group:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -35,14 +38,19 @@ class ScanService(BaseService):
             # CRUD의 create 메서드 사용
             db_scan = scan.create(db, obj_in=scan_data)
             
+            # Pydantic의 from_attributes를 사용하여 자동 변환
+            scan_schema = Scan.model_validate(db_scan, from_attributes=True)
+            
             return ScanCreateResponse(
                 message="created",
                 success=True,
-                data=db_scan
+                data=scan_schema
             )
         except HTTPException:
             raise
         except Exception as e:
+            # 에러 로깅 추가
+            logger.error(f"스캔 생성 중 오류 발생: {str(e)}", exc_info=True)
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -66,10 +74,13 @@ class ScanService(BaseService):
                     success=False
                 )
             
+            # Pydantic의 from_attributes를 사용하여 자동 변환
+            scan_schema = Scan.model_validate(db_scan, from_attributes=True)
+            
             return ScanCreateResponse(
                 message="스캔 조회가 완료되었습니다.",
                 success=True,
-                data=db_scan
+                data=scan_schema
             )
         except Exception as e:
             return ScanCreateResponse(

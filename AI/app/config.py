@@ -4,7 +4,7 @@ import os
 
 class Settings(BaseSettings):
     # WebSocket 설정
-    backend_websocket_url: str = "ws://70.12.246.48:8000/ws"
+    backend_websocket_url: str
     websocket_ping_interval: int = 30
     websocket_ping_timeout: int = 10
     websocket_reconnect_interval: int = 5
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     
     # 파일 처리 설정
     # 네트워크 공유 폴더 기본 경로 (Windows UNC 경로)
-    network_storage_base: str = "\\\\70.12.246.48\\storage"
+    network_storage_base: str
     # 로컬 경로 또는 네트워크 경로 (상대 경로는 network_storage_base 기준)
     uploads_directory: str = "uploads"  # network_storage_base/uploads로 해석
     outputs_directory: str = "outputs"  # network_storage_base/outputs로 해석

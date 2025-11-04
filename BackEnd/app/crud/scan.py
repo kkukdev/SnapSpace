@@ -25,10 +25,13 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
     def create(self, db: Session, *, obj_in: ScanCreate) -> Scan:
         """스캔 생성 (scan_id 자동 생성)"""
         # scan_id는 자동 생성되므로 명시적으로 제외하고 생성
+        # status는 ScanStatus enum이므로 .value를 사용하여 문자열 값 추출
+        status_value = obj_in.status.value if obj_in.status else "UPLOADED"
+        
         db_obj = Scan(
             group_id=obj_in.group_id,
             meta_data=obj_in.meta_data,
-            status=obj_in.status.value if obj_in.status else "UPLOADED",
+            status=status_value,
             file_path=obj_in.file_path,
             memos=obj_in.memos
         )

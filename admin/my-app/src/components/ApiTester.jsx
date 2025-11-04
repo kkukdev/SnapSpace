@@ -23,9 +23,10 @@ function ApiTester() {
   const [formData, setFormData] = useState({
     group: { meta_data: '{}' },
     scan: { group_id: 1, meta_data: '{}', status: 'UPLOADED', memos: '[]' },
-    file: null,
+    file: { selected: null, groupName: '' },
     groupId: 1,
-    scanId: 1
+    scanId: 1,
+    groupsList: []
   })
 
   const safeJsonParse = (jsonString, defaultValue = {}) => {
@@ -51,6 +52,37 @@ function ApiTester() {
     setUploadProgress({})
     
     try {
+      // 파일 업로드이고 group_name이 있는 경우, 먼저 그룹 처리
+      let groupId = null
+      if (isFile && data && data.groupName) {
+        try {
+          // 기존 그룹 목록 조회
+          const groupsResponse = await axios.get(`${currentApiUrl}/api/v1/groups/?skip=0&limit=1000`)
+          if (groupsResponse.data?.success && groupsResponse.data?.data?.groups) {
+            // group_name과 일치하는 그룹 찾기 (meta_data.name으로 검색)
+            const matchingGroup = groupsResponse.data.data.groups.find(
+              group => group.meta_data?.name === data.groupName
+            )
+            
+            if (matchingGroup) {
+              groupId = matchingGroup.group_id
+            } else {
+              // 그룹이 없으면 생성
+              const createResponse = await axios.post(
+                `${currentApiUrl}/api/v1/groups/`,
+                { meta_data: { name: data.groupName } }
+              )
+              if (createResponse.data?.success && createResponse.data?.data) {
+                groupId = createResponse.data.data.group_id
+              }
+            }
+          }
+        } catch (error) {
+          console.error('그룹 처리 중 오류:', error)
+          // 그룹 처리 실패해도 파일 업로드는 계속 진행
+        }
+      }
+      
       const config = {
         method,
         url: `${currentApiUrl}${url}`,
@@ -74,7 +106,7 @@ function ApiTester() {
       if (data) {
         if (isFile) {
           const formData = new FormData()
-          formData.append('file', data)
+          formData.append('file', data.file || data)
           config.data = formData
         } else {
           // JSON 문자열이 포함된 데이터 처리
@@ -90,6 +122,35 @@ function ApiTester() {
       }
 
       const response = await axios(config)
+      
+      // 파일 업로드 성공 후 groupId가 있으면 scan 생성
+      if (isFile && key === 'upload-file' && groupId && response.data?.success) {
+        try {
+          const filePath = response.data?.data?.file_path
+          if (filePath) {
+            const scanData = {
+              group_id: groupId,
+              meta_data: {
+                original_filename: response.data?.data?.original_filename,
+                saved_filename: response.data?.data?.saved_filename,
+                file_size: response.data?.data?.file_size,
+                upload_timestamp: new Date().toISOString()
+              },
+              status: 'UPLOADED',
+              file_path: filePath,
+              memos: null
+            }
+            
+            await axios.post(`${currentApiUrl}/api/v1/scans/`, scanData)
+            // scan 생성 성공은 조용히 처리 (응답에 추가 정보 포함)
+            response.data.data.group_id = groupId
+            response.data.data.group_name = data.groupName
+          }
+        } catch (error) {
+          console.error('Scan 생성 중 오류:', error)
+          // scan 생성 실패해도 업로드는 성공으로 처리
+        }
+      }
       
       // 업로드 완료 시 진행률 100%로 설정
       if (isFile) {
@@ -440,7 +501,57 @@ function ApiTester() {
                 <input
                   type="file"
                   onChange={(e) => handleFormChange('file', 'selected', e.target.files[0])}
-                  accept=".ply,.obj,.stl"
+                  accept=".ply,.obj,.stl,.zip"
+                />
+              </div>
+              <div className="form-group">
+                <label>그룹 이름:</label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <select
+                    value={formData.file?.groupName || ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleFormChange('file', 'groupName', e.target.value)
+                      }
+                    }}
+                    style={{ flex: 1, padding: '8px' }}
+                  >
+                    <option value="">새 그룹 생성 (아래에 이름 입력)</option>
+                    {formData.groupsList.map((group) => {
+                      const name = group.meta_data?.name || `Group ${group.group_id}`
+                      return (
+                        <option key={group.group_id} value={name}>
+                          {name} (ID: {group.group_id})
+                        </option>
+                      )
+                    })}
+                  </select>
+                  <button
+                    className="api-button"
+                    onClick={async () => {
+                      try {
+                        const response = await axios.get(`${currentApiUrl}/api/v1/groups/?skip=0&limit=100`)
+                        if (response.data?.success && response.data?.data?.groups) {
+                          setFormData(prev => ({
+                            ...prev,
+                            groupsList: response.data.data.groups
+                          }))
+                        }
+                      } catch (error) {
+                        console.error('그룹 목록 조회 실패:', error)
+                      }
+                    }}
+                    style={{ padding: '8px 16px' }}
+                  >
+                    그룹 목록 새로고침
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={formData.file?.groupName || ''}
+                  onChange={(e) => handleFormChange('file', 'groupName', e.target.value)}
+                  placeholder="그룹 이름을 입력하세요 (기존 그룹 선택 또는 새 그룹 이름)"
+                  style={{ marginTop: '8px', width: '100%', padding: '8px' }}
                 />
               </div>
               <div className="api-actions">
@@ -451,7 +562,7 @@ function ApiTester() {
                   apiKey="upload-file"
                   url="/api/v1/upload/"
                   method="POST"
-                  data={formData.file?.selected}
+                  data={{ file: formData.file?.selected, groupName: formData.file?.groupName }}
                   isFile={true}
                 >
                   POST /api/v1/upload/

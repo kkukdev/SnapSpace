@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
@@ -20,6 +20,23 @@ class Scan(BaseModel):
     memos: Optional[List[Dict[str, Any]]] = Field(None, description="스캔에 포함된 메모 정보")
     created_at: datetime = Field(..., description="스캔 데이터가 처음 DB에 기록된 시간")
     updated_at: datetime = Field(..., description="스캔 데이터가 마지막으로 수정된 시간")
+    
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        """status 필드를 ScanStatus enum으로 변환"""
+        if isinstance(v, ScanStatus):
+            return v
+        if isinstance(v, str):
+            # 'ScanStatus.UPLOADED' 형식의 문자열 처리
+            if v.startswith('ScanStatus.'):
+                v = v.replace('ScanStatus.', '')
+            try:
+                return ScanStatus(v)
+            except ValueError:
+                # 유효하지 않은 값인 경우 기본값 반환
+                return ScanStatus.UPLOADED
+        return ScanStatus.UPLOADED
     
     class Config:
         from_attributes = True
