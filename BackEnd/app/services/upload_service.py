@@ -12,6 +12,11 @@ import asyncio
 from app.config import settings
 from app.services.base import BaseService
 from app.services.websocket_manager import websocket_manager
+from app.services.scan_service import scan_service
+from app.services.group_service import group_service
+from app.schemas.scan import ScanCreate, ScanStatus
+from app.schemas.group import GroupCreate
+from app.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +26,124 @@ class UploadService(BaseService):
 
     def __init__(self):
         super().__init__()
+
+    async def _create_scan_for_upload(
+        self,
+        group_id: Optional[str],
+        original_file_path: str,
+        original_filename: str,
+        file_size: int,
+        is_zip: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """업로드된 파일에 대한 스캔 정보 생성"""
+        try:
+            # group_id를 정수로 변환 (없으면 기본값 1)
+            try:
+                group_id_int = int(group_id) if group_id else 1
+            except (ValueError, TypeError):
+                group_id_int = 1
+            
+            # DB 세션 생성
+            db = SessionLocal()
+            try:
+                # 스캔 생성 데이터 준비
+                scan_data = ScanCreate(
+                    group_id=group_id_int,
+                    meta_data={
+                        "original_filename": original_filename,
+                        "file_size": file_size,
+                        "is_zip": is_zip,
+                        "uploaded_at": datetime.now().isoformat()
+                    },
+                    status=ScanStatus.UPLOADED,
+                    original_file_path=original_file_path,
+                    retouched_file_path=None,
+                    memos=None
+                )
+                
+                # 스캔 생성
+                scan_response = scan_service.create_scan(db=db, scan_data=scan_data)
+                
+                if scan_response.success and scan_response.data:
+                    logger.info(f"스캔 생성 성공: scan_id={scan_response.data.scan_id}, file_path={original_file_path}")
+                    return {
+                        "scan_id": scan_response.data.scan_id,
+                        "scan_created": True
+                    }
+                else:
+                    logger.warning(f"스캔 생성 실패: {scan_response.message}")
+                    return None
+            except HTTPException as e:
+                # HTTPException (예: 그룹이 없는 경우) 처리
+                logger.error(f"스캔 생성 중 HTTP 오류 발생: {e.detail} (status_code: {e.status_code})", exc_info=True)
+                db.rollback()
+                # 그룹이 없는 경우 기본 그룹(1)으로 재시도
+                if e.status_code == status.HTTP_404_NOT_FOUND and "그룹" in str(e.detail):
+                    logger.warning(f"그룹 {group_id_int}을 찾을 수 없어 기본 그룹(1)으로 재시도")
+                    try:
+                        scan_data.group_id = 1
+                        scan_response = scan_service.create_scan(db=db, scan_data=scan_data)
+                        if scan_response.success and scan_response.data:
+                            logger.info(f"기본 그룹(1)으로 스캔 생성 성공: scan_id={scan_response.data.scan_id}")
+                            return {
+                                "scan_id": scan_response.data.scan_id,
+                                "scan_created": True
+                            }
+                    except HTTPException as retry_e:
+                        # 기본 그룹(1)도 없으면 새로운 그룹 생성
+                        if retry_e.status_code == status.HTTP_404_NOT_FOUND and "그룹" in str(retry_e.detail):
+                            logger.warning(f"기본 그룹(1)도 없어 새로운 그룹(name='empty') 생성 시도")
+                            try:
+                                # 새로운 그룹 생성 (name="empty")
+                                # 이름 중복 가능성 고려: 먼저 기존 그룹 확인
+                                existing_group = group_service.get_group_by_name(db, name="empty")
+                                if existing_group:
+                                    # 이미 "empty" 그룹이 있으면 그 그룹 사용
+                                    new_group_id = existing_group.group_id
+                                    logger.info(f"기존 'empty' 그룹 발견: group_id={new_group_id}")
+                                else:
+                                    # 새로운 그룹 생성
+                                    group_data = GroupCreate(
+                                        name="empty",
+                                        meta_data={"description": "자동 생성된 기본 그룹", "auto_created": True}
+                                    )
+                                    group_response = group_service.create_group(db=db, group_data=group_data)
+                                    if group_response.success and group_response.data:
+                                        new_group_id = group_response.data.group_id
+                                        logger.info(f"새로운 그룹 생성 성공: group_id={new_group_id}, name='empty'")
+                                    else:
+                                        logger.error(f"그룹 생성 실패: {group_response.message}")
+                                        return None
+                                
+                                # 생성된 그룹으로 스캔 생성 재시도
+                                scan_data.group_id = new_group_id
+                                scan_response = scan_service.create_scan(db=db, scan_data=scan_data)
+                                if scan_response.success and scan_response.data:
+                                    logger.info(f"새로운 그룹(group_id={new_group_id})으로 스캔 생성 성공: scan_id={scan_response.data.scan_id}")
+                                    return {
+                                        "scan_id": scan_response.data.scan_id,
+                                        "scan_created": True
+                                    }
+                                else:
+                                    logger.error(f"새로운 그룹으로 스캔 생성 실패: {scan_response.message}")
+                                    return None
+                            except Exception as create_e:
+                                logger.error(f"새로운 그룹 생성 및 스캔 생성 중 오류 발생: {str(create_e)}", exc_info=True)
+                                return None
+                        else:
+                            logger.error(f"기본 그룹으로 재시도 중 오류 발생: {str(retry_e)}", exc_info=True)
+                    except Exception as retry_e:
+                        logger.error(f"기본 그룹으로 재시도 중 예상치 못한 오류 발생: {str(retry_e)}", exc_info=True)
+                return None
+            except Exception as e:
+                logger.error(f"스캔 생성 중 오류 발생: {str(e)}", exc_info=True)
+                db.rollback()
+                return None
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"스캔 생성 처리 중 오류 발생: {str(e)}", exc_info=True)
+            return None
 
     async def validate_file_extension(self, filename: str) -> None:
         """파일 확장자 검증"""
@@ -354,23 +477,62 @@ class UploadService(BaseService):
                     detail=f"파일이 제대로 저장되지 않았습니다. 존재: {file_exists}, 읽기 가능: {file_readable}, 크기: {actual_file_size} bytes"
                 )
             
-            # 웹소켓으로 업로드된 파일 정보 전송
+            # obj 파일인지 확인 (단일 파일 업로드의 경우)
+            file_extension = Path(file.filename).suffix.lower()
+            is_obj_file = file_extension == '.obj'
+            
+            # obj 파일이 아니면 스캔 생성하지 않고 웹소켓 전송도 하지 않음
+            if not is_obj_file:
+                logger.info(f"[파일 검증] obj 파일이 아니므로 스캔 생성 및 AI 처리 스킵: {file.filename} (확장자: {file_extension})")
+                upload_result["skipped"] = True
+                upload_result["skip_reason"] = f"obj 파일이 아닙니다 (확장자: {file_extension})"
+                return upload_result
+            
+            # obj 파일인 경우에만 스캔 정보 DB에 생성
+            scan_info = await self._create_scan_for_upload(
+                group_id=group_id,
+                original_file_path=str(file_path.absolute()),
+                original_filename=file.filename,
+                file_size=total_size,
+                is_zip=False
+            )
+            
+            # 스캔 정보를 업로드 결과에 추가
+            if scan_info:
+                upload_result["scan_id"] = scan_info.get("scan_id")
+                scan_id_for_websocket = scan_info.get("scan_id", 0)
+            else:
+                scan_id_for_websocket = 0
+                logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
+            
+            # group_id 처리 (기본값 1 사용)
             try:
-                file_info = [{
-                    "scan_id": "0",
-                    "original_file_path": str(file_path.absolute()),
-                    "group_id": str(group_id) if group_id else "",
-                    "metadata": {
-                        "original_filename": file.filename,
-                        "saved_filename": filename,
-                        "file_size": total_size,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                }]
-                await websocket_manager.send_file_list(file_info)
-            except Exception as e:
-                # 웹소켓 전송 실패는 업로드 자체를 실패시키지 않음
-                logger.warning(f"Failed to send file upload notification via websocket: {e}")
+                group_id_int = int(group_id) if group_id else 1
+            except (ValueError, TypeError):
+                group_id_int = 1
+            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            
+            # 웹소켓으로 업로드된 파일 정보 전송 (obj 파일인 경우에만)
+            # scan_id가 0이면 스캔이 생성되지 않았으므로 전송하지 않음
+            if scan_id_for_websocket == 0:
+                logger.warning(f"scan_id가 0이므로 웹소켓 전송을 스킵합니다. group_id={group_id}, file={file.filename}")
+            else:
+                try:
+                    file_info = [{
+                        "scan_id": scan_id_for_websocket,  # 정수로 전송
+                        "original_file_path": str(file_path.absolute()),
+                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "metadata": {
+                            "original_filename": file.filename,
+                            "saved_filename": filename,
+                            "file_size": total_size,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    }]
+                    await websocket_manager.send_file_list(file_info)
+                except Exception as e:
+                    # 웹소켓 전송 실패는 업로드 자체를 실패시키지 않음
+                    logger.warning(f"Failed to send file upload notification via websocket: {e}")
             
             return upload_result
             
@@ -422,41 +584,88 @@ class UploadService(BaseService):
             # 업로드 폴더 내의 모든 파일 찾기
             all_files = self.find_all_files(upload_folder)
             
-            # .obj 파일도 찾기 (호환성 유지)
+            # .obj 파일 찾기
             obj_files = self.find_obj_files(upload_folder)
             
-            # 웹소켓으로 파일 정보 전송
-            file_info = []
-            for file_path in all_files:
-                try:
-                    file_size = file_path.stat().st_size if file_path.exists() else 0
-                    relative_path = str(file_path.relative_to(upload_folder))
-                except Exception:
-                    file_size = 0
-                    relative_path = file_path.name
-                
-                file_info.append({
-                    "scan_id": "0",
-                    "original_file_path": str(file_path.absolute()),
-                    "group_id": str(group_id) if group_id else "",
-                    "metadata": {
-                        "original_filename": file.filename,
-                        "extracted_from_zip": True,
-                        "obj_file": file_path.name if file_path.suffix.lower() == '.obj' else None,
-                        "relative_path": relative_path,
-                        "file_size": file_size,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                })
+            # obj 파일이 없으면 스캔 생성하지 않고 웹소켓 전송도 하지 않음
+            if not obj_files:
+                logger.info(f"[파일 검증] zip 파일 압축 해제 후 obj 파일이 없으므로 스캔 생성 및 AI 처리 스킵: {file.filename} (전체 파일 수: {len(all_files)})")
+                result = {
+                    "original_filename": file.filename,
+                    "file_size": total_size,
+                    "folder_path": str(upload_folder.absolute()),
+                    "files_count": len(all_files),
+                    "obj_files_count": 0,
+                    "files": [str(f.absolute()) for f in all_files],
+                    "obj_files": [],
+                    "upload_success": True,
+                    "is_zip": True,
+                    "group_id": group_id,
+                    "skipped": True,
+                    "skip_reason": "압축 해제된 파일 중 obj 파일이 없습니다"
+                }
+                return result
             
+            # obj 파일이 있는 경우에만 스캔 정보 DB에 생성 (zip 파일 전체를 하나의 스캔으로 처리)
+            # 대표 파일 경로로 스캔 생성 (첫 번째 파일 또는 폴더 경로)
+            representative_file_path = str(upload_folder.absolute())
+            scan_info = await self._create_scan_for_upload(
+                group_id=group_id,
+                original_file_path=representative_file_path,
+                original_filename=file.filename,
+                file_size=total_size,
+                is_zip=True
+            )
+            
+            # 스캔 ID 설정 (스캔 생성 실패 시 0 사용)
+            if scan_info:
+                scan_id_for_websocket = scan_info.get("scan_id", 0)
+            else:
+                scan_id_for_websocket = 0
+                logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
+            
+            # group_id 처리 (기본값 1 사용)
             try:
-                if file_info:
-                    await websocket_manager.send_file_list(file_info)
-            except Exception as e:
-                logger.warning(f"Failed to send zip file upload notification via websocket: {e}")
+                group_id_int = int(group_id) if group_id else 1
+            except (ValueError, TypeError):
+                group_id_int = 1
+            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            
+            # 웹소켓으로 파일 정보 전송 (obj 파일만 전송, scan_id가 0이 아닌 경우에만)
+            file_info = []
+            if scan_id_for_websocket != 0:
+                for file_path in obj_files:  # obj 파일만 전송
+                    try:
+                        file_size = file_path.stat().st_size if file_path.exists() else 0
+                        relative_path = str(file_path.relative_to(upload_folder))
+                    except Exception:
+                        file_size = 0
+                        relative_path = file_path.name
+                    
+                    file_info.append({
+                        "scan_id": scan_id_for_websocket,  # 정수로 전송
+                        "original_file_path": str(file_path.absolute()),
+                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "metadata": {
+                            "original_filename": file.filename,
+                            "extracted_from_zip": True,
+                            "obj_file": file_path.name,
+                            "relative_path": relative_path,
+                            "file_size": file_size,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    })
+                
+                try:
+                    if file_info:
+                        await websocket_manager.send_file_list(file_info)
+                except Exception as e:
+                    logger.warning(f"Failed to send zip file upload notification via websocket: {e}")
+            else:
+                logger.warning(f"scan_id가 0이므로 웹소켓 전송을 스킵합니다. group_id={group_id}, zip_file={file.filename}")
             
             # 결과 반환
-            return {
+            result = {
                 "original_filename": file.filename,
                 "file_size": total_size,
                 "folder_path": str(upload_folder.absolute()),
@@ -468,6 +677,12 @@ class UploadService(BaseService):
                 "is_zip": True,
                 "group_id": group_id
             }
+            
+            # 스캔 정보를 결과에 추가
+            if scan_info:
+                result["scan_id"] = scan_info.get("scan_id")
+            
+            return result
             
         except HTTPException:
             # HTTPException은 그대로 전파하되, 정리 작업 수행
