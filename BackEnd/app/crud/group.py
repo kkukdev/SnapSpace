@@ -28,6 +28,7 @@ class GroupCRUD(BaseCRUD[Group, GroupCreate, GroupUpdate]):
         """그룹 생성 (group_id 자동 생성)"""
         # group_id는 자동 생성되므로 명시적으로 제외하고 생성
         db_obj = Group(
+            name=obj_in.name,
             meta_data=obj_in.meta_data
         )
         db.add(db_obj)
@@ -38,6 +39,10 @@ class GroupCRUD(BaseCRUD[Group, GroupCreate, GroupUpdate]):
     def get_by_group_id(self, db: Session, *, group_id: int) -> Optional[Group]:
         """그룹 ID로 조회"""
         return db.query(Group).filter(Group.group_id == group_id).first()
+    
+    def get_by_name(self, db: Session, *, name: str) -> Optional[Group]:
+        """그룹 이름으로 조회"""
+        return db.query(Group).filter(Group.name == name).first()
     
     def get(self, db: Session, id: Any) -> Optional[Group]:
         """단일 레코드 조회 (group_id 사용)"""
