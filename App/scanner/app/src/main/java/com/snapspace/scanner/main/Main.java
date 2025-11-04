@@ -702,13 +702,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         CharSequence[] items;
         if (isProVersion(this)) {
           items = new CharSequence[]{
-                  getString(R.string.sketchfab_dialog_title),
+                  getString(R.string.fastapi_dialog_title),
                   getString(R.string.screenshot),
                   getString(R.string.videoshot)
           };
         } else {
           items = new CharSequence[]{
-                  getString(R.string.sketchfab_dialog_title),
+                  getString(R.string.fastapi_dialog_title),
                   getString(R.string.screenshot)
           };
         }
