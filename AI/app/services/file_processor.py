@@ -53,12 +53,77 @@ class FileProcessor:
             # 백엔드에서 받은 경로를 네트워크 경로로 변환
             network_file_path = convert_to_network_path(file_path, settings.network_storage_base)
             
-            # 파일 존재 확인
-            if not os.path.exists(network_file_path):
-                raise FileNotFoundError(f"File not found: {network_file_path} (원본 경로: {file_path})")
+            # 사용할 경로 결정
+            final_file_path = None
             
-            # 변환된 경로 사용
-            file_path = network_file_path
+            # 1. 네트워크 경로 확인
+            if os.path.exists(network_file_path):
+                final_file_path = network_file_path
+                logger.info(f"네트워크 경로 사용: {network_file_path}")
+            # 2. 원본 경로 확인
+            elif os.path.exists(file_path):
+                final_file_path = file_path
+                logger.warning(f"네트워크 경로 접근 실패, 원본 경로 사용: {file_path} (네트워크 경로: {network_file_path})")
+            else:
+                # 3. Docker 경로를 상대 경로로 변환 시도
+                # /project_root/storage/uploads/... -> storage/uploads/...
+                alternative_paths = []
+                
+                # Docker 경로 패턴 제거
+                if file_path.startswith("/project_root/"):
+                    alternative_path = file_path.replace("/project_root/", "", 1)
+                    alternative_paths.append(alternative_path)
+                    # ../storage/uploads/... 형태도 시도
+                    alternative_paths.append(f"../{alternative_path}")
+                
+                # /storage/로 시작하는 경우
+                if file_path.startswith("/storage/"):
+                    alternative_path = file_path.replace("/storage/", "storage/", 1)
+                    alternative_paths.append(alternative_path)
+                    alternative_paths.append(f"../{alternative_path}")
+                
+                # 프로젝트 루트 찾기 (AI 서비스 실행 위치 기준)
+                # AI/app/services/file_processor.py -> AI/app/services -> AI/app -> AI -> 프로젝트 루트
+                try:
+                    current_file_dir = os.path.dirname(os.path.abspath(__file__))  # AI/app/services
+                    app_dir = os.path.dirname(current_file_dir)  # AI/app
+                    ai_dir = os.path.dirname(app_dir)  # AI
+                    project_root = os.path.dirname(ai_dir)  # 프로젝트 루트 (S13P31S102)
+                    
+                    # 프로젝트 루트 기준 경로 생성
+                    if file_path.startswith("/project_root/"):
+                        relative_part = file_path.replace("/project_root/", "")
+                        project_path = os.path.join(project_root, relative_part).replace("\\", os.sep)
+                        alternative_paths.append(project_path)
+                    elif file_path.startswith("/storage/"):
+                        relative_part = file_path.replace("/storage/", "")
+                        project_path = os.path.join(project_root, "storage", relative_part).replace("\\", os.sep)
+                        alternative_paths.append(project_path)
+                except Exception as e:
+                    logger.debug(f"프로젝트 루트 찾기 실패: {e}")
+                
+                # 상대 경로 시도
+                logger.debug(f"대체 경로 시도 중... (총 {len(alternative_paths)}개)")
+                for alt_path in alternative_paths:
+                    logger.debug(f"  시도 중: {alt_path} (존재: {os.path.exists(alt_path)})")
+                    if os.path.exists(alt_path):
+                        final_file_path = alt_path
+                        logger.warning(f"대체 경로 사용: {alt_path} (원본: {file_path})")
+                        break
+                
+                # 모든 경로 시도 실패
+                if final_file_path is None:
+                    error_msg = f"File not found in any path. Tried:\n"
+                    error_msg += f"  - Network: {network_file_path}\n"
+                    error_msg += f"  - Original: {file_path}\n"
+                    for alt_path in alternative_paths:
+                        exists = os.path.exists(alt_path)
+                        error_msg += f"  - Alternative: {alt_path} (exists: {exists})\n"
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+            
+            # 최종 경로 사용
+            file_path = final_file_path
             
             # 진행률 업데이트
             await self._update_progress(scan_id, 10)

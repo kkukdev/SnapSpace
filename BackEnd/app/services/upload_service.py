@@ -265,7 +265,7 @@ class UploadService(BaseService):
                 "original_filename": file.filename,
                 "saved_filename": filename,
                 "file_size": total_size,
-                "file_path": str(file_path),
+                "original_file_path": str(file_path),
                 "status": "completed"
             }
             yield result
@@ -339,7 +339,7 @@ class UploadService(BaseService):
                 "saved_filename": filename,
                 "file_size": total_size,
                 "actual_file_size": actual_file_size,
-                "file_path": str(file_path.absolute()),
+                "original_file_path": str(file_path.absolute()),
                 "folder_path": str(upload_folder.absolute()),
                 "file_exists": file_exists,
                 "file_readable": file_readable,
@@ -358,7 +358,7 @@ class UploadService(BaseService):
             try:
                 file_info = [{
                     "scan_id": "0",
-                    "file_path": str(file_path.absolute()),
+                    "original_file_path": str(file_path.absolute()),
                     "group_id": str(group_id) if group_id else "",
                     "metadata": {
                         "original_filename": file.filename,
@@ -437,7 +437,7 @@ class UploadService(BaseService):
                 
                 file_info.append({
                     "scan_id": "0",
-                    "file_path": str(file_path.absolute()),
+                    "original_file_path": str(file_path.absolute()),
                     "group_id": str(group_id) if group_id else "",
                     "metadata": {
                         "original_filename": file.filename,

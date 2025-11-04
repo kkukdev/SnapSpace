@@ -32,7 +32,8 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
             group_id=obj_in.group_id,
             meta_data=obj_in.meta_data,
             status=status_value,
-            file_path=obj_in.file_path,
+            original_file_path=obj_in.original_file_path,
+            retouched_file_path=obj_in.retouched_file_path,
             memos=obj_in.memos
         )
         db.add(db_obj)
@@ -92,13 +93,25 @@ class ScanCRUD(BaseCRUD[Scan, ScanCreate, ScanUpdate]):
             db.refresh(db_obj)
         return db_obj
 
-    def update_file_path(
-        self, db: Session, *, scan_id: int, file_path: str
+    def update_original_file_path(
+        self, db: Session, *, scan_id: int, original_file_path: str
     ) -> Optional[Scan]:
-        """스캔 파일 경로 업데이트"""
+        """스캔 원본 파일 경로 업데이트"""
         db_obj = self.get_by_scan_id(db, scan_id=scan_id)
         if db_obj:
-            db_obj.file_path = file_path
+            db_obj.original_file_path = original_file_path
+            db.add(db_obj)
+            db.commit()
+            db.refresh(db_obj)
+        return db_obj
+
+    def update_retouched_file_path(
+        self, db: Session, *, scan_id: int, retouched_file_path: str
+    ) -> Optional[Scan]:
+        """스캔 리터치 파일 경로 업데이트"""
+        db_obj = self.get_by_scan_id(db, scan_id=scan_id)
+        if db_obj:
+            db_obj.retouched_file_path = retouched_file_path
             db.add(db_obj)
             db.commit()
             db.refresh(db_obj)

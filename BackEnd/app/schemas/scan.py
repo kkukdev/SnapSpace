@@ -16,7 +16,8 @@ class Scan(BaseModel):
     group_id: int = Field(..., description="그룹 외래키", example=1)
     meta_data: Dict[str, Any] = Field(..., description="스캔본 메타데이터")
     status: ScanStatus = Field(ScanStatus.UPLOADED, description="처리 상태")
-    file_path: Optional[str] = Field(None, description="스캔 파일 경로")
+    original_file_path: Optional[str] = Field(None, description="원본 스캔 파일 경로")
+    retouched_file_path: Optional[str] = Field(None, description="리터치된 스캔 파일 경로")
     memos: Optional[List[Dict[str, Any]]] = Field(None, description="스캔에 포함된 메모 정보")
     created_at: datetime = Field(..., description="스캔 데이터가 처음 DB에 기록된 시간")
     updated_at: datetime = Field(..., description="스캔 데이터가 마지막으로 수정된 시간")
@@ -47,7 +48,8 @@ class ScanCreate(BaseModel):
     group_id: int = Field(..., description="그룹 외래키", example=1)
     meta_data: Dict[str, Any] = Field(..., description="스캔본 메타데이터")
     status: ScanStatus = Field(ScanStatus.UPLOADED, description="처리 상태")
-    file_path: Optional[str] = Field(None, description="스캔 파일 경로")
+    original_file_path: Optional[str] = Field(None, description="원본 스캔 파일 경로")
+    retouched_file_path: Optional[str] = Field(None, description="리터치된 스캔 파일 경로")
     memos: Optional[List[Dict[str, Any]]] = Field(None, description="스캔에 포함된 메모 정보")
 
 
@@ -55,7 +57,8 @@ class ScanUpdate(BaseModel):
     """스캔 수정 스키마"""
     meta_data: Optional[Dict[str, Any]] = Field(None, description="스캔본 메타데이터")
     status: Optional[ScanStatus] = Field(None, description="처리 상태")
-    file_path: Optional[str] = Field(None, description="스캔 파일 경로")
+    original_file_path: Optional[str] = Field(None, description="원본 스캔 파일 경로")
+    retouched_file_path: Optional[str] = Field(None, description="리터치된 스캔 파일 경로")
     memos: Optional[List[Dict[str, Any]]] = Field(None, description="스캔에 포함된 메모 정보")
 
 

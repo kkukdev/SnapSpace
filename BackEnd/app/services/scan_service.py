@@ -260,14 +260,14 @@ class ScanService(BaseService):
             if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기
                 db.close()
 
-    def update_scan_file_path(self, db: Session, scan_id: int, file_path: str) -> ScanCreateResponse:
-        """스캔 파일 경로 업데이트"""
+    def update_scan_original_file_path(self, db: Session, scan_id: int, original_file_path: str) -> ScanCreateResponse:
+        """스캔 원본 파일 경로 업데이트"""
         # 의존성 주입된 db가 제너레이터인 경우를 대비해 새로운 세션 생성
         if hasattr(db, '__iter__'):  # 제너레이터인지 확인
             db = SessionLocal()
         
         try:
-            db_scan = scan.update_file_path(db, scan_id=scan_id, file_path=file_path)
+            db_scan = scan.update_original_file_path(db, scan_id=scan_id, original_file_path=original_file_path)
             if not db_scan:
                 return ScanCreateResponse(
                     message="스캔을 찾을 수 없습니다.",
@@ -275,12 +275,39 @@ class ScanService(BaseService):
                 )
             
             return ScanCreateResponse(
-                message="스캔 파일 경로가 성공적으로 업데이트되었습니다.",
+                message="스캔 원본 파일 경로가 성공적으로 업데이트되었습니다.",
                 data=db_scan
             )
         except Exception as e:
             return ScanCreateResponse(
-                message=f"스캔 파일 경로 업데이트 중 오류가 발생했습니다: {str(e)}",
+                message=f"스캔 원본 파일 경로 업데이트 중 오류가 발생했습니다: {str(e)}",
+                success=False
+            )
+        finally:
+            if hasattr(db, '__iter__'):  # 새로 생성한 세션인 경우에만 닫기
+                db.close()
+
+    def update_scan_retouched_file_path(self, db: Session, scan_id: int, retouched_file_path: str) -> ScanCreateResponse:
+        """스캔 리터치 파일 경로 업데이트"""
+        # 의존성 주입된 db가 제너레이터인 경우를 대비해 새로운 세션 생성
+        if hasattr(db, '__iter__'):  # 제너레이터인지 확인
+            db = SessionLocal()
+        
+        try:
+            db_scan = scan.update_retouched_file_path(db, scan_id=scan_id, retouched_file_path=retouched_file_path)
+            if not db_scan:
+                return ScanCreateResponse(
+                    message="스캔을 찾을 수 없습니다.",
+                    success=False
+                )
+            
+            return ScanCreateResponse(
+                message="스캔 리터치 파일 경로가 성공적으로 업데이트되었습니다.",
+                data=db_scan
+            )
+        except Exception as e:
+            return ScanCreateResponse(
+                message=f"스캔 리터치 파일 경로 업데이트 중 오류가 발생했습니다: {str(e)}",
                 success=False
             )
         finally:
