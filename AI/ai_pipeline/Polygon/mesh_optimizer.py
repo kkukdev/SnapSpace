@@ -40,6 +40,9 @@ import argparse
 import os
 import time
 import numpy as np
+# 전역 출력 경로 (main에서 설정)
+TEMP_DIR = None
+OPTIMIZED_DIR = None
 
 
 # ===========================================================
@@ -69,7 +72,10 @@ def remove_invalid_lines(input_path):
         else:
             valid.append(line)
 
-    tmp = input_path.replace(".obj", "_safe.obj")
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
+    os.makedirs(out_dir, exist_ok=True)
+    tmp = os.path.join(out_dir, f"{base}_safe.obj")
     with open(tmp, "w", encoding="utf-8") as f:
         f.writelines(valid)
 
@@ -100,7 +106,10 @@ def preclean_with_open3d(input_path):
     mesh.remove_non_manifold_edges()
     mesh.compute_vertex_normals()
 
-    temp_path = input_path.replace(".obj", "_precleaned.obj")
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
+    os.makedirs(out_dir, exist_ok=True)
+    temp_path = os.path.join(out_dir, f"{base}_precleaned.obj")
     o3d.io.write_triangle_mesh(temp_path, mesh, write_triangle_uvs=False)
     print(f"✅ Open3D 사전 정리 완료 → {temp_path}")
     return temp_path
@@ -121,6 +130,9 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     5. 노멀 재계산 및 최종 저장
     """
     print("\n🧹 [Clean Mode] 스캔 메쉬 클린업 시작")
+    
+    # 원본 파일명 저장 (나중에 최종 파일명에 사용)
+    original_base_name = os.path.splitext(os.path.basename(input_path))[0]
 
     # Step 1️⃣ 손상된 라인 정리 + Open3D 사전 정리
     input_path = remove_invalid_lines(input_path)
@@ -171,9 +183,10 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     except Exception as e:
         print(f"⚠️ 후처리 실패: {e}")
 
-    # Step 6️⃣ 결과 저장
-    base, ext = os.path.splitext(input_path)
-    output_path = f"{base}_cleaned.obj"
+    # Step 6️⃣ 결과 저장 (원본 파일명 기준으로 저장)
+    out_dir = OPTIMIZED_DIR if OPTIMIZED_DIR else os.path.dirname(input_path)
+    os.makedirs(out_dir, exist_ok=True)
+    output_path = os.path.join(out_dir, f"{original_base_name}_cleaned.obj")
     ms.save_current_mesh(output_path)
     print(f"✅ 클린업 완료 → {output_path}")
     return output_path
@@ -199,8 +212,14 @@ def visualize_mesh(mesh_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="3D Mesh Cleaner (Safe Mode)")
     parser.add_argument("--input", type=str, required=True, help="입력 .obj 파일 경로")
+    parser.add_argument("--temp-dir", type=str, required=True, help="중간 산출물 저장 디렉토리")
+    parser.add_argument("--optimized-dir", type=str, required=True, help="최종 cleaned.obj 저장 디렉토리")
     parser.add_argument("--visualize", action="store_true", help="Open3D 뷰어로 결과 시각화")
     args = parser.parse_args()
+
+    # 전역 출력 경로 설정
+    TEMP_DIR = args.temp_dir
+    OPTIMIZED_DIR = args.optimized_dir
 
     start = time.time()
     output = clean_and_reconstruct(args.input)

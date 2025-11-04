@@ -83,6 +83,7 @@ pydantic==2.12.3
 pydantic-settings==2.11.0
 pydantic_core==2.41.4
 Pygments==2.19.2
+pymeshlab==2025.7
 pyparsing==3.2.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1

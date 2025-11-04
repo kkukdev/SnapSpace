@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
+from app.utils.path_utils import convert_to_network_path, normalize_network_path
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,15 @@ class FileProcessor:
     async def _process_file_async(self, scan_id: int, file_path: str):
         """비동기 파일 처리"""
         try:
+            # 백엔드에서 받은 경로를 네트워크 경로로 변환
+            network_file_path = convert_to_network_path(file_path, settings.network_storage_base)
+            
             # 파일 존재 확인
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            if not os.path.exists(network_file_path):
+                raise FileNotFoundError(f"File not found: {network_file_path} (원본 경로: {file_path})")
+            
+            # 변환된 경로 사용
+            file_path = network_file_path
             
             # 진행률 업데이트
             await self._update_progress(scan_id, 10)
@@ -104,10 +111,6 @@ class FileProcessor:
     def _run_ai_pipeline_sync(self, scan_id: int, file_path: str) -> str:
         """동기 AI 파이프라인 실행"""
         try:
-            # 출력 디렉토리 생성
-            output_dir = Path(settings.outputs_directory) / "final"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
             # AI 파이프라인 실행
             from app.services.ai_pipeline import AIPipeline
             
@@ -128,9 +131,11 @@ class FileProcessor:
                     pass
                 logger.info(f"[AI Pipeline] {progress}% - {message}")
             
-            # AI 파이프라인 실행
+            # AI 파이프라인 실행 (outputs 루트 전달)
+            # 네트워크 경로로 변환
+            outputs_dir = normalize_network_path(settings.network_storage_base, settings.outputs_directory)
             ai_pipeline = AIPipeline(progress_callback=progress_callback)
-            final_output_path = ai_pipeline.run_full_pipeline(file_path, str(output_dir))
+            final_output_path = ai_pipeline.run_full_pipeline(file_path, outputs_dir)
             
             logger.info(f"AI pipeline completed: {file_path} -> {final_output_path}")
             return final_output_path

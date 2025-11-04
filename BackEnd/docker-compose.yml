@@ -1,4 +1,4 @@
-name: postgres-fastapi
+name: sdt-server
 
 services:
   postgres:
@@ -46,30 +46,6 @@ services:
       - ../storage:/project_root/storage  # /app/storage로 통일
     command: ["python", "-m", "app.main"]
     working_dir: /app
-    networks:
-      - app-network
-
-  ai-server:
-    build:
-      context: ../AI
-      dockerfile: Dockerfile
-    container_name: ai-server
-    ports:
-      - "8001:8001"
-    environment:
-      - BACKEND_WEBSOCKET_URL=ws://backend:8000/ws
-      - HOST=0.0.0.0
-      - PORT=8001
-      - UPLOADS_DIRECTORY=project_root/storage/uploads
-      - OUTPUTS_DIRECTORY=project_root/storage/outputs
-      - MAX_CONCURRENT_TASKS=3
-      - LOG_LEVEL=INFO
-    depends_on:
-      - backend
-    volumes:
-      - ../storage:/project_root/storage  # /app/storage로 통일
-    working_dir: /app
-    command: ["python", "-m", "app.main"]
     networks:
       - app-network
 
