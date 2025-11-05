@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
-from app.utils.path_utils import convert_to_network_path, normalize_network_path
+from app.utils.path_utils import convert_to_network_path, normalize_network_path, normalize_for_windows_access
 
 logger = logging.getLogger(__name__)
 
@@ -92,16 +92,18 @@ class FileProcessor:
                         logger.warning(f"로컬 경로 변환 실패 (파일 없음): {local_path}")
                 except Exception as e:
                     logger.warning(f"로컬 경로 변환 중 오류: {e}")
-            # 3. 네트워크 경로가 설정되어 있으면 변환 시도
-            elif settings.network_storage_base:
+            
+            # 3. 네트워크 경로가 설정되어 있고 아직 경로를 찾지 못한 경우 변환 시도
+            # (로컬 경로 변환이 실패했을 수도 있으므로 elif가 아닌 if로 분리)
+            if not final_file_path and settings.network_storage_base:
                 network_file_path = convert_to_network_path(file_path, settings.network_storage_base)
-                if network_file_path != file_path and os.path.exists(network_file_path):
-                    final_file_path = network_file_path
-                    logger.info(f"변환된 네트워크 경로 사용: {network_file_path}")
+                # Windows에서 접근하기 위해 백슬래시로 변환해서 확인
+                windows_network_path = normalize_for_windows_access(network_file_path)
+                if network_file_path != file_path and os.path.exists(windows_network_path):
+                    final_file_path = windows_network_path
+                    logger.info(f"변환된 네트워크 경로 사용: {network_file_path} -> {windows_network_path}")
                 else:
-                    logger.warning(f"네트워크 경로 변환 실패: {file_path} -> {network_file_path}")
-            else:
-                logger.info(f"네트워크 경로 미설정, 원본 경로 사용: {file_path}")
+                    logger.warning(f"네트워크 경로 변환 실패: {file_path} -> {network_file_path} (Windows 경로: {windows_network_path}, exists: {os.path.exists(windows_network_path) if network_file_path != file_path else False})")
             
             # 최종 경로가 없으면 대체 경로 시도
             if not final_file_path:
@@ -159,9 +161,12 @@ class FileProcessor:
                     if settings.network_storage_base:
                         try:
                             network_file_path = convert_to_network_path(file_path, settings.network_storage_base)
-                            error_msg += f"  - Network: {network_file_path}\n"
-                        except Exception:
-                            pass
+                            # Windows 경로로 변환해서 존재 확인
+                            windows_network_path = normalize_for_windows_access(network_file_path)
+                            exists = os.path.exists(windows_network_path)
+                            error_msg += f"  - Network: {network_file_path} (Windows: {windows_network_path}, exists: {exists})\n"
+                        except Exception as e:
+                            error_msg += f"  - Network: (conversion failed: {e})\n"
                     for alt_path in alternative_paths:
                         exists = os.path.exists(alt_path)
                         error_msg += f"  - Alternative: {alt_path} (exists: {exists})\n"
@@ -345,7 +350,21 @@ class FileProcessor:
             # AI 파이프라인 실행 (outputs 루트 전달)
             # 저장소 기본 경로 사용 (로컬 또는 네트워크)
             storage_base = settings.storage_base_path
-            outputs_dir = os.path.join(storage_base, settings.outputs_directory)
+            
+            # outputs_directory에서 storage/ 접두사 제거 (storage_base가 이미 storage를 포함)
+            outputs_dir_rel = settings.outputs_directory
+            if outputs_dir_rel.startswith("storage/"):
+                outputs_dir_rel = outputs_dir_rel[8:]  # "storage/" 제거
+            elif outputs_dir_rel.startswith("storage\\"):
+                outputs_dir_rel = outputs_dir_rel[8:]  # "storage\\" 제거
+            
+            # 네트워크 경로인 경우 normalize_network_path 사용, 아니면 os.path.join 사용
+            if storage_base.startswith('//') or storage_base.startswith('\\\\'):
+                from app.utils.path_utils import normalize_network_path
+                outputs_dir = normalize_network_path(storage_base, outputs_dir_rel)
+            else:
+                outputs_dir = os.path.join(storage_base, outputs_dir_rel)
+            
             logger.info(f"[파일 처리] storage_base: {storage_base}, outputs_dir: {outputs_dir}")
             ai_pipeline = AIPipeline(progress_callback=progress_callback)
             final_output_path = ai_pipeline.run_full_pipeline(file_path, outputs_dir, group_id, folder_name)
