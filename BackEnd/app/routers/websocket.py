@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.services.websocket_manager import websocket_manager
 from app.schemas.websocket_schemas import FileListMessage
+from app.config import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ async def test_ai_connection():
     test_message = {
         "type": "test",
         "message": "Hello from Backend server!",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_current_datetime().isoformat()
     }
     
     await websocket_manager.send_to_ai(test_message)

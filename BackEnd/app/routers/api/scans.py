@@ -41,7 +41,8 @@ router = APIRouter()
                                     }
                                 },
                                 "status": "UPLOADED",
-                                "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                                "original_file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                                "retouched_file_path": None,
                                 "memos": [
                                     {
                                         "type": "text",
@@ -138,7 +139,8 @@ async def get_scans(
                             "group_id": 1,
                             "meta_data": {},
                             "status": "UPLOADED",
-                            "file_path": None,
+                            "original_file_path": None,
+                            "retouched_file_path": None,
                             "memos": None,
                             "created_at": "2024-01-15T09:00:00Z",
                             "updated_at": "2024-01-15T09:00:00Z"
@@ -179,7 +181,8 @@ async def create_scan(
     - **group_id**: 그룹 ID (필수)
     - **meta_data**: 스캔 메타데이터 (JSON 형태, 필수)
     - **status**: 스캔 상태 (기본값: UPLOADED)
-    - **file_path**: 스캔 파일 경로 (선택사항)
+    - **original_file_path**: 원본 스캔 파일 경로 (선택사항)
+    - **retouched_file_path**: 리터치된 스캔 파일 경로 (선택사항)
     - **memos**: 메모 정보 (JSON 형태, 선택사항)
     
     ### 📝 예시 요청
@@ -226,7 +229,8 @@ async def create_scan(
                                 }
                             },
                             "status": "UPLOADED",
-                            "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "original_file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "retouched_file_path": None,
                             "memos": [
                                 {
                                     "type": "text",
@@ -303,7 +307,8 @@ async def get_scan(
                                 }
                             },
                             "status": "UPLOADED",
-                            "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "original_file_path": "/uploads/scans/SCAN_2024_001.pdf",
+                            "retouched_file_path": None,
                             "memos": [
                                 {
                                     "type": "text",
@@ -365,7 +370,8 @@ async def update_scan(
     ### 📋 요청 데이터 (모든 필드 선택사항)
     - **meta_data**: 스캔 메타데이터 (JSON 형태)
     - **status**: 스캔 상태 (UPLOADED, COMPLETED)
-    - **file_path**: 스캔 파일 경로
+    - **original_file_path**: 원본 스캔 파일 경로
+    - **retouched_file_path**: 리터치된 스캔 파일 경로
     - **memos**: 메모 정보 (JSON 형태)
     
     ### 📝 예시 요청
@@ -386,7 +392,8 @@ async def update_scan(
             }
         },
         "status": "UPLOADED",
-        "file_path": "/uploads/scans/SCAN_2024_001.pdf",
+        "original_file_path": "/uploads/scans/SCAN_2024_001.pdf",
+        "retouched_file_path": null,
         "memos": [
             {
                 "type": "text",

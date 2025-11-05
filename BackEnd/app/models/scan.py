@@ -11,7 +11,8 @@ class Scan(BaseModel):
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False, comment="그룹 외래키")
     meta_data = Column(JSON, nullable=False, comment="스캔본 메타데이터")
     status = Column(String, default="UPLOADED", nullable=False, comment="처리 상태")
-    file_path = Column(Text, comment="스캔 파일 경로")
+    original_file_path = Column(Text, comment="원본 스캔 파일 경로")
+    retouched_file_path = Column(Text, comment="리터치된 스캔 파일 경로")
     memos = Column(JSON, comment="스캔에 포함된 메모 정보")
     
     # 관계 설정
