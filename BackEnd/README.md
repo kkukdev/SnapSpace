@@ -36,6 +36,7 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=password
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
+TIMEZONE_OFFSET=9
 ```
 
 ### 2. 전체 스택 실행

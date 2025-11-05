@@ -14,7 +14,7 @@ class WSMessageType(str, Enum):
 
 class FileProcessingRequest(BaseModel):
     scan_id: int
-    file_path: str
+    original_file_path: str
     group_id: str
     metadata: Dict[str, Any]
 

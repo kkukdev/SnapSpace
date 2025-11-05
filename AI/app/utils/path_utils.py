@@ -14,14 +14,14 @@ def normalize_network_path(base_path: str, relative_path: str = "") -> str:
     네트워크 공유 폴더 경로를 정규화합니다.
     
     Args:
-        base_path: 기본 경로 (예: "\\\\70.12.246.48\\storage")
-        relative_path: 상대 경로 (예: "uploads/file.obj")
+        base_path: 기본 경로 (예: "\\\\ip주소\\storage")
+        relative_path: 상대 경로 (예: "uploads/file.obj" 또는 "storage/uploads/file.obj")
         
     Returns:
         정규화된 전체 경로
     """
     # UNC 경로 정규화 (백슬래시 통일)
-    base = base_path.replace('/', '\\')
+    base = base_path.replace('/', '\\').rstrip('\\')
     
     # UNC 경로 형식 확인
     if base.startswith('\\\\'):
@@ -29,15 +29,39 @@ def normalize_network_path(base_path: str, relative_path: str = "") -> str:
         if relative_path:
             # 상대 경로가 있으면 결합
             relative = relative_path.replace('/', '\\').lstrip('\\')
-            full_path = f"{base}\\{relative}" if not base.endswith('\\') else f"{base}{relative}"
+            
+            # base가 이미 storage로 끝나는 경우, relative_path에 storage가 포함되어 있으면 제거
+            # 예: base="\\host\storage", relative="storage/outputs" -> "\\host\storage\outputs"
+            if base.endswith('\\storage') or base.endswith('storage'):
+                # relative에서 "storage\\" 또는 "storage/"로 시작하는 경우 제거
+                if relative.lower().startswith('storage\\') or relative.lower().startswith('storage/'):
+                    relative = relative[8:]  # "storage\\" 또는 "storage/" 제거 (8자)
+                    relative = relative.lstrip('\\/')
+            
+            if relative:
+                full_path = f"{base}\\{relative}"
+            else:
+                full_path = base
         else:
             full_path = base
     else:
         # 일반 경로인 경우
         if relative_path:
-            full_path = os.path.join(base, relative_path)
+            # base가 이미 storage로 끝나는 경우, relative_path에 storage가 포함되어 있으면 제거
+            if base.endswith('storage') or base.endswith('\\storage') or base.endswith('/storage'):
+                relative = relative_path.replace('/', os.sep).lstrip('\\/')
+                if relative.lower().startswith('storage'):
+                    relative = relative[8:] if relative.startswith('storage\\') or relative.startswith('storage/') else relative[7:]
+                    relative = relative.lstrip('\\/')
+                full_path = os.path.join(base, relative) if relative else base
+            else:
+                full_path = os.path.join(base, relative_path)
         else:
             full_path = base
+    
+    # 백슬래시를 슬래시로 변환 (env 파일 형식과 일치)
+    # UNC 경로의 \\ 시작 부분도 //로 변환됨
+    full_path = full_path.replace('\\', '/')
     
     return full_path
 
@@ -57,7 +81,8 @@ def convert_to_network_path(file_path: str, network_base: str) -> str:
     if os.path.exists(file_path):
         # 네트워크 경로인지 확인
         if file_path.startswith('\\\\') or file_path.startswith('//'):
-            return file_path
+            # 백슬래시를 슬래시로 변환
+            return file_path.replace('\\', '/')
         # 파일이 존재하면 네트워크 경로로 변환 시도
         pass
     
@@ -104,7 +129,25 @@ def convert_to_network_path(file_path: str, network_base: str) -> str:
     
     # 변환 실패 시 원본 반환 (경고 로그)
     logger.warning(f"경로 변환 실패, 원본 사용: {file_path}")
-    return file_path
+    # 백슬래시를 슬래시로 변환
+    return file_path.replace('\\', '/')
+
+
+def normalize_for_windows_access(path: str) -> str:
+    """
+    Windows에서 파일 접근을 위해 경로를 백슬래시로 변환합니다.
+    UNC 경로의 경우 // -> \\ 변환
+    
+    Args:
+        path: 변환할 경로 (슬래시 형식)
+        
+    Returns:
+        Windows 접근용 경로 (백슬래시 형식)
+    """
+    # 모든 슬래시를 백슬래시로 변환
+    # UNC 경로의 경우: //host/share/path -> \\host\share\path
+    # 일반 경로의 경우: /path/to/file -> \path\to\file
+    return path.replace('/', '\\')
 
 
 def ensure_network_path_accessible(network_path: str) -> bool:
@@ -118,10 +161,12 @@ def ensure_network_path_accessible(network_path: str) -> bool:
         접근 가능하면 True, 아니면 False
     """
     try:
-        if os.path.exists(network_path):
+        # Windows에서 접근하기 위해 백슬래시로 변환
+        windows_path = normalize_for_windows_access(network_path)
+        if os.path.exists(windows_path):
             return True
         # 디렉토리인 경우 부모 디렉토리 확인
-        parent = os.path.dirname(network_path)
+        parent = os.path.dirname(windows_path)
         if parent and os.path.exists(parent):
             return True
         return False

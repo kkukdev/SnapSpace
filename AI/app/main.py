@@ -62,5 +62,5 @@ if __name__ == "__main__":
     uvicorn.run(
         app, 
         host=settings.host,  # .env.ai에서 읽어온 값 사용
-        port=settings.port   # .env.ai에서 읽어온 값 사용
+        port=settings.port,   # .env.ai에서 읽어온 값 사용
     )
