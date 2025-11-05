@@ -6,6 +6,7 @@ from fastapi import WebSocket
 from datetime import datetime
 
 from app.schemas.websocket_schemas import WSMessageType, FileListMessage
+from app.config import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,13 @@ class WebSocketManager:
         await websocket.accept()
         
         if client_id is None:
-            client_id = f"ai_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            client_id = f"ai_{get_current_datetime().strftime('%Y%m%d_%H%M%S')}"
         
         self.ai_connections.append(websocket)
         self.connection_info[websocket] = {
             "client_id": client_id,
-            "connected_at": datetime.now(),
-            "last_heartbeat": datetime.now()
+            "connected_at": get_current_datetime(),
+            "last_heartbeat": get_current_datetime()
         }
         
         logger.info(f"AI server connected: {client_id}")
@@ -237,7 +238,7 @@ class WebSocketManager:
     async def _handle_heartbeat(self, websocket: WebSocket, message_data: dict):
         """하트비트 응답"""
         if websocket in self.connection_info:
-            self.connection_info[websocket]["last_heartbeat"] = datetime.now()
+            self.connection_info[websocket]["last_heartbeat"] = get_current_datetime()
         logger.debug("Received heartbeat from AI")
     
     async def _handle_connection_status(self, websocket: WebSocket, message_data: dict):

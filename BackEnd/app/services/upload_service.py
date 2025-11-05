@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, AsyncGenerator, List
 from fastapi import UploadFile, HTTPException, status
 import asyncio
 
-from app.config import settings
+from app.config import settings, get_current_datetime
 from app.services.base import BaseService
 from app.services.websocket_manager import websocket_manager
 from app.services.scan_service import scan_service
@@ -53,7 +53,7 @@ class UploadService(BaseService):
                         "original_filename": original_filename,
                         "file_size": file_size,
                         "is_zip": is_zip,
-                        "uploaded_at": datetime.now().isoformat()
+                        "uploaded_at": get_current_datetime().isoformat()
                     },
                     status=ScanStatus.UPLOADED,
                     original_file_path=original_file_path,
@@ -265,14 +265,13 @@ class UploadService(BaseService):
 
     def generate_folder_name(self, original_filename: str) -> str:
         """업로드용 폴더명 생성 (날짜_파일명, 확장자 제거)"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = get_current_datetime().strftime("%Y%m%d_%H%M%S")
         name, _ = os.path.splitext(original_filename)
         return f"{timestamp}_{name}"
 
     def generate_filename(self, original_filename: str) -> str:
-        """고유한 파일명 생성 (시스템 로컬 타임존 사용)"""
-        # 시스템의 로컬 타임존 시간을 직접 사용
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """고유한 파일명 생성 (설정된 시간대 사용)"""
+        timestamp = get_current_datetime().strftime("%Y%m%d_%H%M%S")
         name, extension = os.path.splitext(original_filename)
         return f"{timestamp}_{name}{extension}"
 
@@ -526,7 +525,7 @@ class UploadService(BaseService):
                             "original_filename": file.filename,
                             "saved_filename": filename,
                             "file_size": total_size,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": get_current_datetime().isoformat()
                         }
                     }]
                     await websocket_manager.send_file_list(file_info)
@@ -554,7 +553,7 @@ class UploadService(BaseService):
         upload_folder.mkdir(parents=True, exist_ok=True)
         
         # 임시 zip 파일 저장 경로 (업로드 폴더 내부)
-        temp_zip_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        temp_zip_filename = f"temp_{get_current_datetime().strftime('%Y%m%d_%H%M%S')}.zip"
         temp_zip_path = upload_folder / temp_zip_filename
         
         # 파일 포인터를 처음으로 리셋
@@ -652,7 +651,7 @@ class UploadService(BaseService):
                             "obj_file": file_path.name,
                             "relative_path": relative_path,
                             "file_size": file_size,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": get_current_datetime().isoformat()
                         }
                     })
                 
