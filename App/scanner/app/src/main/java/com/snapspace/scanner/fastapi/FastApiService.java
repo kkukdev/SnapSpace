@@ -48,7 +48,8 @@ public class FastApiService {
         @Multipart
         @POST("api/v1/upload/")
         Call<FastSuccessResponse> uploadFile( 
-                @Part MultipartBody.Part file
+            @Part MultipartBody.Part group_name,
+            @Part MultipartBody.Part file
         );
     }
 

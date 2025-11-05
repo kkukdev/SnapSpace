@@ -22,6 +22,8 @@ import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast; // <-- [추가] Toast import
+import android.widget.FrameLayout;
+import android.widget.EditText;
 
 import androidx.core.content.FileProvider;
 import com.snapspace.scanner.BuildConfig;
@@ -461,7 +463,8 @@ class FileAdapter extends BaseAdapter
                 mContext.startActivity(intent);
                 break;
               case 2: // [수정] FastAPI 업로드
-                uploadToFastApi(zip);
+                promptForGroupName(zip);
+                //uploadToFastApi(zip);
                 break;
             }
             mContext.refreshUI();
@@ -483,7 +486,10 @@ class FileAdapter extends BaseAdapter
     builder.setItems(items, (dialog, which) -> {
       if (which == 0) {
         // FastAPI로 업로드
-        uploadToFastApi(zipFilePath);
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zipFilePath)));
+        mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
       } else {
         // 기타 앱으로 공유
         Intent intent = new Intent(Intent.ACTION_SEND);
@@ -547,9 +553,60 @@ class FileAdapter extends BaseAdapter
     mGesture.onTouchEvent(event);
   }
 
+  private void promptForGroupName(String zipFilePath) {
+    AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
+    builder.setTitle("그룹 이름 입력"); // 제목
+
+    // EditText를 담을 컨테이너 레이아웃 생성
+    FrameLayout container = new FrameLayout(mContext);
+    final EditText input = new EditText(mContext);
+    input.setHint("그룹 이름 (예: A공장 B구역)");
+    input.setSingleLine(true);
+
+    // EditText에 여백(margin) 추가 (dialog_rename.xml 참고)
+    float density = mContext.getResources().getDisplayMetrics().density;
+    int marginPx = (int)(20 * density); // 20dp
+    
+    FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    params.leftMargin = marginPx;
+    params.rightMargin = marginPx;
+    input.setLayoutParams(params);
+    
+    container.addView(input);
+    builder.setView(container); // 다이얼로그에 EditText 컨테이너 설정
+
+    // 확인 버튼 설정
+    builder.setPositiveButton(mContext.getString(android.R.string.ok), (dialog, which) -> {
+      String groupName = input.getText().toString();
+      if (groupName.trim().isEmpty()) {
+        // 이름이 비어있으면 토스트 메시지를 띄우고 작업을 취소
+        Toast.makeText(mContext, "그룹 이름을 입력해야 합니다.", Toast.LENGTH_SHORT).show();
+        mContext.refreshUI(); // UI 초기화
+        deleteTempZip(zipFilePath); // 임시 파일 삭제
+      } else {
+        // groupName과 함께 업로드 메소드 호출
+        uploadToFastApi(zipFilePath, groupName);
+      }
+    });
+
+    // 취소 버튼 설정
+    builder.setNegativeButton(mContext.getString(android.R.string.cancel), (dialog, which) -> {
+      dialog.cancel();
+      mContext.refreshUI(); // UI 초기화
+      deleteTempZip(zipFilePath); // 임시 파일 삭제
+    });
+
+    AlertDialog d = builder.create();
+    // Dialog의 배경을 다른 다이얼로그와 통일
+    if (d.getWindow() != null) {
+        d.getWindow().setBackgroundDrawable(mContext.getDrawable(R.drawable.background_dialog));
+    }
+    d.show();
+  }
+
  
-  private void uploadToFastApi(String zipFilePath) {
-    Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath);
+  private void uploadToFastApi(String zipFilePath, String groupName) {
+    Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath + ", 그룹: " + groupName);
     mContext.showProgress();
 
     // 1. FastApiService의 Retrofit 인스턴스와 인터페이스를 가져옵니다.
@@ -563,9 +620,10 @@ class FileAdapter extends BaseAdapter
     RequestBody requestFile = RequestBody.create(MediaType.parse("application/zip"), file);
     // "file"은 FastApiInterface에서 @Part("file")에 설정한 '이름'과 일치해야 합니다.
     MultipartBody.Part filePart = MultipartBody.Part.createFormData("file", file.getName(), requestFile);
+    MultipartBody.Part groupNamePart = MultipartBody.Part.createFormData("group_name", groupName);
 
     // 4. Retrofit Call 객체를 생성
-    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(filePart);
+    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(groupNamePart, filePart);
 
     // 5. 요청을 비동기(Asynchronous)로 실행
     call.enqueue(new Callback<FastApiService.FastSuccessResponse>() {
