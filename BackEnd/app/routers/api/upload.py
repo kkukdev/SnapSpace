@@ -123,10 +123,12 @@ async def upload_file(
 ):
     """파일 업로드"""
     group_id = "1"  # 기본값
+    group_name_to_use = None
     
     # group_name이 있으면 그룹을 찾거나 생성
     if group_name and group_name.strip():
         group_name_clean = group_name.strip()
+        group_name_to_use = group_name_clean
         logger.info(f"그룹 검색 시작: group_name='{group_name_clean}'")
         
         try:
@@ -158,9 +160,19 @@ async def upload_file(
         except Exception as e:
             # 그룹 처리 실패 시 기본값 1 사용 (업로드는 계속 진행)
             logger.error(f"그룹 처리 중 오류 발생: {str(e)}", exc_info=True)
+    else:
+        # group_name이 없으면 기본 그룹(1)의 이름을 DB에서 조회
+        try:
+            default_group = group_service.get_group(db=db, group_id=1)
+            if default_group.success and default_group.data:
+                group_name_to_use = default_group.data.name
+                logger.info(f"기본 그룹 이름 조회: group_name='{group_name_to_use}'")
+        except Exception as e:
+            # 기본 그룹 조회 실패 시 None 유지 (default 디렉토리 사용)
+            logger.warning(f"기본 그룹 이름 조회 실패: {str(e)}")
     
     # 서비스 레이어에서 파일 업로드 처리
-    upload_result = await upload_service.upload_file(file, group_id=group_id)
+    upload_result = await upload_service.upload_file(file, group_id=group_id, group_name=group_name_to_use)
     
     # 응답에 group_id와 group_name 추가
     try:

@@ -154,16 +154,16 @@ class UploadService(BaseService):
                 detail=f"지원하지 않는 파일 형식입니다. 허용된 확장자: {', '.join(settings.ALLOWED_EXTENSIONS)}"
             )
 
-    async def ensure_group_upload_directory(self, group_id: Optional[str] = None) -> Path:
-        """그룹별 업로드 디렉토리 생성 및 경로 반환"""
+    async def ensure_group_upload_directory(self, group_name: Optional[str] = None) -> Path:
+        """그룹별 업로드 디렉토리 생성 및 경로 반환 (group_name 사용)"""
         base_upload_path = Path(settings.UPLOAD_DIR)
         
-        if group_id is None or group_id == "":
-            # group_id가 없으면 1번 디렉토리 사용
-            upload_path = base_upload_path / str(1)
+        if group_name is None or group_name == "":
+            # group_name이 없으면 default 디렉토리 사용
+            upload_path = base_upload_path / str("default")
         else:
-            # storage/uploads/{group_id} 구조
-            upload_path = base_upload_path / str(group_id)
+            # storage/uploads/{group_name} 구조
+            upload_path = base_upload_path / str(group_name)
         
         try:
             upload_path.mkdir(parents=True, exist_ok=True)
@@ -489,7 +489,8 @@ class UploadService(BaseService):
         self, 
         file: UploadFile,
         progress_callback: Optional[callable] = None,
-        group_id: Optional[str] = None
+        group_id: Optional[str] = None,
+        group_name: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """진행률 콜백과 함께 파일 업로드"""
         
@@ -501,7 +502,7 @@ class UploadService(BaseService):
             )
         
         await self.validate_file_extension(file.filename)
-        upload_dir = await self.ensure_group_upload_directory(group_id)
+        upload_dir = await self.ensure_group_upload_directory(group_name)
         filename = self.generate_filename(file.filename)
         file_path = upload_dir / filename
         
@@ -553,7 +554,7 @@ class UploadService(BaseService):
                     pass
             raise
 
-    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None) -> Dict[str, Any]:
+    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
         """파일 업로드 처리 (최적화된 버전)"""
         try:
             # 파일명 검증
@@ -567,7 +568,7 @@ class UploadService(BaseService):
             await self.validate_file_extension(file.filename)
             
             # 그룹별 업로드 디렉토리 준비
-            group_upload_dir = await self.ensure_group_upload_directory(group_id)
+            group_upload_dir = await self.ensure_group_upload_directory(group_name)
             
             # 파일 포인터를 처음으로 리셋 (이전에 읽혔을 수 있음)
             await file.seek(0)
@@ -577,9 +578,9 @@ class UploadService(BaseService):
             
             # zip 파일인 경우 별도 처리
             if file_extension == '.zip':
-                return await self._upload_zip_file(file, group_upload_dir, group_id)
+                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name)
             
-            # 일반 파일 업로드: storage/uploads/{group_id}/{날짜_파일명}/파일명 형태
+            # 일반 파일 업로드: storage/uploads/{group_name}/{날짜_파일명}/파일명 형태
             folder_name = self.generate_folder_name(file.filename)
             upload_folder = group_upload_dir / folder_name
             upload_folder.mkdir(parents=True, exist_ok=True)
@@ -685,12 +686,8 @@ class UploadService(BaseService):
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
             
-            # group_id 처리 (기본값 1 사용)
-            try:
-                group_id_int = int(group_id) if group_id else 1
-            except (ValueError, TypeError):
-                group_id_int = 1
-            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            # group_id 처리 (기본값 "1" 사용)
+            group_id_str = group_id if group_id else "1"
             
             # 웹소켓으로 업로드된 파일 정보 전송 (obj 파일인 경우에만)
             # scan_id가 0이면 스캔이 생성되지 않았으므로 전송하지 않음
@@ -701,7 +698,8 @@ class UploadService(BaseService):
                     file_info = [{
                         "scan_id": scan_id_for_websocket,  # 정수로 전송
                         "original_file_path": str(file_path.absolute()),
-                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "group_id": group_id_str,
+                        "group_name": group_name,  # group_name 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "saved_filename": filename,
@@ -726,9 +724,9 @@ class UploadService(BaseService):
                 detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
-    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None) -> Dict[str, Any]:
+    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
-        # 업로드 폴더 생성: storage/uploads/{group_id}/{날짜_파일명}
+        # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
         upload_folder = group_upload_dir / folder_name
         upload_folder.mkdir(parents=True, exist_ok=True)
@@ -833,12 +831,8 @@ class UploadService(BaseService):
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
             
-            # group_id 처리 (기본값 1 사용)
-            try:
-                group_id_int = int(group_id) if group_id else 1
-            except (ValueError, TypeError):
-                group_id_int = 1
-            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            # group_id 처리 (기본값 "1" 사용)
+            group_id_str = group_id if group_id else "1"
             
             # 웹소켓으로 파일 정보 전송 (obj 파일만 전송, scan_id가 0이 아닌 경우에만)
             file_info = []
@@ -854,7 +848,8 @@ class UploadService(BaseService):
                     file_info.append({
                         "scan_id": scan_id_for_websocket,  # 정수로 전송
                         "original_file_path": str(file_path.absolute()),
-                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "group_id": group_id_str,
+                        "group_name": group_name,  # group_name 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "extracted_from_zip": True,

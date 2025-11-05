@@ -17,6 +17,7 @@ class FileProcessingRequest(BaseModel):
     scan_id: int
     original_file_path: str
     group_id: str
+    group_name: Optional[str] = None
     metadata: Dict[str, Any]
 
 class FileListMessage(BaseModel):
