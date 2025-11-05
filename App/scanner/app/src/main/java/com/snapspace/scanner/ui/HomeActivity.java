@@ -38,6 +38,20 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     private Button mPreviewButton;
     private Button mUploadButton;
 
+    private long backPressedTime = 0;
+
+    @Override
+    public void onBackPressed() {
+        if (System.currentTimeMillis() - backPressedTime < 2000) {
+            // 2초 이내 두 번 누르면 종료
+            finish();
+            finishAffinity();
+        } else {
+            backPressedTime = System.currentTimeMillis();
+            Toast.makeText(this, "한 번 더 누르면 종료됩니다", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     // onCreate 메서드
     @Override
     protected void onCreate(Bundle savedInstanceState) {
