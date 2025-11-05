@@ -28,8 +28,8 @@ router = APIRouter()
                             "groups": [
                                 {
                                     "group_id": 1,
+                                    "name": "제조공장 A",
                                     "meta_data": {
-                                        "name": "제조공장 A",
                                         "location": "서울시 강남구",
                                         "type": "manufacturing"
                                     },
@@ -93,6 +93,7 @@ async def get_groups(
                         "success": True,
                         "data": {
                             "group_id": 1,
+                            "name": "1공정라인",
                             "meta_data": {},
                             "created_at": "2024-01-15T09:00:00Z",
                             "updated_at": "2024-01-15T09:00:00Z"
@@ -130,11 +131,13 @@ async def create_group(
     새로운 그룹을 생성합니다. group_id는 자동으로 생성됩니다.
     
     ### 📋 요청 데이터
+    - **name**: 그룹 이름 (필수)
     - **meta_data**: 그룹 메타데이터 (JSON 형태, 필수)
     
     ### 📝 예시 요청
     ```json
     {
+        "name": "1공정라인",
         "meta_data": {}
     }
     ```
@@ -158,8 +161,8 @@ async def create_group(
                         "success": True,
                         "data": {
                             "group_id": 1,
+                            "name": "제조공장 A",
                             "meta_data": {
-                                "name": "제조공장 A",
                                 "location": "서울시 강남구",
                                 "type": "manufacturing"
                             },
@@ -214,8 +217,8 @@ async def get_group(
                         "success": True,
                         "data": {
                             "group_id": 1,
+                            "name": "제조공장 A (수정됨)",
                             "meta_data": {
-                                "name": "제조공장 A (수정됨)",
                                 "location": "서울시 강남구",
                                 "type": "manufacturing"
                             },
@@ -246,6 +249,7 @@ async def update_group(
     - **group_id**: 수정할 그룹의 고유 ID
     
     ### 📋 요청 데이터
+    - **name**: 그룹 이름 (선택사항)
     - **meta_data**: 그룹 메타데이터 (JSON 형태, 선택사항)
     """
     return group_service.update_group(db=db, group_id=group_id, group_data=group_data)
@@ -335,7 +339,8 @@ async def delete_group(
                                     }
                                 },
                                 "status": "UPLOADED",
-                                "file_path": "/uploads/scans/scan_001.pdf",
+                                "original_file_path": "/uploads/scans/scan_001.pdf",
+                                "retouched_file_path": None,
                                 "memos": [
                                     {
                                         "type": "text",
@@ -364,7 +369,8 @@ async def delete_group(
                                     }
                                 },
                                 "status": "COMPLETED",
-                                "file_path": "/uploads/scans/scan_002.pdf",
+                                "original_file_path": "/uploads/scans/scan_002.pdf",
+                                "retouched_file_path": "/uploads/scans/scan_002_retouched.pdf",
                                 "memos": [
                                     {
                                         "type": "voice",

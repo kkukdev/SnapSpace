@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from dotenv import load_dotenv
 import os
+from datetime import datetime, timezone, timedelta
 
 load_dotenv()
 
@@ -24,6 +25,26 @@ class Settings(BaseSettings):
     # API settings
     API_V1_STR: str = "/api/v1"
     
+    # Timezone settings
+    # .env에서 TIMEZONE_OFFSET 읽기 (없으면 UTC+0, 기본값은 UTC+9)
+    TIMEZONE_OFFSET: int = Field(
+        default=9,  # 기본값 UTC+9
+        alias="TIMEZONE_OFFSET"
+    )
+    
+    @property
+    def TIMEZONE(self) -> timezone:
+        """시간대 반환 (.env에서 TIMEZONE_OFFSET 읽기, 없으면 UTC+0)"""
+        # .env에서 TIMEZONE_OFFSET 읽기
+        tz_offset = os.getenv("TIMEZONE_OFFSET")
+        if tz_offset is None:
+            # .env에 없으면 UTC+0 사용
+            offset_hours = 0
+        else:
+            # .env에 있으면 그 값 사용
+            offset_hours = int(tz_offset)
+        return timezone(timedelta(hours=offset_hours))
+    
     # File upload settings
     # 프로젝트 루트의 storage/uploads 폴더 사용
     if os.path.exists("/project_root/storage"):
@@ -43,3 +64,8 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+
+def get_current_datetime() -> datetime:
+    """현재 시간을 설정된 시간대로 반환 (.env에서 TIMEZONE_OFFSET 읽기, 없으면 UTC+0)"""
+    return datetime.now(settings.TIMEZONE)
