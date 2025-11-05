@@ -795,9 +795,24 @@ class UploadService(BaseService):
                 is_zip=True
             )
             
+            # 결과 딕셔너리 초기화 (메모 파일 처리에서 사용하기 위해 미리 생성)
+            result = {
+                "original_filename": file.filename,
+                "file_size": total_size,
+                "folder_path": str(upload_folder.absolute()),
+                "files_count": len(all_files),
+                "obj_files_count": len(obj_files),
+                "files": [str(f.absolute()) for f in all_files],
+                "obj_files": [str(obj.absolute()) for obj in obj_files],
+                "upload_success": True,
+                "is_zip": True,
+                "group_id": group_id
+            }
+            
             # 스캔 ID 설정 (스캔 생성 실패 시 0 사용)
             if scan_info:
                 scan_id_for_websocket = scan_info.get("scan_id", 0)
+                result["scan_id"] = scan_id_for_websocket
                 
                 # 메모 파일 처리 (스캔 생성 후) - 텍스트 및 음성 메모 모두 처리
                 if scan_id_for_websocket != 0:
@@ -867,24 +882,6 @@ class UploadService(BaseService):
                     logger.warning(f"Failed to send zip file upload notification via websocket: {e}")
             else:
                 logger.warning(f"scan_id가 0이므로 웹소켓 전송을 스킵합니다. group_id={group_id}, zip_file={file.filename}")
-            
-            # 결과 반환
-            result = {
-                "original_filename": file.filename,
-                "file_size": total_size,
-                "folder_path": str(upload_folder.absolute()),
-                "files_count": len(all_files),
-                "obj_files_count": len(obj_files),
-                "files": [str(f.absolute()) for f in all_files],
-                "obj_files": [str(obj.absolute()) for obj in obj_files],
-                "upload_success": True,
-                "is_zip": True,
-                "group_id": group_id
-            }
-            
-            # 스캔 정보를 결과에 추가
-            if scan_info:
-                result["scan_id"] = scan_info.get("scan_id")
             
             return result
             
