@@ -197,6 +197,158 @@ class UploadService(BaseService):
             logger.error(f"파일 검색 중 오류 발생: {str(e)}")
         return all_files
 
+    def _get_text_memo_patterns(self) -> List[str]:
+        """텍스트 메모 파일 패턴 목록 (확장 가능)"""
+        return ["memo", "note", "note_memo", "memo_note"]
+    
+    def _get_audio_memo_extensions(self) -> List[str]:
+        """음성 메모 파일 확장자 목록 (확장 가능)"""
+        return [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"]
+    
+    def find_memo_files(self, directory: Path) -> Dict[str, List[Path]]:
+        """
+        디렉토리 내 모든 메모 파일 찾기 (텍스트, 음성 등)
+        
+        Returns:
+            {
+                "text": [Path, ...],  # 텍스트 메모 파일들
+                "audio": [Path, ...]  # 음성 메모 파일들
+            }
+        """
+        text_memos = []
+        audio_memos = []
+        
+        try:
+            text_patterns = self._get_text_memo_patterns()
+            audio_extensions = self._get_audio_memo_extensions()
+            
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    file_lower = file.lower()
+                    file_path = Path(root) / file
+                    file_ext = Path(file).suffix.lower()
+                    
+                    # 텍스트 메모 파일 확인 (memo.txt, note.txt, memo_note.txt 등)
+                    if file_ext in [".txt"]:
+                        # 파일명에 메모 패턴이 포함되어 있는지 확인
+                        file_stem = Path(file).stem.lower()
+                        if any(pattern in file_stem for pattern in text_patterns):
+                            text_memos.append(file_path)
+                    
+                    # 음성 메모 파일 확인 (memo.mp3, voice.wav 등)
+                    if file_ext in audio_extensions:
+                        # 파일명에 메모 관련 키워드가 포함되어 있는지 확인
+                        file_stem = Path(file).stem.lower()
+                        memo_keywords = ["memo", "note", "voice", "audio", "record", "recording"]
+                        if any(keyword in file_stem for keyword in memo_keywords):
+                            audio_memos.append(file_path)
+        
+        except Exception as e:
+            logger.error(f"메모 파일 검색 중 오류 발생: {str(e)}")
+        
+        return {
+            "text": text_memos,
+            "audio": audio_memos
+        }
+
+    async def read_text_memo_file(self, memo_path: Path) -> Optional[str]:
+        """텍스트 메모 파일 읽기 (비동기)"""
+        try:
+            async with aiofiles.open(memo_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                return content.strip() if content else None
+        except UnicodeDecodeError:
+            # UTF-8로 읽기 실패 시 다른 인코딩 시도
+            try:
+                async with aiofiles.open(memo_path, 'r', encoding='cp949') as f:
+                    content = await f.read()
+                    return content.strip() if content else None
+            except Exception as e:
+                logger.error(f"텍스트 메모 파일 읽기 실패 (인코딩 오류): {str(e)}")
+                return None
+        except Exception as e:
+            logger.error(f"텍스트 메모 파일 읽기 중 오류 발생: {str(e)}")
+            return None
+
+    async def process_text_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
+        """텍스트 메모 파일을 읽고 memos 형식으로 변환"""
+        memo_content = await self.read_text_memo_file(memo_path)
+        if not memo_content:
+            return None
+        
+        return {
+            "type": "text",
+            "content": memo_content,
+            "source": memo_path.name,
+            "file_path": str(memo_path.absolute()),
+            "file_size": memo_path.stat().st_size if memo_path.exists() else 0
+        }
+
+    async def process_audio_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
+        """음성 메모 파일을 처리하고 memos 형식으로 변환 (확장 가능)"""
+        try:
+            file_size = memo_path.stat().st_size if memo_path.exists() else 0
+            file_ext = memo_path.suffix.lower()
+            
+            # 음성 파일의 경우 메타데이터만 저장 (실제 오디오 처리는 추후 구현 가능)
+            return {
+                "type": "audio",
+                "content": None,  # 음성 파일은 내용을 직접 저장하지 않음
+                "source": memo_path.name,
+                "file_path": str(memo_path.absolute()),
+                "file_size": file_size,
+                "file_extension": file_ext,
+                "note": "음성 메모 파일 - 추후 오디오 처리 기능 추가 가능"
+            }
+        except Exception as e:
+            logger.error(f"음성 메모 파일 처리 중 오류 발생: {str(e)}")
+            return None
+
+    async def process_all_memo_files(self, directory: Path) -> List[Dict[str, Any]]:
+        """
+        디렉토리 내 모든 메모 파일을 찾아서 처리하고 memos 형식으로 변환
+        
+        Returns:
+            List[Dict[str, Any]]: 처리된 모든 메모 파일의 리스트
+        """
+        memos = []
+        memo_files = self.find_memo_files(directory)
+        
+        # 텍스트 메모 파일 처리
+        for text_memo_path in memo_files["text"]:
+            try:
+                memo_data = await self.process_text_memo_file(text_memo_path)
+                if memo_data:
+                    memos.append(memo_data)
+                    logger.info(f"텍스트 메모 파일 처리 완료: {text_memo_path}")
+            except Exception as e:
+                logger.warning(f"텍스트 메모 파일 처리 실패: {text_memo_path}, 오류: {str(e)}")
+        
+        # 음성 메모 파일 처리
+        for audio_memo_path in memo_files["audio"]:
+            try:
+                memo_data = await self.process_audio_memo_file(audio_memo_path)
+                if memo_data:
+                    memos.append(memo_data)
+                    logger.info(f"음성 메모 파일 처리 완료: {audio_memo_path}")
+            except Exception as e:
+                logger.warning(f"음성 메모 파일 처리 실패: {audio_memo_path}, 오류: {str(e)}")
+        
+        if memos:
+            logger.info(f"총 {len(memos)}개의 메모 파일이 처리되었습니다. (텍스트: {len(memo_files['text'])}, 음성: {len(memo_files['audio'])})")
+        
+        return memos
+
+    # 기존 호환성을 위한 별칭 (deprecated, 추후 제거 가능)
+    async def process_memo_file(self, directory: Path) -> Optional[List[Dict[str, Any]]]:
+        """
+        디렉토리 내 메모 파일을 찾아서 처리 (기존 호환성 유지)
+        
+        Deprecated: process_all_memo_files를 사용하세요.
+        """
+        memos = await self.process_all_memo_files(directory)
+        return memos if memos else None
+
     async def extract_zip_file(self, zip_path: Path, extract_to: Path) -> Path:
         """zip 파일 압축 해제 (내부 폴더가 있으면 그 내부의 파일들만 저장)"""
         def _extract():
@@ -500,6 +652,35 @@ class UploadService(BaseService):
             if scan_info:
                 upload_result["scan_id"] = scan_info.get("scan_id")
                 scan_id_for_websocket = scan_info.get("scan_id", 0)
+                
+                # 메모 파일 처리 (스캔 생성 후) - 텍스트 및 음성 메모 모두 처리
+                if scan_id_for_websocket != 0:
+                    try:
+                        memos = await self.process_all_memo_files(upload_folder)
+                        if memos:
+                            # DB 세션 생성
+                            db = SessionLocal()
+                            try:
+                                from app.schemas.scan import ScanUpdate
+                                scan_update = ScanUpdate(memos=memos)
+                                update_response = scan_service.update_scan(
+                                    db=db, 
+                                    scan_id=scan_id_for_websocket, 
+                                    scan_data=scan_update
+                                )
+                                if update_response.success:
+                                    logger.info(f"메모 파일 {len(memos)}개가 스캔(scan_id={scan_id_for_websocket})에 저장되었습니다.")
+                                    upload_result["memos"] = memos
+                                    upload_result["memos_count"] = len(memos)
+                                else:
+                                    logger.warning(f"메모 파일 저장 실패: {update_response.message}")
+                            except Exception as e:
+                                logger.error(f"메모 파일 저장 중 오류 발생: {str(e)}", exc_info=True)
+                            finally:
+                                db.close()
+                    except Exception as e:
+                        # 메모 파일 처리 실패는 업로드 자체를 실패시키지 않음
+                        logger.warning(f"메모 파일 처리 중 오류 발생 (업로드는 성공): {str(e)}")
             else:
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
@@ -619,6 +800,35 @@ class UploadService(BaseService):
             # 스캔 ID 설정 (스캔 생성 실패 시 0 사용)
             if scan_info:
                 scan_id_for_websocket = scan_info.get("scan_id", 0)
+                
+                # 메모 파일 처리 (스캔 생성 후) - 텍스트 및 음성 메모 모두 처리
+                if scan_id_for_websocket != 0:
+                    try:
+                        memos = await self.process_all_memo_files(upload_folder)
+                        if memos:
+                            # DB 세션 생성
+                            db = SessionLocal()
+                            try:
+                                from app.schemas.scan import ScanUpdate
+                                scan_update = ScanUpdate(memos=memos)
+                                update_response = scan_service.update_scan(
+                                    db=db, 
+                                    scan_id=scan_id_for_websocket, 
+                                    scan_data=scan_update
+                                )
+                                if update_response.success:
+                                    logger.info(f"메모 파일 {len(memos)}개가 스캔(scan_id={scan_id_for_websocket})에 저장되었습니다.")
+                                    result["memos"] = memos
+                                    result["memos_count"] = len(memos)
+                                else:
+                                    logger.warning(f"메모 파일 저장 실패: {update_response.message}")
+                            except Exception as e:
+                                logger.error(f"메모 파일 저장 중 오류 발생: {str(e)}", exc_info=True)
+                            finally:
+                                db.close()
+                    except Exception as e:
+                        # 메모 파일 처리 실패는 업로드 자체를 실패시키지 않음
+                        logger.warning(f"메모 파일 처리 중 오류 발생 (업로드는 성공): {str(e)}")
             else:
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
