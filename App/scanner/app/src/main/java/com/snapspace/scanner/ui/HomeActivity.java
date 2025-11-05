@@ -16,13 +16,17 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.viewpager2.widget.ViewPager2;
+
 import com.snapspace.scanner.R;
 import com.snapspace.scanner.main.Exporter;
 import com.snapspace.scanner.main.Main;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class HomeActivity extends AbstractActivity implements View.OnClickListener {
@@ -32,11 +36,15 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     private ProgressBar mProgress;
     private TextView mInfoText;
     private Button mCancelButton;
-    private LinearLayout mButtonGird;
-    private ImageView mSpaceScanButton;
-    private ImageView mObjectScanButton;
-    private Button mPreviewButton;
-    private Button mUploadButton;
+//    private LinearLayout mButtonGird;
+//    private ImageView mSpaceScanButton;
+//    private ImageView mObjectScanButton;
+//    private Button mPreviewButton;
+//    private Button mUploadButton;
+
+    private ViewPager2 viewPager;
+    private MenuCardAdapter adapter;
+    private List<MenuCard> menuCards;
 
     private long backPressedTime = 0;
 
@@ -58,36 +66,88 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
+        viewPager = findViewById(R.id.view_pager);
+
+        // 메뉴 카드 데이터 생성 (먼저 초기화)
+        setupMenuCards();
+
+        // Adapter 설정
+        adapter = new MenuCardAdapter(menuCards, this::onCardClick);
+        viewPager.setAdapter(adapter);
+
+        // 페이지 간격 설정 (선택사항)
+        viewPager.setOffscreenPageLimit(3);
+//        viewPager.setPageTransformer(new CardTransformer());
+
         // UI 컴포넌트 초기화
         mProcessLayout = findViewById(R.id.processing_layout);
         mProgress = findViewById(R.id.progressBar);
         mInfoText = findViewById(R.id.info_text);
         mCancelButton = findViewById(R.id.service_cancel);
-        mButtonGird = findViewById(R.id.button_grid);
-        mSpaceScanButton = findViewById(R.id.space_scan_button);
-        mObjectScanButton = findViewById(R.id.object_scan_button);
-        mPreviewButton = findViewById(R.id.preview_button);
-        mUploadButton = findViewById(R.id.upload_button);
+//        mButtonGird = findViewById(R.id.button_grid);
+//        mSpaceScanButton = findViewById(R.id.space_scan_button);
+//        mObjectScanButton = findViewById(R.id.object_scan_button);
+//        mPreviewButton = findViewById(R.id.preview_button);
+//        mUploadButton = findViewById(R.id.upload_button);
 
         // 버튼 리스너 등록
-        mSpaceScanButton.setOnClickListener(this);
-        mObjectScanButton.setOnClickListener(this);
-        mPreviewButton.setOnClickListener(this);
-        mUploadButton.setOnClickListener(this);
+//        mSpaceScanButton.setOnClickListener(this);
+//        mObjectScanButton.setOnClickListener(this);
+//        mPreviewButton.setOnClickListener(this);
+//        mUploadButton.setOnClickListener(this);
         mCancelButton.setOnClickListener(this);
 
         // 버튼 초기 세팅
         mProgress.setVisibility(View.GONE);
         mInfoText.setVisibility(View.GONE);
         mCancelButton.setVisibility(View.GONE);
-        mButtonGird.setVisibility(View.VISIBLE);
-        mSpaceScanButton.setVisibility(View.VISIBLE);
-        mObjectScanButton.setVisibility(View.VISIBLE);
-        mPreviewButton.setVisibility(View.VISIBLE);
-        mUploadButton.setVisibility(View.VISIBLE);
+//        mButtonGird.setVisibility(View.VISIBLE);
+//        mSpaceScanButton.setVisibility(View.VISIBLE);
+//        mObjectScanButton.setVisibility(View.VISIBLE);
+//        mPreviewButton.setVisibility(View.VISIBLE);
+//        mUploadButton.setVisibility(View.VISIBLE);
 
         // 권환 확인
         checkPermissions();
+    }
+
+    private void setupMenuCards() {
+        menuCards = new ArrayList<>();
+
+        menuCards.add(new MenuCard(
+                R.drawable.ic_space_scan,
+                "공간 스캔",
+                "실내 공간을 3D로 스캔합니다",
+                MenuCard.MenuType.SPACE_SCAN
+        ));
+
+        menuCards.add(new MenuCard(
+                R.drawable.ic_object_scan,
+                "오브젝트 스캔",
+                "작은 물체를 3D로 스캔합니다",
+                MenuCard.MenuType.OBJECT_SCAN
+        ));
+
+        menuCards.add(new MenuCard(
+                R.drawable.ic_object_scan,
+                "스캔 결과 보기",
+                "저장된 3D 모델을 확인합니다",
+                MenuCard.MenuType.PREVIEW
+        ));
+    }
+
+    private void onCardClick(MenuCard card) {
+        switch (card.getType()) {
+            case SPACE_SCAN:
+                startScanning("space_scan");
+                break;
+            case OBJECT_SCAN:
+                startScanning("object_scan");
+                break;
+            case PREVIEW:
+                startActivity(new Intent(this, FileManager.class));
+                break;
+        }
     }
 
     @Override
@@ -165,24 +225,25 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     public void onClick(View v) {
         int id = v.getId();
 
-        // 공간 스캔 버튼 클릭
-        if (id == R.id.space_scan_button) {
-            startScanning("space_scan");
-        }
-        // 오브젝트 스캔 버튼 클릭
-        else if (id == R.id.object_scan_button) {
-            startScanning("object_scan");
-        }
-        // 스캔 결과 보기 버튼 클릭
-        else if (id == R.id.preview_button) {
-            startActivity(new Intent(HomeActivity.this, FileManager.class));
-        }
-        // 서버 업로드 버튼 클릭
-        else if (id == R.id.upload_button) {
-            Toast.makeText(HomeActivity.this, "서버 업로드 기능 준비 중...", Toast.LENGTH_SHORT).show();
-        }
-        // 작업 취소 버튼 클릭
-        else if (id == R.id.service_cancel) {
+//        // 공간 스캔 버튼 클릭
+//        if (id == R.id.space_scan_button) {
+//            startScanning("space_scan");
+//        }
+//        // 오브젝트 스캔 버튼 클릭
+//        else if (id == R.id.object_scan_button) {
+//            startScanning("object_scan");
+//        }
+//        // 스캔 결과 보기 버튼 클릭
+//        else if (id == R.id.preview_button) {
+//            startActivity(new Intent(HomeActivity.this, FileManager.class));
+//        }
+//        // 서버 업로드 버튼 클릭
+//        else if (id == R.id.upload_button) {
+//            Toast.makeText(HomeActivity.this, "서버 업로드 기능 준비 중...", Toast.LENGTH_SHORT).show();
+//        }
+//        // 작업 취소 버튼 클릭
+//        else
+        if (id == R.id.service_cancel) {
             cancelProcessing();
         }
         // 잘못된 입력 값
@@ -258,11 +319,11 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             mProgress.setVisibility(View.VISIBLE);
             mInfoText.setVisibility(View.VISIBLE);
             mCancelButton.setVisibility(View.VISIBLE);
-            mButtonGird.setVisibility(View.GONE);
-            mSpaceScanButton.setVisibility(View.GONE);
-            mObjectScanButton.setVisibility(View.GONE);
-            mPreviewButton.setVisibility(View.GONE);
-            mUploadButton.setVisibility(View.GONE);
+//            mButtonGird.setVisibility(View.GONE);
+//            mSpaceScanButton.setVisibility(View.GONE);
+//            mObjectScanButton.setVisibility(View.GONE);
+//            mPreviewButton.setVisibility(View.GONE);
+//            mUploadButton.setVisibility(View.GONE);
         } catch (Exception e) {
             e.printStackTrace();
         }
