@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.preference.PreferenceManager;
+import android.text.SpannableString;
 import android.util.Log; // <-- [추가] 로그 import
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -441,12 +442,17 @@ class FileAdapter extends BaseAdapter
       Toast.makeText(mContext, R.string.invalid_name, Toast.LENGTH_LONG).show();
     } else {
       AlertDialog.Builder dialog = new AlertDialog.Builder(mContext);
-      dialog.setTitle(R.string.share_via);
+      
+      // 타이틀을 bold로 설정
+      SpannableString title = new SpannableString(mContext.getString(R.string.share_via));
+      title.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, title.length(), 0);
+      dialog.setTitle(title);
+      
       dialog.setItems(R.array.shares, (dialog1, which) -> {
         mContext.showProgress();
         new Thread(() -> {
           File file = new File(getPath(), key);
-          final String zip = which == 1 ? AbstractActivity.getModel(file).getAbsolutePath() : Exporter.compressModel(file);
+          final String zip = Exporter.compressModel(file);
           mContext.runOnUiThread(() -> {
             Intent intent;
             switch (which) {
@@ -456,13 +462,7 @@ class FileAdapter extends BaseAdapter
                 intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zip)));
                 mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
                 break;
-              case 1:
-                intent = new Intent(mContext, Uploader.class);
-                intent.putExtra(AbstractActivity.FILE_KEY, zip);
-                intent.putExtra(AbstractActivity.URL_KEY, "https://anyconv.com/mesh-converter/");
-                mContext.startActivity(intent);
-                break;
-              case 2: // [수정] FastAPI 업로드
+              case 1: // [수정] FastAPI 업로드
                 promptForGroupName(zip);
                 //uploadToFastApi(zip);
                 break;

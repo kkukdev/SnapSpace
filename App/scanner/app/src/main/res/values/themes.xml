@@ -11,6 +11,7 @@
 
         <!-- Text Colors -->
         <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorAlertDialogListItem">@color/text_alertdialog_listitem</item>
 
         <!-- Font -->
         <item name="android:fontFamily">@font/pretendard</item>

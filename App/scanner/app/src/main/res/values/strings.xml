@@ -16,10 +16,11 @@
 
     <!-- 공유하기 기능   -->
     <string-array name="shares">
-        <item>파일 공유</item>
-        <item>Online convertor</item>
+        <item>기본 공유</item>
         <item>서버 업로드</item>
     </string-array>
+
+    <string name="share_via">Share method</string>
 
     <!--  원본  -->
     <!-- File Manager !-->
@@ -35,7 +36,6 @@
     <string name="jump">The app detected invalid motion tracking data. Please check that device shows correct position and then click on record icon to continue scanning.</string>
     <string name="move">Move the device around to start scanning.</string>
     <string name="info">By using this app, you agree with our #BEGIN#privacy policy#END#.\n\nAll data is saved in the \"Models\" folder within your mobile device\'s internal storage.</string>
-    <string name="share_via">Share via</string>
     <string name="postprocess">Postprocess</string>
     <string name="wait">Please wait</string>
     <string name="export">Export data</string>

@@ -10,4 +10,5 @@
 
     <!--  텍스트 색상  -->
     <color name="text_primary">#000000</color>
+    <color name="text_alertdialog_listitem">#222222</color>
 </resources>
