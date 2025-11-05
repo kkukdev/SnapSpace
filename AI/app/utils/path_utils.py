@@ -59,6 +59,10 @@ def normalize_network_path(base_path: str, relative_path: str = "") -> str:
         else:
             full_path = base
     
+    # 백슬래시를 슬래시로 변환 (env 파일 형식과 일치)
+    # UNC 경로의 \\ 시작 부분도 //로 변환됨
+    full_path = full_path.replace('\\', '/')
+    
     return full_path
 
 
@@ -77,7 +81,8 @@ def convert_to_network_path(file_path: str, network_base: str) -> str:
     if os.path.exists(file_path):
         # 네트워크 경로인지 확인
         if file_path.startswith('\\\\') or file_path.startswith('//'):
-            return file_path
+            # 백슬래시를 슬래시로 변환
+            return file_path.replace('\\', '/')
         # 파일이 존재하면 네트워크 경로로 변환 시도
         pass
     
@@ -124,7 +129,25 @@ def convert_to_network_path(file_path: str, network_base: str) -> str:
     
     # 변환 실패 시 원본 반환 (경고 로그)
     logger.warning(f"경로 변환 실패, 원본 사용: {file_path}")
-    return file_path
+    # 백슬래시를 슬래시로 변환
+    return file_path.replace('\\', '/')
+
+
+def normalize_for_windows_access(path: str) -> str:
+    """
+    Windows에서 파일 접근을 위해 경로를 백슬래시로 변환합니다.
+    UNC 경로의 경우 // -> \\ 변환
+    
+    Args:
+        path: 변환할 경로 (슬래시 형식)
+        
+    Returns:
+        Windows 접근용 경로 (백슬래시 형식)
+    """
+    # 모든 슬래시를 백슬래시로 변환
+    # UNC 경로의 경우: //host/share/path -> \\host\share\path
+    # 일반 경로의 경우: /path/to/file -> \path\to\file
+    return path.replace('/', '\\')
 
 
 def ensure_network_path_accessible(network_path: str) -> bool:
@@ -138,10 +161,12 @@ def ensure_network_path_accessible(network_path: str) -> bool:
         접근 가능하면 True, 아니면 False
     """
     try:
-        if os.path.exists(network_path):
+        # Windows에서 접근하기 위해 백슬래시로 변환
+        windows_path = normalize_for_windows_access(network_path)
+        if os.path.exists(windows_path):
             return True
         # 디렉토리인 경우 부모 디렉토리 확인
-        parent = os.path.dirname(network_path)
+        parent = os.path.dirname(windows_path)
         if parent and os.path.exists(parent):
             return True
         return False
