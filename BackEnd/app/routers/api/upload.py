@@ -1,7 +1,15 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, UploadFile, Form, Depends, HTTPException
+from typing import Optional
+from sqlalchemy.orm import Session
+import logging
 from app.schemas.base import BaseResponse
+from app.schemas.group import GroupCreate
 from app.services.upload_service import upload_service
+from app.services.group_service import group_service
+from app.utils.dependencies import get_db
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -97,7 +105,7 @@ async def root():
                             "original_filename": "model.ply",
                             "saved_filename": "20241027_143025_model.ply",
                             "file_size": 157286400,
-                            "file_path": "BackEnd/uploads/20241027_143025_model.ply"
+                            "original_file_path": "BackEnd/uploads/20241027_143025_model.ply"
                         }
                     }
                 }
@@ -108,10 +116,60 @@ async def root():
         500: {"description": "서버 오류"}
     }
 )
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    group_name: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     """파일 업로드"""
+    group_id = "1"  # 기본값
+    
+    # group_name이 있으면 그룹을 찾거나 생성
+    if group_name and group_name.strip():
+        group_name_clean = group_name.strip()
+        logger.info(f"그룹 검색 시작: group_name='{group_name_clean}'")
+        
+        try:
+            # name 컬럼으로 직접 검색
+            found_group = group_service.get_group_by_name(db=db, name=group_name_clean)
+            
+            if found_group:
+                # 기존 그룹이 있으면 해당 group_id 사용
+                group_id = str(found_group.group_id)
+                logger.info(f"기존 그룹 발견: group_id={group_id}, group_name='{group_name_clean}'")
+            else:
+                # 그룹이 없으면 새로 생성
+                logger.info(f"그룹을 찾지 못함. 새 그룹 생성: group_name='{group_name_clean}'")
+                new_group = group_service.create_group(
+                    db=db,
+                    group_data=GroupCreate(
+                        name=group_name_clean,
+                        meta_data={}  # 빈 메타데이터로 생성
+                    )
+                )
+                if new_group.success and new_group.data:
+                    group_id = str(new_group.data.group_id)
+                    logger.info(f"새 그룹 생성 완료: group_id={group_id}, group_name='{group_name_clean}'")
+                else:
+                    logger.warning(f"그룹 생성 실패: {new_group}")
+        except HTTPException as e:
+            # 그룹 이름 중복 등의 HTTP 예외는 로그만 남기고 기본값 사용
+            logger.warning(f"그룹 생성 중 HTTP 예외: {e.detail}")
+        except Exception as e:
+            # 그룹 처리 실패 시 기본값 1 사용 (업로드는 계속 진행)
+            logger.error(f"그룹 처리 중 오류 발생: {str(e)}", exc_info=True)
+    
     # 서비스 레이어에서 파일 업로드 처리
-    upload_result = await upload_service.upload_file(file)
+    upload_result = await upload_service.upload_file(file, group_id=group_id)
+    
+    # 응답에 group_id와 group_name 추가
+    try:
+        upload_result["group_id"] = int(group_id)
+    except (ValueError, TypeError):
+        upload_result["group_id"] = None
+    
+    if group_name and group_name.strip():
+        upload_result["group_name"] = group_name.strip()
     
     return BaseResponse(
         message="파일 업로드가 완료되었습니다",

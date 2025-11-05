@@ -154,6 +154,7 @@ class WebSocketManager:
     async def _handle_file_list(self, message_data: Dict[str, Any]):
         """파일 목록 처리"""
         try:
+            logger.debug(f"Received file list message: {message_data}")
             file_list = FileListMessage(**message_data)
             logger.info(f"Received file list with {len(file_list.files)} files")
             
@@ -163,7 +164,7 @@ class WebSocketManager:
                 # 파일 처리 시작 (비동기로 실행)
                 asyncio.create_task(file_processor.process_file(
                     file_request.scan_id,
-                    file_request.file_path,
+                    file_request.original_file_path,
                     file_request.group_id,
                     file_request.metadata
                 ))
