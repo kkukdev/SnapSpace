@@ -33,7 +33,6 @@ import android.widget.EditText;
 
 import androidx.core.content.FileProvider;
 
-
 import com.snapspace.scanner.R;
 import com.snapspace.scanner.sketchfab.OAuth;
 import com.snapspace.scanner.ui.AbstractActivity;
@@ -145,12 +144,10 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     boolean texturize = (mToPostprocess != null) || (Math.abs(Service.getRunning(this)) == Service.SERVICE_SAVE);
     double res = mRes, dmin = 0.01f, dmax = 7;
 
-    mCameraControl.setOffset(0);
-    if (mRes > 0.0099f) {
-      mCameraControl.setOffset(mRes * 100);
-    }
-    //change resolution for HUAWEI_SFM
-    if (mode == 3) { res *= 2.0f; }
+//    mCameraControl.setOffset(0);
+//    if (mRes > 0.0099f) {
+//      mCameraControl.setOffset(mRes * 100);
+//    }
 
     SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(this);
     String scanMode = pref.getString("scan_mode", "space_scan");
@@ -169,8 +166,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     // 오브젝트 모드인 경우, 해상도 및 최대/최소 거리 조정
     if (scanMode.equals("object_scan")) {
       res = 0.01f;
+      mRes = 0.01f;
       dmin = 0.01f;
       dmax = 2.0f;
+    }
+
+    mCameraControl.setOffset(0);
+    if (mRes > 0.0099f) {
+      mCameraControl.setOffset(mRes * 100);
     }
 
     if (pref.getBoolean(getString(R.string.pref_gps), false)) {

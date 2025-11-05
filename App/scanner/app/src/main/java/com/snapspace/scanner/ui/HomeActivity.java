@@ -9,7 +9,11 @@ import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.snapspace.scanner.R;
@@ -24,7 +28,15 @@ import java.util.Locale;
 public class HomeActivity extends AbstractActivity implements View.OnClickListener {
 
     // 맴버 변수 선언
+    private LinearLayout mProcessLayout;
     private ProgressBar mProgress;
+    private TextView mInfoText;
+    private Button mCancelButton;
+    private LinearLayout mButtonGird;
+    private ImageView mSpaceScanButton;
+    private ImageView mObjectScanButton;
+    private Button mPreviewButton;
+    private Button mUploadButton;
 
     // onCreate 메서드
     @Override
@@ -33,13 +45,32 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         setContentView(R.layout.activity_home);
 
         // UI 컴포넌트 초기화
+        mProcessLayout = findViewById(R.id.processing_layout);
         mProgress = findViewById(R.id.progressBar);
+        mInfoText = findViewById(R.id.info_text);
+        mCancelButton = findViewById(R.id.service_cancel);
+        mButtonGird = findViewById(R.id.button_grid);
+        mSpaceScanButton = findViewById(R.id.space_scan_button);
+        mObjectScanButton = findViewById(R.id.object_scan_button);
+        mPreviewButton = findViewById(R.id.preview_button);
+        mUploadButton = findViewById(R.id.upload_button);
 
         // 버튼 리스너 등록
-        findViewById(R.id.space_scan_button).setOnClickListener(this);
-        findViewById(R.id.object_scan_button).setOnClickListener(this);
-        findViewById(R.id.preview_button).setOnClickListener(this);
-        findViewById(R.id.upload_button).setOnClickListener(this);
+        mSpaceScanButton.setOnClickListener(this);
+        mObjectScanButton.setOnClickListener(this);
+        mPreviewButton.setOnClickListener(this);
+        mUploadButton.setOnClickListener(this);
+        mCancelButton.setOnClickListener(this);
+
+        // 버튼 초기 세팅
+        mProgress.setVisibility(View.GONE);
+        mInfoText.setVisibility(View.GONE);
+        mCancelButton.setVisibility(View.GONE);
+        mButtonGird.setVisibility(View.VISIBLE);
+        mSpaceScanButton.setVisibility(View.VISIBLE);
+        mObjectScanButton.setVisibility(View.VISIBLE);
+        mPreviewButton.setVisibility(View.VISIBLE);
+        mUploadButton.setVisibility(View.VISIBLE);
 
         // 권환 확인
         checkPermissions();
@@ -56,6 +87,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
             if (absState == Service.SERVICE_SAVE) {
                 showProgress();
+
                 startActivity(new Intent(this, Main.class));
             }
             else if (absState == Service.SERVICE_POSTPROCESS) {
@@ -126,16 +158,18 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         // 오브젝트 스캔 버튼 클릭
         else if (id == R.id.object_scan_button) {
             startScanning("object_scan");
-            Toast.makeText(HomeActivity.this, "오브젝트 스캔 기능 준비 중...", Toast.LENGTH_SHORT).show();
         }
-        // 스캔 미리보기 버튼 클릭
+        // 스캔 결과 보기 버튼 클릭
         else if (id == R.id.preview_button) {
-            Toast.makeText(HomeActivity.this, "스캔 미리보기 기능 준비 중...", Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(HomeActivity.this, FileManager.class));
         }
         // 서버 업로드 버튼 클릭
         else if (id == R.id.upload_button) {
-            startActivity(new Intent(HomeActivity.this, FileManager.class));
             Toast.makeText(HomeActivity.this, "서버 업로드 기능 준비 중...", Toast.LENGTH_SHORT).show();
+        }
+        // 작업 취소 버튼 클릭
+        else if (id == R.id.service_cancel) {
+            cancelProcessing();
         }
         // 잘못된 입력 값
         else {
@@ -201,15 +235,42 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             showProgress();
             startActivity(intent);
         }).start();
-
     }
 
     public void showProgress()
     {
         try {
+            mProcessLayout.setVisibility(View.VISIBLE);
             mProgress.setVisibility(View.VISIBLE);
+            mInfoText.setVisibility(View.VISIBLE);
+            mCancelButton.setVisibility(View.VISIBLE);
+            mButtonGird.setVisibility(View.GONE);
+            mSpaceScanButton.setVisibility(View.GONE);
+            mObjectScanButton.setVisibility(View.GONE);
+            mPreviewButton.setVisibility(View.GONE);
+            mUploadButton.setVisibility(View.GONE);
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // 작업 취소 메서드
+    private void cancelProcessing() {
+        // 사용자에게 확인 요청
+        new android.app.AlertDialog.Builder(this)
+                .setTitle(R.string.app_name)
+                .setMessage("작업을 취소하시겠습니까?")
+                .setPositiveButton("예", (dialog, which) -> {
+                    // Service 중단 및 리셋
+                    Service.interrupt();  // 메시지 중단
+                    Service.reset(this);  // 상태 초기화
+
+                    Toast.makeText(this, "작업이 취소되었습니다", Toast.LENGTH_SHORT).show();
+
+                    // 앱 종료 (백그라운드 작업도 강제 종료)
+                    System.exit(0);
+                })
+                .setNegativeButton("아니오", null)
+                .show();
     }
 }

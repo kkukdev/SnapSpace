@@ -105,7 +105,7 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
     } else if (mAdapter.getSelected() != null) {
       mAdapter.update();
     } else {
-      moveTaskToBack(true);
+      finish();
     }
   }
 
