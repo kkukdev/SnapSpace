@@ -410,17 +410,7 @@ class AIPipeline:
             sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
             str(self.polygon_path / "mesh_denoiser.py"),
             "-i", str(work_input_abs),
-            "--mode", "auto_flat",
-            "--output-dir", str(work_output_dir_abs),
-            "--proj-dist", "0.008",
-            "--floor-ratio", "0.5",
-            "--wall-ratio", "2.0",
-            "--smooth-floor", "6",
-            "--smooth-wall", "24",
-            "--wall-ortho-dot", "0.15",
-            "--max-walls", "6",
-            "--ransac-iters", "4000",
-            "--preclean"
+            "--output-dir", str(work_output_dir_abs)  # work_output_dir_abs는 이미 output 폴더를 포함
         ]
 
         try:
@@ -521,11 +511,15 @@ class AIPipeline:
                 raise subprocess.CalledProcessError(return_code, cmd, output_text)
 
             # 최종 파일 경로 (base_stem은 원본 파일명에서 확장자 제거)
+            # 기본 모드는 입력 파일과 같은 디렉토리에 저장하므로, 임시 디렉토리에서 찾기
             base_stem = work_input_abs.with_suffix("").name
-            final_output_local = work_output_dir_abs / f"{base_stem}_auto_flat.obj"
             
+            # 기본 모드는 --output-dir을 사용하지 않고 입력 파일과 같은 디렉토리에 저장
             # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
             if (is_network_path or is_final_dir_network) and local_temp_dir:
+                # 기본 모드는 local_temp_dir에 직접 저장 (output 폴더가 아님)
+                final_output_local = local_temp_dir / f"{base_stem}_denoised_taubin.obj"
+                
                 if not final_output_local.exists():
                     raise FileNotFoundError(f"로컬 노이즈 제거 결과가 없습니다: {final_output_local}")
                 
@@ -536,7 +530,7 @@ class AIPipeline:
                 except Exception as e:
                     logger.warning(f"최종 디렉토리 생성 실패 (무시): {e}")
                 
-                final_output_network = final_dir / f"{base_stem}_auto_flat.obj"
+                final_output_network = final_dir / f"{base_stem}_denoised_taubin.obj"
                 
                 # 네트워크 디렉토리 생성 확인 (이미 run_full_pipeline에서 생성했지만 재확인)
                 try:
@@ -591,7 +585,9 @@ class AIPipeline:
             else:
                 # 로컬 경로인 경우에도 final_dir 사용
                 final_dir.mkdir(parents=True, exist_ok=True)
-                final_output = final_dir / f"{base_stem}_auto_flat.obj"
+                # 기본 모드는 입력 파일과 같은 디렉토리에 저장
+                final_output_local = work_input_abs.parent / f"{base_stem}_denoised_taubin.obj"
+                final_output = final_dir / f"{base_stem}_denoised_taubin.obj"
                 if final_output_local.exists() and final_output_local != final_output:
                     shutil.copy2(final_output_local, final_output)
                     logger.info(f"최종 결과 이동: {final_output_local} -> {final_output}")
@@ -676,28 +672,40 @@ class AIPipeline:
                 # storage 경로 추출 (outputs가 포함된 경우 제거)
                 # 예: \\server\share\storage\outputs -> \\server\share\storage
                 # 또는: C:\70.12.246.48\storage\outputs -> C:\70.12.246.48\storage
-                if outputs_root_str.endswith('\\outputs') or outputs_root_str.endswith('/outputs'):
-                    storage_base = outputs_root_str[:-8]  # '\\outputs' 또는 '/outputs' 제거
-                elif outputs_root_str.endswith('outputs'):
-                    storage_base = outputs_root_str[:-7]  # 'outputs' 제거
-                else:
-                    storage_base = outputs_root_str
+                # 또는: //70.12.246.48/storage/outputs -> //70.12.246.48/storage
+                storage_base = outputs_root_str.rstrip('\\/')
                 
-                # 경로 정규화 (끝에 백슬래시 제거, 중복 storage 제거)
+                # outputs 제거 (끝에 있는 경우)
+                if storage_base.lower().endswith('\\outputs'):
+                    storage_base = storage_base[:-8]  # '\\outputs' 제거
+                elif storage_base.lower().endswith('/outputs'):
+                    storage_base = storage_base[:-8]  # '/outputs' 제거
+                elif storage_base.lower().endswith('outputs'):
+                    storage_base = storage_base[:-7]  # 'outputs' 제거
+                
+                # 경로 정규화 (끝에 백슬래시 제거)
                 storage_base = storage_base.rstrip('\\/')
                 
-                # storage\storage 중복 제거 (버그 방지)
-                if '\\storage\\storage' in storage_base:
+                # storage\storage 또는 storage/storage 중복 제거 (버그 방지)
+                # 여러 번 반복될 수 있으므로 while 루프 사용
+                while '\\storage\\storage' in storage_base:
                     storage_base = storage_base.replace('\\storage\\storage', '\\storage')
-                elif '/storage/storage' in storage_base:
+                while '/storage/storage' in storage_base:
                     storage_base = storage_base.replace('/storage/storage', '/storage')
+                # 혼합된 경우도 처리
+                while '\\storage/storage' in storage_base:
+                    storage_base = storage_base.replace('\\storage/storage', '\\storage')
+                while '/storage\\storage' in storage_base:
+                    storage_base = storage_base.replace('/storage\\storage', '/storage')
                 
-                # 네트워크 경로 생성: storage\outputs\optimized\{group_id}\{folder_name}
+                # 네트워크 경로 생성
+                # 중간 산출물: storage\outputs\optimized\{group_id}\{folder_name}
+                # 최종 산출물: storage\outputs\final\{group_id}\{folder_name}
                 # 백슬래시 사용 (Windows 경로)
                 sep = '\\' if '\\' in storage_base else '/'
                 temp_dir_str = f"{storage_base}{sep}temp"
                 optimized_dir_str = f"{storage_base}{sep}outputs{sep}optimized{sep}{group_id}{sep}{folder_name}"
-                final_dir_str = f"{storage_base}{sep}outputs{sep}optimized{sep}{group_id}{sep}{folder_name}"
+                final_dir_str = f"{storage_base}{sep}outputs{sep}final{sep}{group_id}{sep}{folder_name}"
                 
                 # Path 객체 생성 (UNC 경로는 문자열로 직접 조작)
                 # UNC 경로의 경우 Path 객체가 제대로 작동하지 않을 수 있으므로 문자열로 처리
@@ -724,7 +732,7 @@ class AIPipeline:
                 outputs_root = Path(outputs_base_dir)
                 temp_dir = outputs_root.parent / "temp"
                 optimized_dir = outputs_root / "optimized" / group_id / folder_name
-                final_dir = outputs_root / "optimized" / group_id / folder_name
+                final_dir = outputs_root / "final" / group_id / folder_name
             
             logger.info(f"[AIPipeline] outputs_base_dir: {outputs_base_dir}")
             logger.info(f"[AIPipeline] temp_dir: {temp_dir} (문자열: {temp_dir_str if (is_unc_path or is_mounted_network) else str(temp_dir)})")
