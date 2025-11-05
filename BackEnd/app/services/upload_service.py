@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, AsyncGenerator, List
 from fastapi import UploadFile, HTTPException, status
 import asyncio
 
-from app.config import settings
+from app.config import settings, get_current_datetime
 from app.services.base import BaseService
 from app.services.websocket_manager import websocket_manager
 from app.services.scan_service import scan_service
@@ -53,7 +53,7 @@ class UploadService(BaseService):
                         "original_filename": original_filename,
                         "file_size": file_size,
                         "is_zip": is_zip,
-                        "uploaded_at": datetime.now().isoformat()
+                        "uploaded_at": get_current_datetime().isoformat()
                     },
                     status=ScanStatus.UPLOADED,
                     original_file_path=original_file_path,
@@ -154,16 +154,16 @@ class UploadService(BaseService):
                 detail=f"지원하지 않는 파일 형식입니다. 허용된 확장자: {', '.join(settings.ALLOWED_EXTENSIONS)}"
             )
 
-    async def ensure_group_upload_directory(self, group_id: Optional[str] = None) -> Path:
-        """그룹별 업로드 디렉토리 생성 및 경로 반환"""
+    async def ensure_group_upload_directory(self, group_name: Optional[str] = None) -> Path:
+        """그룹별 업로드 디렉토리 생성 및 경로 반환 (group_name 사용)"""
         base_upload_path = Path(settings.UPLOAD_DIR)
         
-        if group_id is None or group_id == "":
-            # group_id가 없으면 1번 디렉토리 사용
-            upload_path = base_upload_path / str(1)
+        if group_name is None or group_name == "":
+            # group_name이 없으면 default 디렉토리 사용
+            upload_path = base_upload_path / str("default")
         else:
-            # storage/uploads/{group_id} 구조
-            upload_path = base_upload_path / str(group_id)
+            # storage/uploads/{group_name} 구조
+            upload_path = base_upload_path / str(group_name)
         
         try:
             upload_path.mkdir(parents=True, exist_ok=True)
@@ -196,6 +196,158 @@ class UploadService(BaseService):
         except Exception as e:
             logger.error(f"파일 검색 중 오류 발생: {str(e)}")
         return all_files
+
+    def _get_text_memo_patterns(self) -> List[str]:
+        """텍스트 메모 파일 패턴 목록 (확장 가능)"""
+        return ["memo", "note", "note_memo", "memo_note"]
+    
+    def _get_audio_memo_extensions(self) -> List[str]:
+        """음성 메모 파일 확장자 목록 (확장 가능)"""
+        return [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"]
+    
+    def find_memo_files(self, directory: Path) -> Dict[str, List[Path]]:
+        """
+        디렉토리 내 모든 메모 파일 찾기 (텍스트, 음성 등)
+        
+        Returns:
+            {
+                "text": [Path, ...],  # 텍스트 메모 파일들
+                "audio": [Path, ...]  # 음성 메모 파일들
+            }
+        """
+        text_memos = []
+        audio_memos = []
+        
+        try:
+            text_patterns = self._get_text_memo_patterns()
+            audio_extensions = self._get_audio_memo_extensions()
+            
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    file_lower = file.lower()
+                    file_path = Path(root) / file
+                    file_ext = Path(file).suffix.lower()
+                    
+                    # 텍스트 메모 파일 확인 (memo.txt, note.txt, memo_note.txt 등)
+                    if file_ext in [".txt"]:
+                        # 파일명에 메모 패턴이 포함되어 있는지 확인
+                        file_stem = Path(file).stem.lower()
+                        if any(pattern in file_stem for pattern in text_patterns):
+                            text_memos.append(file_path)
+                    
+                    # 음성 메모 파일 확인 (memo.mp3, voice.wav 등)
+                    if file_ext in audio_extensions:
+                        # 파일명에 메모 관련 키워드가 포함되어 있는지 확인
+                        file_stem = Path(file).stem.lower()
+                        memo_keywords = ["memo", "note", "voice", "audio", "record", "recording"]
+                        if any(keyword in file_stem for keyword in memo_keywords):
+                            audio_memos.append(file_path)
+        
+        except Exception as e:
+            logger.error(f"메모 파일 검색 중 오류 발생: {str(e)}")
+        
+        return {
+            "text": text_memos,
+            "audio": audio_memos
+        }
+
+    async def read_text_memo_file(self, memo_path: Path) -> Optional[str]:
+        """텍스트 메모 파일 읽기 (비동기)"""
+        try:
+            async with aiofiles.open(memo_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                return content.strip() if content else None
+        except UnicodeDecodeError:
+            # UTF-8로 읽기 실패 시 다른 인코딩 시도
+            try:
+                async with aiofiles.open(memo_path, 'r', encoding='cp949') as f:
+                    content = await f.read()
+                    return content.strip() if content else None
+            except Exception as e:
+                logger.error(f"텍스트 메모 파일 읽기 실패 (인코딩 오류): {str(e)}")
+                return None
+        except Exception as e:
+            logger.error(f"텍스트 메모 파일 읽기 중 오류 발생: {str(e)}")
+            return None
+
+    async def process_text_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
+        """텍스트 메모 파일을 읽고 memos 형식으로 변환"""
+        memo_content = await self.read_text_memo_file(memo_path)
+        if not memo_content:
+            return None
+        
+        return {
+            "type": "text",
+            "content": memo_content,
+            "source": memo_path.name,
+            "file_path": str(memo_path.absolute()),
+            "file_size": memo_path.stat().st_size if memo_path.exists() else 0
+        }
+
+    async def process_audio_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
+        """음성 메모 파일을 처리하고 memos 형식으로 변환 (확장 가능)"""
+        try:
+            file_size = memo_path.stat().st_size if memo_path.exists() else 0
+            file_ext = memo_path.suffix.lower()
+            
+            # 음성 파일의 경우 메타데이터만 저장 (실제 오디오 처리는 추후 구현 가능)
+            return {
+                "type": "audio",
+                "content": None,  # 음성 파일은 내용을 직접 저장하지 않음
+                "source": memo_path.name,
+                "file_path": str(memo_path.absolute()),
+                "file_size": file_size,
+                "file_extension": file_ext,
+                "note": "음성 메모 파일 - 추후 오디오 처리 기능 추가 가능"
+            }
+        except Exception as e:
+            logger.error(f"음성 메모 파일 처리 중 오류 발생: {str(e)}")
+            return None
+
+    async def process_all_memo_files(self, directory: Path) -> List[Dict[str, Any]]:
+        """
+        디렉토리 내 모든 메모 파일을 찾아서 처리하고 memos 형식으로 변환
+        
+        Returns:
+            List[Dict[str, Any]]: 처리된 모든 메모 파일의 리스트
+        """
+        memos = []
+        memo_files = self.find_memo_files(directory)
+        
+        # 텍스트 메모 파일 처리
+        for text_memo_path in memo_files["text"]:
+            try:
+                memo_data = await self.process_text_memo_file(text_memo_path)
+                if memo_data:
+                    memos.append(memo_data)
+                    logger.info(f"텍스트 메모 파일 처리 완료: {text_memo_path}")
+            except Exception as e:
+                logger.warning(f"텍스트 메모 파일 처리 실패: {text_memo_path}, 오류: {str(e)}")
+        
+        # 음성 메모 파일 처리
+        for audio_memo_path in memo_files["audio"]:
+            try:
+                memo_data = await self.process_audio_memo_file(audio_memo_path)
+                if memo_data:
+                    memos.append(memo_data)
+                    logger.info(f"음성 메모 파일 처리 완료: {audio_memo_path}")
+            except Exception as e:
+                logger.warning(f"음성 메모 파일 처리 실패: {audio_memo_path}, 오류: {str(e)}")
+        
+        if memos:
+            logger.info(f"총 {len(memos)}개의 메모 파일이 처리되었습니다. (텍스트: {len(memo_files['text'])}, 음성: {len(memo_files['audio'])})")
+        
+        return memos
+
+    # 기존 호환성을 위한 별칭 (deprecated, 추후 제거 가능)
+    async def process_memo_file(self, directory: Path) -> Optional[List[Dict[str, Any]]]:
+        """
+        디렉토리 내 메모 파일을 찾아서 처리 (기존 호환성 유지)
+        
+        Deprecated: process_all_memo_files를 사용하세요.
+        """
+        memos = await self.process_all_memo_files(directory)
+        return memos if memos else None
 
     async def extract_zip_file(self, zip_path: Path, extract_to: Path) -> Path:
         """zip 파일 압축 해제 (내부 폴더가 있으면 그 내부의 파일들만 저장)"""
@@ -265,14 +417,13 @@ class UploadService(BaseService):
 
     def generate_folder_name(self, original_filename: str) -> str:
         """업로드용 폴더명 생성 (날짜_파일명, 확장자 제거)"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = get_current_datetime().strftime("%Y%m%d_%H%M%S")
         name, _ = os.path.splitext(original_filename)
         return f"{timestamp}_{name}"
 
     def generate_filename(self, original_filename: str) -> str:
-        """고유한 파일명 생성 (시스템 로컬 타임존 사용)"""
-        # 시스템의 로컬 타임존 시간을 직접 사용
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """고유한 파일명 생성 (설정된 시간대 사용)"""
+        timestamp = get_current_datetime().strftime("%Y%m%d_%H%M%S")
         name, extension = os.path.splitext(original_filename)
         return f"{timestamp}_{name}{extension}"
 
@@ -338,7 +489,8 @@ class UploadService(BaseService):
         self, 
         file: UploadFile,
         progress_callback: Optional[callable] = None,
-        group_id: Optional[str] = None
+        group_id: Optional[str] = None,
+        group_name: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """진행률 콜백과 함께 파일 업로드"""
         
@@ -350,7 +502,7 @@ class UploadService(BaseService):
             )
         
         await self.validate_file_extension(file.filename)
-        upload_dir = await self.ensure_group_upload_directory(group_id)
+        upload_dir = await self.ensure_group_upload_directory(group_name)
         filename = self.generate_filename(file.filename)
         file_path = upload_dir / filename
         
@@ -402,7 +554,7 @@ class UploadService(BaseService):
                     pass
             raise
 
-    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None) -> Dict[str, Any]:
+    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
         """파일 업로드 처리 (최적화된 버전)"""
         try:
             # 파일명 검증
@@ -416,7 +568,7 @@ class UploadService(BaseService):
             await self.validate_file_extension(file.filename)
             
             # 그룹별 업로드 디렉토리 준비
-            group_upload_dir = await self.ensure_group_upload_directory(group_id)
+            group_upload_dir = await self.ensure_group_upload_directory(group_name)
             
             # 파일 포인터를 처음으로 리셋 (이전에 읽혔을 수 있음)
             await file.seek(0)
@@ -426,9 +578,9 @@ class UploadService(BaseService):
             
             # zip 파일인 경우 별도 처리
             if file_extension == '.zip':
-                return await self._upload_zip_file(file, group_upload_dir, group_id)
+                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name)
             
-            # 일반 파일 업로드: storage/uploads/{group_id}/{날짜_파일명}/파일명 형태
+            # 일반 파일 업로드: storage/uploads/{group_name}/{날짜_파일명}/파일명 형태
             folder_name = self.generate_folder_name(file.filename)
             upload_folder = group_upload_dir / folder_name
             upload_folder.mkdir(parents=True, exist_ok=True)
@@ -501,16 +653,41 @@ class UploadService(BaseService):
             if scan_info:
                 upload_result["scan_id"] = scan_info.get("scan_id")
                 scan_id_for_websocket = scan_info.get("scan_id", 0)
+                
+                # 메모 파일 처리 (스캔 생성 후) - 텍스트 및 음성 메모 모두 처리
+                if scan_id_for_websocket != 0:
+                    try:
+                        memos = await self.process_all_memo_files(upload_folder)
+                        if memos:
+                            # DB 세션 생성
+                            db = SessionLocal()
+                            try:
+                                from app.schemas.scan import ScanUpdate
+                                scan_update = ScanUpdate(memos=memos)
+                                update_response = scan_service.update_scan(
+                                    db=db, 
+                                    scan_id=scan_id_for_websocket, 
+                                    scan_data=scan_update
+                                )
+                                if update_response.success:
+                                    logger.info(f"메모 파일 {len(memos)}개가 스캔(scan_id={scan_id_for_websocket})에 저장되었습니다.")
+                                    upload_result["memos"] = memos
+                                    upload_result["memos_count"] = len(memos)
+                                else:
+                                    logger.warning(f"메모 파일 저장 실패: {update_response.message}")
+                            except Exception as e:
+                                logger.error(f"메모 파일 저장 중 오류 발생: {str(e)}", exc_info=True)
+                            finally:
+                                db.close()
+                    except Exception as e:
+                        # 메모 파일 처리 실패는 업로드 자체를 실패시키지 않음
+                        logger.warning(f"메모 파일 처리 중 오류 발생 (업로드는 성공): {str(e)}")
             else:
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
             
-            # group_id 처리 (기본값 1 사용)
-            try:
-                group_id_int = int(group_id) if group_id else 1
-            except (ValueError, TypeError):
-                group_id_int = 1
-            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            # group_id 처리 (기본값 "1" 사용)
+            group_id_str = group_id if group_id else "1"
             
             # 웹소켓으로 업로드된 파일 정보 전송 (obj 파일인 경우에만)
             # scan_id가 0이면 스캔이 생성되지 않았으므로 전송하지 않음
@@ -521,12 +698,13 @@ class UploadService(BaseService):
                     file_info = [{
                         "scan_id": scan_id_for_websocket,  # 정수로 전송
                         "original_file_path": str(file_path.absolute()),
-                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "group_id": group_id_str,
+                        "group_name": group_name,  # group_name 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "saved_filename": filename,
                             "file_size": total_size,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": get_current_datetime().isoformat()
                         }
                     }]
                     await websocket_manager.send_file_list(file_info)
@@ -546,15 +724,15 @@ class UploadService(BaseService):
                 detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
-    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None) -> Dict[str, Any]:
+    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
-        # 업로드 폴더 생성: storage/uploads/{group_id}/{날짜_파일명}
+        # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
         upload_folder = group_upload_dir / folder_name
         upload_folder.mkdir(parents=True, exist_ok=True)
         
         # 임시 zip 파일 저장 경로 (업로드 폴더 내부)
-        temp_zip_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        temp_zip_filename = f"temp_{get_current_datetime().strftime('%Y%m%d_%H%M%S')}.zip"
         temp_zip_path = upload_folder / temp_zip_filename
         
         # 파일 포인터를 처음으로 리셋
@@ -620,16 +798,41 @@ class UploadService(BaseService):
             # 스캔 ID 설정 (스캔 생성 실패 시 0 사용)
             if scan_info:
                 scan_id_for_websocket = scan_info.get("scan_id", 0)
+                
+                # 메모 파일 처리 (스캔 생성 후) - 텍스트 및 음성 메모 모두 처리
+                if scan_id_for_websocket != 0:
+                    try:
+                        memos = await self.process_all_memo_files(upload_folder)
+                        if memos:
+                            # DB 세션 생성
+                            db = SessionLocal()
+                            try:
+                                from app.schemas.scan import ScanUpdate
+                                scan_update = ScanUpdate(memos=memos)
+                                update_response = scan_service.update_scan(
+                                    db=db, 
+                                    scan_id=scan_id_for_websocket, 
+                                    scan_data=scan_update
+                                )
+                                if update_response.success:
+                                    logger.info(f"메모 파일 {len(memos)}개가 스캔(scan_id={scan_id_for_websocket})에 저장되었습니다.")
+                                    result["memos"] = memos
+                                    result["memos_count"] = len(memos)
+                                else:
+                                    logger.warning(f"메모 파일 저장 실패: {update_response.message}")
+                            except Exception as e:
+                                logger.error(f"메모 파일 저장 중 오류 발생: {str(e)}", exc_info=True)
+                            finally:
+                                db.close()
+                    except Exception as e:
+                        # 메모 파일 처리 실패는 업로드 자체를 실패시키지 않음
+                        logger.warning(f"메모 파일 처리 중 오류 발생 (업로드는 성공): {str(e)}")
             else:
                 scan_id_for_websocket = 0
                 logger.warning(f"스캔 생성 실패로 인해 scan_id=0으로 처리됨. group_id={group_id}")
             
-            # group_id 처리 (기본값 1 사용)
-            try:
-                group_id_int = int(group_id) if group_id else 1
-            except (ValueError, TypeError):
-                group_id_int = 1
-            group_id_str = str(group_id_int)  # 웹소켓 전송용 문자열
+            # group_id 처리 (기본값 "1" 사용)
+            group_id_str = group_id if group_id else "1"
             
             # 웹소켓으로 파일 정보 전송 (obj 파일만 전송, scan_id가 0이 아닌 경우에만)
             file_info = []
@@ -645,14 +848,15 @@ class UploadService(BaseService):
                     file_info.append({
                         "scan_id": scan_id_for_websocket,  # 정수로 전송
                         "original_file_path": str(file_path.absolute()),
-                        "group_id": group_id_str,  # 문자열로 전송 (스키마 요구사항)
+                        "group_id": group_id_str,
+                        "group_name": group_name,  # group_name 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "extracted_from_zip": True,
                             "obj_file": file_path.name,
                             "relative_path": relative_path,
                             "file_size": file_size,
-                            "timestamp": datetime.now().isoformat()
+                            "timestamp": get_current_datetime().isoformat()
                         }
                     })
                 
