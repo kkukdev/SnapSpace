@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--  메인 색상  -->
+    <color name="primary">#0381FE</color>
+    <color name="primary_dark">#0072DE</color>
+
+    <!--  배경 색상  -->
+    <color name="background">#FAFAFA</color>
+    <color name="background_card">#FFFFFF</color>
+
+    <!--  텍스트 색상  -->
+    <color name="text_primary">#000000</color>
+    <color name="text_alertdialog_listitem">#222222</color>
+</resources>

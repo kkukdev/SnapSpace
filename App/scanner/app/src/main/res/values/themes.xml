@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--  애플리케이션 기본 테마 (라이트)  -->
+    <style name="AppThemeLight" parent="@android:style/Theme.Material.NoActionBar">
+        <!-- Primary Colors -->
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/primary_dark</item>
+
+        <!-- Background -->
+        <item name="android:windowBackground">@color/background</item>
+
+        <!-- Text Colors -->
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorAlertDialogListItem">@color/text_alertdialog_listitem</item>
+
+        <!-- Font -->
+        <item name="android:fontFamily">@font/pretendard</item>
+    </style>
+
+    <!-- 메인화면 헤더 스타일 -->
+    <style name="AppHeaderStyle">
+        <item name="android:fontFamily">@font/pretendard_bold</item>
+    </style>
+
+    <!--  버튼 스타일  -->
+    <style name="AppButtonStyle" parent="@android:style/Widget.Material.Button">
+        <item name="android:background">@color/background_card</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+</resources>
