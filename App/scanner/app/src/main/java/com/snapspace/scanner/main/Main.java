@@ -29,6 +29,7 @@ import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.EditText;
 
 import androidx.core.content.FileProvider;
 
@@ -70,6 +71,10 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 //  private LinearLayout mLayoutUndo;
   private LinearLayout mLayoutView;
   private LinearLayout mLayoutWait;
+  private LinearLayout mLayoutMemo;
+  private EditText mMemoEditText;
+  private Button mMemoCloseButton;
+  private String mMemoContent = "";
 //  private ImageButton mViewButton;
   private ImageButton mToggleButton;
 //  private ImageButton mUndoButton;
@@ -271,8 +276,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 //    mLayoutUndo = findViewById(R.id.layout_undo);
     mLayoutView = findViewById(R.id.layout_view);
     mLayoutWait = findViewById(R.id.layout_wait);
+    mLayoutMemo = findViewById(R.id.layout_memo_scroll);
+    mMemoEditText = findViewById(R.id.memo_edit_text);
+    mMemoCloseButton = findViewById(R.id.memo_close_button);
     findViewById(R.id.clear_button).setOnClickListener(this);
     findViewById(R.id.save_button).setOnClickListener(this);
+    findViewById(R.id.memo_button).setOnClickListener(this);
+    mMemoCloseButton.setOnClickListener(this);
 //    mViewButton = findViewById(R.id.view_button);
 //    mViewButton.setVisibility(View.GONE);
 //    mViewButton.setOnClickListener(this);
@@ -465,16 +475,73 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         });
       }
     }
+    else if (id == R.id.memo_button) { // 메모 버튼 클릭 시
+      pauseScanning();
+      showMemoDialog();
+    }
+    else if (id == R.id.memo_close_button) { // 메모 완료 버튼 클릭 시
+      hideMemoDialog();
+    }
 
     if (!mPhotoMode) {
       mToggleButton.setImageResource(m3drRunning ? R.drawable.ic_pause : R.drawable.ic_record);
     }
   }
 
+  private void showMemoDialog() {
+    // 키보드가 나타날 때 화면을 위로 밀어올리도록 설정
+    getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+    
+    // 툴바 숨기기 (메모창과 겹치지 않도록)
+    mLayoutRec.setVisibility(View.GONE);
+    
+    // 현재 메모 내용을 EditText에 설정
+    mMemoEditText.setText(mMemoContent);
+    mMemoEditText.setSelection(mMemoContent.length()); // 커서를 끝으로 이동
+    
+    // 메모 레이아웃 표시
+    mLayoutMemo.setVisibility(View.VISIBLE);
+    
+    // EditText에 포커스 주고 키보드 표시
+    mMemoEditText.requestFocus();
+    mMemoEditText.postDelayed(() -> {
+      android.view.inputmethod.InputMethodManager imm = 
+        (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+      if (imm != null) {
+        imm.showSoftInput(mMemoEditText, android.view.inputmethod.InputMethodManager.SHOW_FORCED);
+      }
+    }, 200);
+  }
+
+  private void hideMemoDialog() {
+    // 메모 내용 저장
+    mMemoContent = mMemoEditText.getText().toString();
+    
+    // 키보드 숨기기
+    android.view.inputmethod.InputMethodManager imm = 
+      (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+    if (imm != null) {
+      imm.hideSoftInputFromWindow(mMemoEditText.getWindowToken(), 0);
+    }
+    
+    // 메모 레이아웃 숨기기
+    mLayoutMemo.setVisibility(View.GONE);
+    
+    // 툴바 다시 표시
+    mLayoutRec.setVisibility(View.VISIBLE);
+    
+    // 원래 키보드 모드로 복원 (스캔 화면용)
+    getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+  }
+
 
   @Override
   public boolean onKeyUp(int keyCode, KeyEvent keyEvent) {
+    // 메모창이 열려있을 때는 엔터키를 메모 입력에만 사용
     if (keyCode == KeyEvent.KEYCODE_ENTER) {
+      if (mLayoutMemo != null && mLayoutMemo.getVisibility() == View.VISIBLE) {
+        return false; // 메모창이 열려있으면 엔터키를 EditText가 처리하도록 함
+      }
       onClick(mToggleButton);
       mToggleButton.requestFocus();
       return true;
@@ -870,6 +937,21 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         e.printStackTrace();
       }
     }
+    
+    //save memo
+    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+      try {
+        File memoFile = new File(getTempPath(), "memo.txt");
+        FileOutputStream fos = new FileOutputStream(memoFile);
+        fos.write(mMemoContent.getBytes("UTF-8"));
+        fos.flush();
+        fos.close();
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to save memo", e);
+        e.printStackTrace();
+      }
+    }
+    
     mViewCamera = -1;
 
     //save face scan
