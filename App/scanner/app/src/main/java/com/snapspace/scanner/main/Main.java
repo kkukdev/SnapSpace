@@ -492,8 +492,11 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   }
 
   private void showMemoDialog() {
+    // 전체 화면 해제
+    getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    
     // 키보드가 나타날 때 화면을 위로 밀어올리도록 설정
-    getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+    getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
     
     // 툴바 숨기기 (메모창과 겹치지 않도록)
     mLayoutRec.setVisibility(View.GONE);
@@ -532,6 +535,9 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     
     // 툴바 다시 표시
     mLayoutRec.setVisibility(View.VISIBLE);
+
+    // 전체 화면 모드 복원
+    CommonDialogs.setImmersive(getWindow());
     
     // 원래 키보드 모드로 복원 (스캔 화면용)
     getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
