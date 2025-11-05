@@ -654,6 +654,27 @@ class AIPipeline:
                 file_stem = Path(uploads_input_path).stem
                 folder_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_stem}"
             
+            # uploads_input_path에서 group name 추출 (group_id 대신 사용)
+            # 경로 구조: .../uploads/{group_name}/{folder_name}/file.obj
+            group_name = group_id  # 기본값은 group_id 사용
+            try:
+                # 경로를 정규화하고 분리
+                path_str = str(uploads_input_path).replace('\\', '/')
+                # uploads/ 다음에 오는 디렉토리명이 group name
+                if '/uploads/' in path_str:
+                    parts = path_str.split('/uploads/')
+                    if len(parts) > 1:
+                        remaining = parts[1]
+                        # 다음 슬래시까지가 group name
+                        next_slash = remaining.find('/')
+                        if next_slash > 0:
+                            extracted_group_name = remaining[:next_slash]
+                            if extracted_group_name and extracted_group_name.strip():
+                                group_name = extracted_group_name.strip()
+                                logger.info(f"[AIPipeline] 경로에서 group name 추출: {group_name} (원본 group_id: {group_id})")
+            except Exception as e:
+                logger.warning(f"[AIPipeline] group name 추출 실패, group_id 사용: {e}")
+            
             # 네트워크 경로 또는 절대 경로 처리
             outputs_root_str = str(outputs_base_dir)
             
@@ -699,13 +720,13 @@ class AIPipeline:
                     storage_base = storage_base.replace('/storage\\storage', '/storage')
                 
                 # 네트워크 경로 생성
-                # 중간 산출물: storage\outputs\optimized\{group_id}\{folder_name}
-                # 최종 산출물: storage\outputs\final\{group_id}\{folder_name}
+                # 중간 산출물: storage\outputs\optimized\{group_name}\{folder_name}
+                # 최종 산출물: storage\outputs\final\{group_name}\{folder_name}
                 # 백슬래시 사용 (Windows 경로)
                 sep = '\\' if '\\' in storage_base else '/'
                 temp_dir_str = f"{storage_base}{sep}temp"
-                optimized_dir_str = f"{storage_base}{sep}outputs{sep}optimized{sep}{group_id}{sep}{folder_name}"
-                final_dir_str = f"{storage_base}{sep}outputs{sep}final{sep}{group_id}{sep}{folder_name}"
+                optimized_dir_str = f"{storage_base}{sep}outputs{sep}optimized{sep}{group_name}{sep}{folder_name}"
+                final_dir_str = f"{storage_base}{sep}outputs{sep}final{sep}{group_name}{sep}{folder_name}"
                 
                 # Path 객체 생성 (UNC 경로는 문자열로 직접 조작)
                 # UNC 경로의 경우 Path 객체가 제대로 작동하지 않을 수 있으므로 문자열로 처리
@@ -731,8 +752,8 @@ class AIPipeline:
                 # 일반 경로는 Path 객체 사용
                 outputs_root = Path(outputs_base_dir)
                 temp_dir = outputs_root.parent / "temp"
-                optimized_dir = outputs_root / "optimized" / group_id / folder_name
-                final_dir = outputs_root / "final" / group_id / folder_name
+                optimized_dir = outputs_root / "optimized" / group_name / folder_name
+                final_dir = outputs_root / "final" / group_name / folder_name
             
             logger.info(f"[AIPipeline] outputs_base_dir: {outputs_base_dir}")
             logger.info(f"[AIPipeline] temp_dir: {temp_dir} (문자열: {temp_dir_str if (is_unc_path or is_mounted_network) else str(temp_dir)})")
