@@ -1,5 +1,5 @@
 """
-python mesh_denoiser.py -i ../../datasets/mainhall_safe_precleaned_cleaned.obj   --mode auto_flat --proj-dist 0.008   --floor-ratio 0.5 --wall-ratio 2.0   --smooth-floor 6 --smooth-wall 24   --wall-ortho-dot 0.15   --max-walls 6 --ransac-iters 4000   --preclean --visualize
+python mesh_denoiser.py -i ../../datasets/mainhall_safe_precleaned_cleaned.obj  --visualize
 """
 
 
@@ -213,8 +213,6 @@ def _ai_denoise_with_deepmeshprior(
 def main():
     parser = argparse.ArgumentParser(description="Standalone mesh denoiser (algorithmic or AI)")
     parser.add_argument("--input", "-i", help="Input OBJ file path")
-    parser.add_argument("--output-dir", required=True, help="최종 산출물 저장 디렉토리")
-    parser.add_argument("--mode", choices=["algo", "ai", "auto_flat"], default="algo", help="Denoise mode")
     parser.add_argument("--mode", choices=["algo","ai","auto_flat"], default="auto_flat")
     parser.add_argument("--ai-iters", type=int, default=400)
     parser.add_argument("--ai-lr", type=float, default=0.01)
@@ -456,6 +454,3 @@ def _auto_flatten_floor_walls(
 # ----------------------------------------
 if __name__ == "__main__":
     main()
-
-
-# python mesh_denoiser.py --input ../../datasets/obj/mainhall.obj --algo laplacian --iter 25 --visualize

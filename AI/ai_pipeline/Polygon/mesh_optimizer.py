@@ -14,7 +14,7 @@ Open3D + PyMeshLab을 결합하여 다음 작업을 수행합니다.
 
 ------------------------------------------------------------
 💻 실행 예시:
-python mesh_optimizer.🔹 py --input ../../datasets/obj/mainhall.obj --visualize
+python mesh_optimizer.py --input ../../datasets/obj/mainhall.obj --visualize
 
 ⚙️ 옵션 설명:
 --input       : 입력 OBJ 파일 경로 (필수)
