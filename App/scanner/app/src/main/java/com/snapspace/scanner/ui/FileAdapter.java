@@ -477,8 +477,6 @@ class FileAdapter extends BaseAdapter
     }
   }
 
-
-
   public void rename() {
     String key = (String)getItem(mSelected.get(0));
     new RenameDialog(mContext, getPath(), key);
