@@ -54,6 +54,9 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
   private View mRename;
   private View mShare;
 //  private static boolean allowedToAskForPermissions = true;
+  private LinearLayout mShareLayout;
+  private LinearLayout mRenameLayout;
+  private LinearLayout mDeleteLayout;
 
   @Override
   protected void onCreate(Bundle savedInstanceState)
@@ -66,14 +69,17 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
 
 //    mName = findViewById(R.id.name);
     mRename = findViewById(R.id.rename);
+    mRenameLayout = findViewById(R.id.rename_layout);
 //    mPosition = findViewById(R.id.position);
     mShare = findViewById(R.id.share);
+    mShareLayout = findViewById(R.id.share_layout);
 //    mHeader = findViewById(R.id.header);
     mOptions = findViewById(R.id.options);
 //    mPosition.setOnClickListener(this);
     mRename.setOnClickListener(this);
     mShare.setOnClickListener(this);
     findViewById(R.id.delete).setOnClickListener(this);
+    findViewById(R.id.delete_layout).setOnClickListener(this);
 
 //    mAdd = findViewById(R.id.add_button);
 //    mCancel = findViewById(R.id.service_cancel);
@@ -361,15 +367,15 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
   public void onClick(View v) {
     int id = v.getId();
 
-    if (id == R.id.delete) {
+    if (id == R.id.delete || id == R.id.delete_layout) {
       mAdapter.deleteModel();
     }
 //    else if (id == R.id.position) {
 //      mAdapter.showPosition();
 //    }
-    else if (id == R.id.rename) {
+    else if (id == R.id.rename || id == R.id.rename_layout) {
       mAdapter.rename();
-    } else if (id == R.id.share) {
+    } else if (id == R.id.share || id == R.id.share_layout) {
       mAdapter.shareModel();
     }
 //    else if (id == R.id.add_button) {
@@ -490,7 +496,9 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
     boolean ext = mAdapter.hasExtension();
 //    mPosition.setVisibility(!more && mAdapter.hasPosition() ? View.VISIBLE : View.GONE);
     mRename.setVisibility(!more ? View.VISIBLE : View.GONE);
+    mRenameLayout.setVisibility(!more ? View.VISIBLE : View.GONE);
     mShare.setVisibility(ext && !more ? View.VISIBLE : View.GONE);
+    mShareLayout.setVisibility(!more ? View.VISIBLE : View.GONE);
 
 //    int background = Color.argb(128, 0, 153, 204);
 //    setWindow(on ? background : getStatusBarColor(), getNavigationBarColor());

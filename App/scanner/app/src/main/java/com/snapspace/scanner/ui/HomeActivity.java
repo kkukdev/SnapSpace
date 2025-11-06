@@ -277,7 +277,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
              Service.reset(HomeActivity.this);
              Intent intent = new Intent(HomeActivity.this, Main.class);
              intent.putExtra(FILE_KEY, objFileSaved.getAbsolutePath());
-             showProgress();
+//             showProgress();
              startActivity(intent);
          }).start();
      }

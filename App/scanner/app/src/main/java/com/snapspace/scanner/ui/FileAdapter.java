@@ -170,8 +170,8 @@ class FileAdapter extends BaseAdapter
     loadIcon(key, icon);
 
     //set extension
-    View extension = view.findViewById(R.id.extension);
-    extension.setVisibility(key.endsWith(Exporter.EXT_DATASET) ? View.VISIBLE : view.GONE);
+    // View extension = view.findViewById(R.id.extension);
+    // extension.setVisibility(key.endsWith(Exporter.EXT_DATASET) ? View.VISIBLE : view.GONE);
 
     //set selection
     View selection = view.findViewById(R.id.selection);
@@ -300,7 +300,6 @@ class FileAdapter extends BaseAdapter
     dialog.getWindow().setBackgroundDrawable(mContext.getDrawable(R.drawable.background_dialog));
     dialog.show();
     ((TextView)dialog.findViewById(R.id.name)).setText(R.string.export);
-
 
     ArrayList<Drawable> icons = new ArrayList<>();
     ArrayList<String> values = new ArrayList<>();
@@ -576,7 +575,6 @@ class FileAdapter extends BaseAdapter
     d.show();
   }
 
- 
   private void uploadToFastApi(String zipFilePath, String groupName) {
     Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath + ", 그룹: " + groupName);
     mContext.showProgress();

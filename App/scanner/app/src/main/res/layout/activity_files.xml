@@ -11,7 +11,8 @@
         android:layout_width="match_parent"
         android:layout_height="100dp"
         android:layout_alignParentTop="true"
-        android:gravity="center">
+        android:gravity="center"
+        android:background="#5DFFFFFF">
 
         <TextView
             android:id="@+id/title"
@@ -36,6 +37,7 @@
         android:elevation="4dp">
 
         <LinearLayout
+            android:id="@+id/share_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -59,6 +61,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/rename_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -84,6 +87,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/delete_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -137,7 +141,10 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@id/options"
-        android:numColumns="3"/>
+        android:horizontalSpacing="8dp"
+        android:verticalSpacing="8dp"
+        android:numColumns="3"
+        android:padding="3dp"/>
 
     <ProgressBar
         style="?android:attr/progressBarStyleLarge"
