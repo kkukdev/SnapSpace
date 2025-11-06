@@ -518,7 +518,7 @@ class AIPipeline:
             # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
             if (is_network_path or is_final_dir_network) and local_temp_dir:
                 # 기본 모드는 local_temp_dir에 직접 저장 (output 폴더가 아님)
-                final_output_local = local_temp_dir / f"{base_stem}_denoised_taubin.obj"
+                final_output_local = local_temp_dir / f"output"/ f"{base_stem}_auto_flat.obj"
                 
                 if not final_output_local.exists():
                     raise FileNotFoundError(f"로컬 노이즈 제거 결과가 없습니다: {final_output_local}")
