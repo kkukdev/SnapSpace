@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--  애플리케이션 기본 테마 (라이트)  -->
-    <style name="AppThemeLight" parent="@android:style/Theme.Material.NoActionBar">
+    <style name="AppThemeLight" parent="@android:style/Theme.Material.Light.NoActionBar">
         <!-- Primary Colors -->
         <item name="android:colorPrimary">@color/primary</item>
         <item name="android:colorPrimaryDark">@color/primary_dark</item>
