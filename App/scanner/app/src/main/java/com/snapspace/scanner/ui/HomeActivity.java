@@ -36,15 +36,13 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     private ProgressBar mProgress;
     private TextView mInfoText;
     private Button mCancelButton;
-//    private LinearLayout mButtonGird;
-//    private ImageView mSpaceScanButton;
-//    private ImageView mObjectScanButton;
-//    private Button mPreviewButton;
-//    private Button mUploadButton;
-
     private ViewPager2 viewPager;
     private MenuCardAdapter adapter;
     private List<MenuCard> menuCards;
+
+    private LinearLayout mMainLayout;
+    private LinearLayout mHeaderLayout;
+    private LinearLayout mCardViewLayout;
 
     private long backPressedTime = 0;
 
@@ -66,7 +64,26 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
+        // UI 컴포넌트 초기화
+        mMainLayout = findViewById(R.id.main_layout);
+        mHeaderLayout = findViewById(R.id.header);
+        mCardViewLayout = findViewById(R.id.card_view_layout);
         viewPager = findViewById(R.id.view_pager);
+        mProcessLayout = findViewById(R.id.processing_layout);
+        mProgress = findViewById(R.id.progressBar);
+        mInfoText = findViewById(R.id.info_text);
+        mCancelButton = findViewById(R.id.service_cancel);
+
+        // 버튼 리스너 등록
+        mCancelButton.setOnClickListener(this);
+
+        // 초기 세팅
+        mHeaderLayout.setVisibility(View.VISIBLE);
+        viewPager.setVisibility(View.VISIBLE);
+        mCardViewLayout.setVisibility(View.VISIBLE);
+        mProgress.setVisibility(View.GONE);
+        mInfoText.setVisibility(View.GONE);
+        mCancelButton.setVisibility(View.GONE);
 
         // 메뉴 카드 데이터 생성 (먼저 초기화)
         setupMenuCards();
@@ -77,35 +94,6 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
         // 페이지 간격 설정 (선택사항)
         viewPager.setOffscreenPageLimit(3);
-//        viewPager.setPageTransformer(new CardTransformer());
-
-        // UI 컴포넌트 초기화
-        mProcessLayout = findViewById(R.id.processing_layout);
-        mProgress = findViewById(R.id.progressBar);
-        mInfoText = findViewById(R.id.info_text);
-        mCancelButton = findViewById(R.id.service_cancel);
-//        mButtonGird = findViewById(R.id.button_grid);
-//        mSpaceScanButton = findViewById(R.id.space_scan_button);
-//        mObjectScanButton = findViewById(R.id.object_scan_button);
-//        mPreviewButton = findViewById(R.id.preview_button);
-//        mUploadButton = findViewById(R.id.upload_button);
-
-        // 버튼 리스너 등록
-//        mSpaceScanButton.setOnClickListener(this);
-//        mObjectScanButton.setOnClickListener(this);
-//        mPreviewButton.setOnClickListener(this);
-//        mUploadButton.setOnClickListener(this);
-        mCancelButton.setOnClickListener(this);
-
-        // 버튼 초기 세팅
-        mProgress.setVisibility(View.GONE);
-        mInfoText.setVisibility(View.GONE);
-        mCancelButton.setVisibility(View.GONE);
-//        mButtonGird.setVisibility(View.VISIBLE);
-//        mSpaceScanButton.setVisibility(View.VISIBLE);
-//        mObjectScanButton.setVisibility(View.VISIBLE);
-//        mPreviewButton.setVisibility(View.VISIBLE);
-//        mUploadButton.setVisibility(View.VISIBLE);
 
         // 권환 확인
         checkPermissions();
@@ -130,7 +118,7 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
         menuCards.add(new MenuCard(
                 R.drawable.ic_object_scan,
-                "스캔 결과 보기",
+                "미리 보기",
                 "저장된 3D 모델을 확인합니다",
                 MenuCard.MenuType.PREVIEW
         ));
@@ -150,25 +138,25 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
+     @Override
+     protected void onResume() {
+         super.onResume();
 
-        // 저장 완료 상태 확인
-        int serviceState = Service.getRunning(this);
-        if (serviceState < 0) {
-            int absState = Math.abs(serviceState);
+         // 저장 완료 상태 확인
+         int serviceState = Service.getRunning(this);
+         if (serviceState < 0) {
+             int absState = Math.abs(serviceState);
 
-            if (absState == Service.SERVICE_SAVE) {
-                showProgress();
+             if (absState == Service.SERVICE_SAVE) {
+                 showProgress();
 
-                startActivity(new Intent(this, Main.class));
-            }
-            else if (absState == Service.SERVICE_POSTPROCESS) {
-                finishScanning();
-            }
-        }
-    }
+                 startActivity(new Intent(this, Main.class));
+             }
+             else if (absState == Service.SERVICE_POSTPROCESS) {
+                 finishScanning();
+             }
+         }
+     }
 
     // 권한 체크
     private void checkPermissions() {
@@ -225,24 +213,6 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
     public void onClick(View v) {
         int id = v.getId();
 
-//        // 공간 스캔 버튼 클릭
-//        if (id == R.id.space_scan_button) {
-//            startScanning("space_scan");
-//        }
-//        // 오브젝트 스캔 버튼 클릭
-//        else if (id == R.id.object_scan_button) {
-//            startScanning("object_scan");
-//        }
-//        // 스캔 결과 보기 버튼 클릭
-//        else if (id == R.id.preview_button) {
-//            startActivity(new Intent(HomeActivity.this, FileManager.class));
-//        }
-//        // 서버 업로드 버튼 클릭
-//        else if (id == R.id.upload_button) {
-//            Toast.makeText(HomeActivity.this, "서버 업로드 기능 준비 중...", Toast.LENGTH_SHORT).show();
-//        }
-//        // 작업 취소 버튼 클릭
-//        else
         if (id == R.id.service_cancel) {
             cancelProcessing();
         }
@@ -265,65 +235,63 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
         e.commit();
 
-        showProgress();
-
         startActivity(new Intent(HomeActivity.this, Main.class));
     }
 
-    private void finishScanning()
-    {
-        showProgress();
-        Date date = new Date() ;
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
-        final String filename = dateFormat.format(date);
-        String text = getString(R.string.data_saved) + " " + filename;
-        Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+     private void finishScanning()
+     {
+         showProgress();
 
-        new Thread(() -> {
-            // OBJ 파일 처리
-            File objFile = new File(Service.getLink(HomeActivity.this));
-            File objFileSaved = Exporter.export(objFile, filename);
-            Log.d(TAG, "OBJ 파일 처리를 완료했습니다: " + objFileSaved.getAbsolutePath());
+         Date date = new Date() ;
+         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
+        
+         final String filename = dateFormat.format(date);
+         String text = getString(R.string.data_saved) + " " + filename;
+         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
 
-            // PLY 파일 처리
-            File plyFile = new File(objFile.getParent(), "pointcloud.ply");
-            if (plyFile.exists()) {
-                File plyFileSaved = Exporter.export(plyFile, filename);
-                Log.d(TAG, "PLY 파일 처리를 완료했습니다: " + plyFileSaved.getAbsolutePath());
-            } else {
-                Log.d(TAG, "PLY 파일을 찾을 수 없습니다: " + plyFile.getAbsolutePath());
-            }
+         new Thread(() -> {
+             // OBJ 파일 처리
+             File objFile = new File(Service.getLink(HomeActivity.this));
+             File objFileSaved = Exporter.export(objFile, filename);
+             Log.d(TAG, "OBJ 파일 처리를 완료했습니다: " + objFileSaved.getAbsolutePath());
 
-            // 폴더 구조 정렬
-            Exporter.makeStructure(AbstractActivity.getPath(false));
+             // PLY 파일 처리
+             File plyFile = new File(objFile.getParent(), "pointcloud.ply");
+             if (plyFile.exists()) {
+                 File plyFileSaved = Exporter.export(plyFile, filename);
+                 Log.d(TAG, "PLY 파일 처리를 완료했습니다: " + plyFileSaved.getAbsolutePath());
+             } else {
+                 Log.d(TAG, "PLY 파일을 찾을 수 없습니다: " + plyFile.getAbsolutePath());
+             }
 
-            // 임시 디렉토리 삭제
-            if (!isPostProcessLaterOn(HomeActivity.this)) {
-                deleteRecursive(new File(objFile.getParent()));
-                Log.d(TAG, "임시 디렉토리를 삭제하였습니다");
-            }
+             // 폴더 구조 정렬
+             Exporter.makeStructure(AbstractActivity.getPath(false));
 
-            // 최종 정리
-            Service.reset(HomeActivity.this);
-            Intent intent = new Intent(HomeActivity.this, Main.class);
-            intent.putExtra(FILE_KEY, objFileSaved.getAbsolutePath());
-            showProgress();
-            startActivity(intent);
-        }).start();
-    }
+             // 임시 디렉토리 삭제
+             if (!isPostProcessLaterOn(HomeActivity.this)) {
+                 deleteRecursive(new File(objFile.getParent()));
+                 Log.d(TAG, "임시 디렉토리를 삭제하였습니다");
+             }
+
+             // 최종 정리
+             Service.reset(HomeActivity.this);
+             Intent intent = new Intent(HomeActivity.this, Main.class);
+             intent.putExtra(FILE_KEY, objFileSaved.getAbsolutePath());
+             showProgress();
+             startActivity(intent);
+         }).start();
+     }
 
     public void showProgress()
     {
         try {
+            mHeaderLayout.setVisibility(View.GONE);
+            mCardViewLayout.setVisibility(View.GONE);
+            viewPager.setVisibility(View.GONE);
             mProcessLayout.setVisibility(View.VISIBLE);
             mProgress.setVisibility(View.VISIBLE);
             mInfoText.setVisibility(View.VISIBLE);
             mCancelButton.setVisibility(View.VISIBLE);
-//            mButtonGird.setVisibility(View.GONE);
-//            mSpaceScanButton.setVisibility(View.GONE);
-//            mObjectScanButton.setVisibility(View.GONE);
-//            mPreviewButton.setVisibility(View.GONE);
-//            mUploadButton.setVisibility(View.GONE);
         } catch (Exception e) {
             e.printStackTrace();
         }
