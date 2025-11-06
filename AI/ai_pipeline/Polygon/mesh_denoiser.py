@@ -213,6 +213,7 @@ def _ai_denoise_with_deepmeshprior(
 def main():
     parser = argparse.ArgumentParser(description="Standalone mesh denoiser (algorithmic or AI)")
     parser.add_argument("--input", "-i", help="Input OBJ file path")
+    parser.add_argument("--output-dir", required=True, help="최종 산출물 저장 디렉토리")
     parser.add_argument("--mode", choices=["algo","ai","auto_flat"], default="auto_flat")
     parser.add_argument("--ai-iters", type=int, default=400)
     parser.add_argument("--ai-lr", type=float, default=0.01)
