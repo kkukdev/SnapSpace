@@ -14,7 +14,7 @@ class WSMessageType(str, Enum):
 
 class FileProcessingRequest(BaseModel):
     scan_id: int
-    file_path: str
+    original_file_path: str
     group_id: str
     metadata: Dict[str, Any]
 
@@ -32,7 +32,7 @@ class ProcessingStatusUpdate(BaseModel):
 
 class ProcessingStartMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_START
-    scan_id: str
+    scan_id: int
 
 class ProcessingProgressMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_PROGRESS

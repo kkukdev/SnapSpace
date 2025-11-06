@@ -1,2 +1,4 @@
 datasets/
 logs/
+temp/
+ai.env

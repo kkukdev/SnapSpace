@@ -1,7 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
+from app.config import get_current_datetime
 
 class WSMessageType(str, Enum):
     FILE_LIST = "file_list"
@@ -14,8 +15,9 @@ class WSMessageType(str, Enum):
 
 class FileProcessingRequest(BaseModel):
     scan_id: int
-    file_path: str
+    original_file_path: str
     group_id: str
+    group_name: Optional[str] = None
     metadata: Dict[str, Any]
 
 class FileListMessage(BaseModel):
@@ -28,11 +30,11 @@ class ProcessingStatusUpdate(BaseModel):
     progress: Optional[int] = None  # 0-100
     error_message: Optional[str] = None
     output_file_path: Optional[str] = None
-    timestamp: datetime = datetime.now()
+    timestamp: datetime = Field(default_factory=get_current_datetime)
 
 class ProcessingStartMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_START
-    scan_id: str
+    scan_id: int
 
 class ProcessingProgressMessage(BaseModel):
     type: WSMessageType = WSMessageType.PROCESSING_PROGRESS
@@ -51,9 +53,9 @@ class ProcessingErrorMessage(BaseModel):
 
 class HeartbeatMessage(BaseModel):
     type: WSMessageType = WSMessageType.HEARTBEAT
-    timestamp: datetime = datetime.now()
+    timestamp: datetime = Field(default_factory=get_current_datetime)
 
 class ConnectionStatusMessage(BaseModel):
     type: WSMessageType = WSMessageType.CONNECTION_STATUS
     status: str  # "connected", "disconnected", "reconnecting"
-    timestamp: datetime = datetime.now()
+    timestamp: datetime = Field(default_factory=get_current_datetime)

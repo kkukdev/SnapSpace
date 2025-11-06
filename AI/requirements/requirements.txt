@@ -83,10 +83,11 @@ pydantic==2.12.3
 pydantic-settings==2.11.0
 pydantic_core==2.41.4
 Pygments==2.19.2
+pymeshlab==2025.7
 pyparsing==3.2.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
-pywin32==311
+#pywin32==311
 referencing==0.37.0
 requests==2.32.5
 retrying==1.4.2

@@ -1,4 +1,4 @@
-name: postgres-fastapi
+name: sdt-server
 
 services:
   postgres:
@@ -23,8 +23,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
 
-  app:
+  backend:
     build: .
     container_name: fastapi-app
     ports:
@@ -41,7 +43,15 @@ services:
     restart: unless-stopped
     volumes:
       - .:/app
+      - ../storage:/project_root/storage  # /app/storage로 통일
     command: ["python", "-m", "app.main"]
+    working_dir: /app
+    networks:
+      - app-network
 
 volumes:
   postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
