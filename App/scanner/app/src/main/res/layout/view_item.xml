@@ -20,7 +20,8 @@
         android:layout_height="wrap_content"
         android:layout_below="@id/icon"
         android:layout_centerHorizontal="true"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_small"
+        android:textColor="@color/text_primary"
         android:maxLines="1"
         android:ellipsize="end"/>
 

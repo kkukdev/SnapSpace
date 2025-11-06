@@ -95,19 +95,19 @@ class FileAdapter extends BaseAdapter
 
       @Override
       public void OnPinchToZoom(float diff) {
-        int before = (int)mColumns;
-        mColumns -= diff * 0.75f;
-        if (mColumns < 2) {
-          mColumns = 2;
-        }
-        if (mColumns > 5) {
-          mColumns = 5;
-        }
-        int after = (int)mColumns;
-
-        if (before != after) {
-          mContext.setColumns(after);
-        }
+//        int before = (int)mColumns;
+//        mColumns -= diff * 0.75f;
+//        if (mColumns < 2) {
+//          mColumns = 2;
+//        }
+//        if (mColumns > 5) {
+//          mColumns = 5;
+//        }
+//        int after = (int)mColumns;
+//
+//        if (before != after) {
+//          mContext.setColumns(after);
+//        }
       }
     }, mContext);
   }
@@ -477,32 +477,6 @@ class FileAdapter extends BaseAdapter
     }
   }
 
-
-  private void showShareDialog(String zipFilePath, String key, boolean isObj) {
-    AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
-    builder.setTitle(R.string.share_via);
-    CharSequence[] items = new CharSequence[]{"FastAPI로 업로드", "기타 앱으로 공유"};
-
-    builder.setItems(items, (dialog, which) -> {
-      if (which == 0) {
-        // FastAPI로 업로드
-        Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.setType("application/zip");
-        intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zipFilePath)));
-        mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
-      } else {
-        // 기타 앱으로 공유
-        Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.setType("application/zip");
-        intent.putExtra(Intent.EXTRA_STREAM, FileProvider.getUriForFile(mContext, BuildConfig.APPLICATION_ID + ".provider", new File(zipFilePath)));
-        mContext.startActivity(Intent.createChooser(intent, mContext.getString(R.string.share_via)));
-      }
-    });
-    builder.setOnCancelListener(dialog -> {
-      deleteTempZip(zipFilePath);
-    });
-    builder.show();
-  }
 
 
   public void rename() {
