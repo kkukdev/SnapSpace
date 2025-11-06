@@ -95,19 +95,19 @@ class FileAdapter extends BaseAdapter
 
       @Override
       public void OnPinchToZoom(float diff) {
-        int before = (int)mColumns;
-        mColumns -= diff * 0.75f;
-        if (mColumns < 2) {
-          mColumns = 2;
-        }
-        if (mColumns > 5) {
-          mColumns = 5;
-        }
-        int after = (int)mColumns;
-
-        if (before != after) {
-          mContext.setColumns(after);
-        }
+//        int before = (int)mColumns;
+//        mColumns -= diff * 0.75f;
+//        if (mColumns < 2) {
+//          mColumns = 2;
+//        }
+//        if (mColumns > 5) {
+//          mColumns = 5;
+//        }
+//        int after = (int)mColumns;
+//
+//        if (before != after) {
+//          mContext.setColumns(after);
+//        }
       }
     }, mContext);
   }

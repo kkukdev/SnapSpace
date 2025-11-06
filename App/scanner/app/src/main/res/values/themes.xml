@@ -10,6 +10,7 @@
         <item name="android:windowBackground">@color/background</item>
 
         <!-- Text Colors -->
+        <item name="android:textColor">@color/text_primary</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorAlertDialogListItem">@color/text_alertdialog_listitem</item>
 

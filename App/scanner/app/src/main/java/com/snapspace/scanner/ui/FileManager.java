@@ -50,7 +50,7 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
 //  private RelativeLayout mHeader;
   private LinearLayout mOptions;
 //  private TextView mName;
-  private View mPosition;
+//  private View mPosition;
   private View mRename;
   private View mShare;
 //  private static boolean allowedToAskForPermissions = true;
@@ -66,11 +66,11 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
 
 //    mName = findViewById(R.id.name);
     mRename = findViewById(R.id.rename);
-    mPosition = findViewById(R.id.position);
+//    mPosition = findViewById(R.id.position);
     mShare = findViewById(R.id.share);
 //    mHeader = findViewById(R.id.header);
     mOptions = findViewById(R.id.options);
-    mPosition.setOnClickListener(this);
+//    mPosition.setOnClickListener(this);
     mRename.setOnClickListener(this);
     mShare.setOnClickListener(this);
     findViewById(R.id.delete).setOnClickListener(this);
@@ -363,9 +363,11 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
 
     if (id == R.id.delete) {
       mAdapter.deleteModel();
-    } else if (id == R.id.position) {
-      mAdapter.showPosition();
-    } else if (id == R.id.rename) {
+    }
+//    else if (id == R.id.position) {
+//      mAdapter.showPosition();
+//    }
+    else if (id == R.id.rename) {
       mAdapter.rename();
     } else if (id == R.id.share) {
       mAdapter.shareModel();
@@ -486,7 +488,7 @@ public class FileManager extends AbstractActivity implements View.OnClickListene
 
     boolean more = size > 1;
     boolean ext = mAdapter.hasExtension();
-    mPosition.setVisibility(!more && mAdapter.hasPosition() ? View.VISIBLE : View.GONE);
+//    mPosition.setVisibility(!more && mAdapter.hasPosition() ? View.VISIBLE : View.GONE);
     mRename.setVisibility(!more ? View.VISIBLE : View.GONE);
     mShare.setVisibility(ext && !more ? View.VISIBLE : View.GONE);
 
