@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-`   <dimen name="header_text">36sp</dimen>
+    <!--  텍스트 사이즈  -->
+`   <dimen name="text_title">48sp</dimen>
+    <dimen name="text_header">36sp</dimen>
+    <dimen name="text_middle">24sp</dimen>
+    <dimen name="text_small">12sp</dimen>
 </resources>

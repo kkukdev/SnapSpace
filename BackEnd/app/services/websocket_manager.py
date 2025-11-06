@@ -6,6 +6,7 @@ from fastapi import WebSocket
 from datetime import datetime
 
 from app.schemas.websocket_schemas import WSMessageType, FileListMessage
+from app.config import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,13 @@ class WebSocketManager:
         await websocket.accept()
         
         if client_id is None:
-            client_id = f"ai_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            client_id = f"ai_{get_current_datetime().strftime('%Y%m%d_%H%M%S')}"
         
         self.ai_connections.append(websocket)
         self.connection_info[websocket] = {
             "client_id": client_id,
-            "connected_at": datetime.now(),
-            "last_heartbeat": datetime.now()
+            "connected_at": get_current_datetime(),
+            "last_heartbeat": get_current_datetime()
         }
         
         logger.info(f"AI server connected: {client_id}")
@@ -125,7 +126,107 @@ class WebSocketManager:
         scan_id = message_data.get("scan_id")
         output_file_path = message_data.get("output_file_path")
         logger.info(f"AI completed processing scan_id {scan_id}: {output_file_path}")
-        # TODO: DB 상태 업데이트 (COMPLETED)
+        
+        # retouched_file_path 업데이트 및 status를 COMPLETED로 변경
+        if scan_id and output_file_path:
+            try:
+                from app.database import SessionLocal
+                from app.services.scan_service import scan_service
+                from app.config import settings
+                from pathlib import Path
+                import re
+                import os
+                
+                db = SessionLocal()
+                try:
+                    # 경로 변환: 네트워크 경로를 /project_root/storage 형식으로 변환
+                    # upload_service.py와 config.py의 로직을 참고하여 처리
+                    converted_path = output_file_path
+                    
+                    # 경로 정규화 (백슬래시를 슬래시로)
+                    normalized = output_file_path.replace("\\", "/")
+                    
+                    # 1. 이미 /project_root로 시작하는 경우 그대로 사용
+                    if normalized.startswith("/project_root"):
+                        converted_path = normalized
+                    
+                    # 2. UNC 경로 처리: \\host\storage\... -> /project_root/storage/...
+                    elif normalized.startswith("//") or normalized.startswith("\\\\"):
+                        # //host/storage/... 또는 //host/storage 형식 처리
+                        # storage 부분 찾기
+                        if "/storage/" in normalized:
+                            storage_idx = normalized.find("/storage/")
+                            relative_path = normalized[storage_idx:]  # /storage/... 부터
+                            converted_path = f"/project_root{relative_path}"
+                        else:
+                            # storage가 포함된 경우 찾기
+                            parts = [p for p in normalized.strip("/").split("/") if p]
+                            if "storage" in parts:
+                                storage_idx = parts.index("storage")
+                                relative_path = "/" + "/".join(parts[storage_idx:])
+                                converted_path = f"/project_root{relative_path}"
+                    
+                    # 3. Windows 드라이브 경로 처리: C:\host\storage\... -> /project_root/storage/...
+                    elif re.match(r'^[A-Z]:/', normalized):
+                        # C:/host/storage/... 형식에서 storage 부분 추출
+                        if "/storage/" in normalized:
+                            storage_idx = normalized.find("/storage/")
+                            relative_path = normalized[storage_idx:]  # /storage/... 부터
+                            converted_path = f"/project_root{relative_path}"
+                        else:
+                            parts = [p for p in normalized.split("/") if p and p != ""]
+                            if "storage" in parts:
+                                storage_idx = parts.index("storage")
+                                relative_path = "/" + "/".join(parts[storage_idx:])
+                                converted_path = f"/project_root{relative_path}"
+                    
+                    # 4. 상대 경로나 storage로 시작하는 경우
+                    elif normalized.startswith("storage/"):
+                        converted_path = f"/project_root/{normalized}"
+                    
+                    # 5. 기타 경로에서 storage 찾기
+                    else:
+                        # storage가 포함된 경우 /project_root/storage/...로 변환
+                        if "/storage/" in normalized:
+                            storage_idx = normalized.find("/storage/")
+                            relative_path = normalized[storage_idx:]  # /storage/... 부터
+                            converted_path = f"/project_root{relative_path}"
+                        elif normalized.startswith("storage"):
+                            converted_path = f"/project_root/{normalized}"
+                    
+                    # 최종 정규화: 중복 슬래시 제거
+                    converted_path = re.sub(r'/+', '/', converted_path)
+                    # Windows 경로 구분자 남은 것 정리
+                    converted_path = converted_path.replace("\\", "/")
+                    
+                    logger.info(f"Converting path: {output_file_path} -> {converted_path}")
+                    
+                    # retouched_file_path 업데이트
+                    result = scan_service.update_scan_retouched_file_path(
+                        db=db, 
+                        scan_id=scan_id, 
+                        retouched_file_path=converted_path
+                    )
+                    if result.success:
+                        logger.info(f"Successfully updated retouched_file_path for scan_id={scan_id}: {converted_path}")
+                    else:
+                        logger.warning(f"Failed to update retouched_file_path for scan_id={scan_id}: {result.message}")
+                    
+                    # status를 COMPLETED로 업데이트
+                    status_result = scan_service.update_scan_status(
+                        db=db,
+                        scan_id=scan_id,
+                        status="COMPLETED"
+                    )
+                    if status_result.success:
+                        logger.info(f"Successfully updated status to COMPLETED for scan_id={scan_id}")
+                    else:
+                        logger.warning(f"Failed to update status for scan_id={scan_id}: {status_result.message}")
+                        
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Error updating retouched_file_path and status for scan_id={scan_id}: {str(e)}", exc_info=True)
     
     async def _handle_processing_error(self, websocket: WebSocket, message_data: dict):
         """처리 에러 처리"""
@@ -137,7 +238,7 @@ class WebSocketManager:
     async def _handle_heartbeat(self, websocket: WebSocket, message_data: dict):
         """하트비트 응답"""
         if websocket in self.connection_info:
-            self.connection_info[websocket]["last_heartbeat"] = datetime.now()
+            self.connection_info[websocket]["last_heartbeat"] = get_current_datetime()
         logger.debug("Received heartbeat from AI")
     
     async def _handle_connection_status(self, websocket: WebSocket, message_data: dict):

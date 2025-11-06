@@ -17,6 +17,14 @@ class GroupService(BaseService):
     def create_group(self, db: Session, group_data: GroupCreate) -> GroupCreateResponse:
         """그룹 생성"""
         try:
+            # 이름 중복 확인
+            existing_group = group.get_by_name(db, name=group_data.name)
+            if existing_group:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"이미 존재하는 그룹 이름입니다: {group_data.name}"
+                )
+            
             # CRUD의 create 메서드 사용
             db_group = group.create(db, obj_in=group_data)
             
@@ -28,6 +36,8 @@ class GroupService(BaseService):
                 success=True,
                 data=group_schema
             )
+        except HTTPException:
+            raise
         except Exception as e:
             db.rollback()
             raise HTTPException(
@@ -94,6 +104,15 @@ class GroupService(BaseService):
                     message="그룹을 찾을 수 없습니다.",
                     success=False
                 )
+            
+            # 이름 변경 시 중복 확인
+            if group_data.name and group_data.name != db_group.name:
+                existing_group = group.get_by_name(db, name=group_data.name)
+                if existing_group:
+                    return self.create_response(
+                        message=f"이미 존재하는 그룹 이름입니다: {group_data.name}",
+                        success=False
+                    )
             
             updated_group = group.update(db, db_obj=db_group, obj_in=group_data)
             
@@ -194,6 +213,16 @@ class GroupService(BaseService):
                 total=0
             )
 
+    def get_group_by_name(self, db: Session, name: str) -> Optional[Group]:
+        """그룹 이름으로 조회"""
+        try:
+            db_group = group.get_by_name(db, name=name)
+            if db_group:
+                return Group.model_validate(db_group)
+            return None
+        except Exception as e:
+            return None
+    
     def search_groups_by_metadata(
         self, db: Session, metadata_filter: Dict[str, Any], skip: int = 0, limit: int = 100
     ) -> BaseResponse:

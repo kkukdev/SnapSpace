@@ -10,5 +10,7 @@
 
     <!--  텍스트 색상  -->
     <color name="text_primary">#000000</color>
+    <color name="text_secondary">#E9E9E9</color>
+    <color name="text_highlight">#0381FE</color>
     <color name="text_alertdialog_listitem">#222222</color>
 </resources>
