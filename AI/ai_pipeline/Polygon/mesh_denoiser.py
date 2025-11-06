@@ -1,5 +1,5 @@
 """
-python mesh_denoiser.py -i ../../datasets/mainhall_safe_precleaned_cleaned.obj   --mode auto_flat --proj-dist 0.008   --floor-ratio 0.5 --wall-ratio 2.0   --smooth-floor 6 --smooth-wall 24   --wall-ortho-dot 0.15   --max-walls 6 --ransac-iters 4000   --preclean --visualize
+python mesh_denoiser.py -i ../../datasets/mainhall_safe_precleaned_cleaned.obj  --visualize
 """
 
 
@@ -214,9 +214,7 @@ def main():
     parser = argparse.ArgumentParser(description="Standalone mesh denoiser (algorithmic or AI)")
     parser.add_argument("--input", "-i", help="Input OBJ file path")
     parser.add_argument("--output-dir", required=True, help="최종 산출물 저장 디렉토리")
-    parser.add_argument("--mode", choices=["algo", "ai", "auto_flat"], default="algo", help="Denoise mode")
-    parser.add_argument("--algo", choices=["taubin", "laplacian", "simple"], default="taubin")
-    parser.add_argument("--iter", type=int, default=15)
+    parser.add_argument("--mode", choices=["algo","ai","auto_flat"], default="auto_flat")
     parser.add_argument("--ai-iters", type=int, default=400)
     parser.add_argument("--ai-lr", type=float, default=0.01)
     parser.add_argument("--ai-lap", type=float, default=1.2)
@@ -224,14 +222,14 @@ def main():
     parser.add_argument("--preclean", action="store_true")
 
     # auto_flat 모드(바닥/벽 자동 평탄화) 관련 파라미터
-    parser.add_argument("--max-walls", type=int, default=4)
-    parser.add_argument("--proj-dist", type=float, default=0.02)
+    parser.add_argument("--proj-dist", type=float, default=0.008)
     parser.add_argument("--floor-ratio", type=float, default=0.6)
-    parser.add_argument("--wall-ratio", type=float, default=1.6)
-    parser.add_argument("--smooth-floor", type=int, default=8)
-    parser.add_argument("--smooth-wall", type=int, default=22)
-    parser.add_argument("--wall-ortho-dot", type=float, default=0.2)
-    parser.add_argument("--ransac-iters", type=int, default=3000)
+    parser.add_argument("--wall-ratio", type=float, default=2.5)
+    parser.add_argument("--smooth-floor", type=int, default=6)
+    parser.add_argument("--smooth-wall", type=int, default=24)
+    parser.add_argument("--wall-ortho-dot", type=float, default=0.15)
+    parser.add_argument("--max-walls", type=int, default=6)
+    parser.add_argument("--ransac-iters", type=int, default=4000)
     parser.add_argument("--sample-n", type=int, default=250000)
     parser.add_argument("--smooth-iters", type=int, default=12)
     parser.add_argument("--compare", nargs="+")
