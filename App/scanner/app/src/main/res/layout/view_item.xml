@@ -30,6 +30,8 @@
             android:layout_below="@id/icon"
             android:layout_centerHorizontal="true"
             android:textSize="@dimen/text_small"
+            android:textColor="@color/primary"
+            android:fontFamily="@font/pretendard_regular"
             android:maxLines="1"
             android:ellipsize="end"/>
 

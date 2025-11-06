@@ -10,7 +10,6 @@ import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -103,21 +102,21 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
         menuCards = new ArrayList<>();
 
         menuCards.add(new MenuCard(
-                R.drawable.ic_space_scan,
+                R.drawable.icon_space_scan,
                 "공간 스캔",
                 "실내 공간을 3D로 스캔합니다",
                 MenuCard.MenuType.SPACE_SCAN
         ));
 
         menuCards.add(new MenuCard(
-                R.drawable.ic_object_scan,
+                R.drawable.icon_object_scan,
                 "오브젝트 스캔",
                 "작은 물체를 3D로 스캔합니다",
                 MenuCard.MenuType.OBJECT_SCAN
         ));
 
         menuCards.add(new MenuCard(
-                R.drawable.ic_object_scan,
+                R.drawable.icon_database,
                 "미리 보기",
                 "저장된 3D 모델을 확인합니다",
                 MenuCard.MenuType.PREVIEW
