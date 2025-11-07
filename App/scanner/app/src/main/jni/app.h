@@ -41,6 +41,7 @@ namespace oc {
         bool AnimFinished();
         bool DidARJump();
         float GetView(int axis);
+        float GetCameraPosition(int axis);
         float GetDistance(float x1, float y1, float x2, float y2);
         float GetFloorLevel(float x, float y, float z);
         void SetView(float p, float y, float mx, float my, float mz, float o, bool g);

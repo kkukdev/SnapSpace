@@ -73,6 +73,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private LinearLayout mLayoutMemo;
   private EditText mMemoEditText;
   private Button mMemoCloseButton;
+  private Button mMemoPositionButton; 
   private String mMemoContent = "";
 //  private ImageButton mViewButton;
   private ImageButton mToggleButton;
@@ -282,10 +283,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     mLayoutMemo = findViewById(R.id.layout_memo_scroll);
     mMemoEditText = findViewById(R.id.memo_edit_text);
     mMemoCloseButton = findViewById(R.id.memo_close_button);
+    mMemoPositionButton = findViewById(R.id.memo_position_button);
     findViewById(R.id.clear_button).setOnClickListener(this);
     findViewById(R.id.save_button).setOnClickListener(this);
     findViewById(R.id.memo_button).setOnClickListener(this);
     mMemoCloseButton.setOnClickListener(this);
+    mMemoPositionButton.setOnClickListener(this);
 //    mViewButton = findViewById(R.id.view_button);
 //    mViewButton.setVisibility(View.GONE);
 //    mViewButton.setOnClickListener(this);
@@ -481,6 +484,22 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     else if (id == R.id.memo_button) { // 메모 버튼 클릭 시
       pauseScanning();
       showMemoDialog();
+    }
+    else if (id == R.id.memo_position_button) { // 메모 위치 좌표 버튼 클릭 시
+      // 현재 AR 카메라 위치 좌표 가져오기 (GetPose 사용)
+      float x = JNI.getCameraPosition(0);
+      float y = JNI.getCameraPosition(1);
+      float z = JNI.getCameraPosition(2);
+      
+      // [x:1,y:1,z:1] 형식으로 좌표 문자열 생성
+      String positionText = String.format("[x:%.2f,y:%.2f,z:%.2f]\n", x, y, z);
+      
+      // 현재 메모 내용에 좌표 추가
+      String currentText = mMemoEditText.getText().toString();
+      mMemoEditText.setText(currentText + positionText);
+      
+      // 커서를 끝으로 이동
+      mMemoEditText.setSelection(mMemoEditText.getText().length());
     }
     else if (id == R.id.memo_close_button) { // 메모 완료 버튼 클릭 시
       hideMemoDialog();

@@ -1085,6 +1085,24 @@ namespace oc
         return output;
     }
 
+    float App::GetCameraPosition(int axis)
+    {
+        float output = 0;
+        if (ar)
+        {
+            // GetPose()로 실제 AR 카메라 위치 가져오기
+            std::vector<glm::mat4> poses = ar->GetPose();
+            glm::mat4 cameraPose = poses[OPENGL_CAMERA];
+            if (axis == 0)
+                output = cameraPose[3][2];  // X
+            if (axis == 1)
+                output = cameraPose[3][0];  // Y
+            if (axis == 2)
+                output = cameraPose[3][1];  // Z
+        }
+        return output;
+    }
+
     int App::GetScanSize()
     {
         reconstruction.render_mutex_.lock();
@@ -1305,6 +1323,12 @@ extern "C"
     Java_com_snapspace_scanner_main_JNI_getView(JNIEnv *, jclass, jint axis)
     {
         return app.GetView(axis);
+    }
+
+    JNIEXPORT jfloat JNICALL
+    Java_com_snapspace_scanner_main_JNI_getCameraPosition(JNIEnv *, jclass, jint axis)
+    {
+        return app.GetCameraPosition(axis);
     }
 
     JNIEXPORT jbyteArray JNICALL

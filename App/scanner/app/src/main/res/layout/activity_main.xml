@@ -92,6 +92,17 @@
                 android:layout_gravity="center_vertical"/>
 
             <Button
+                android:id="@+id/memo_position_button"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="좌표 삽입"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:background="@drawable/background_button_normal_blue"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"/>
+
+            <Button
                 android:id="@+id/memo_close_button"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
