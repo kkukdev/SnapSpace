@@ -76,6 +76,9 @@ public class JNI
   // Gets position of specified axis
   public static native float getView(int axis);
 
+  // Gets actual AR camera position of specified axis (0=x, 1=y, 2=z)
+  public static native float getCameraPosition(int axis);
+
   // Get system event
   private static native byte[] getEvent();
 
