@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="100dp"
         android:layout_alignParentTop="true"
-        android:gravity="center">
+        android:gravity="center" >
 
         <TextView
             android:id="@+id/title"
@@ -19,7 +19,7 @@
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"
             android:text="@string/app_name"
-            android:textColor="@color/text_primary"
+            android:textColor="@color/primary"
             android:textSize="@dimen/text_header"
             android:fontFamily="@font/pretendard_bold" />
 
@@ -36,6 +36,7 @@
         android:elevation="4dp">
 
         <LinearLayout
+            android:id="@+id/share_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -47,18 +48,19 @@
                 android:layout_width="30sp"
                 android:layout_height="30sp"
                 android:layout_margin="5dp"
-                android:background="@drawable/ic_share_small"
-                android:backgroundTint="@color/text_primary"
+                android:background="@drawable/icon_share"
+                android:backgroundTint="@color/primary"
                 tools:ignore="SpeakableTextPresentCheck,TouchTargetSizeCheck" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="공유"
-                android:textColor="@color/text_primary"/>
+                android:textColor="@color/primary"/>
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/rename_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -70,8 +72,8 @@
                 android:layout_width="30sp"
                 android:layout_height="30sp"
                 android:layout_margin="5dp"
-                android:background="@drawable/ic_rename_small"
-                android:backgroundTint="@color/text_primary"
+                android:background="@drawable/icon_edit"
+                android:backgroundTint="@color/primary"
                 tools:ignore="SpeakableTextPresentCheck,TouchTargetSizeCheck" />
 
             <TextView
@@ -80,10 +82,11 @@
                 android:gravity="center"
                 android:text="이름 변경"
                 android:textSize="@dimen/text_small"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/primary"/>
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/delete_layout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -95,8 +98,8 @@
                 android:layout_width="30sp"
                 android:layout_height="30sp"
                 android:layout_margin="5dp"
-                android:background="@drawable/ic_delete_small"
-                android:backgroundTint="@color/text_primary"
+                android:background="@drawable/icon_scan_delete"
+                android:backgroundTint="@color/primary"
                 tools:ignore="SpeakableTextPresentCheck,TouchTargetSizeCheck" />
 
             <TextView
@@ -105,7 +108,7 @@
                 android:gravity="center"
                 android:text="삭제"
                 android:textSize="@dimen/text_small"
-                android:textColor="@color/text_primary"/>
+                android:textColor="@color/primary" />
         </LinearLayout>
 
     </LinearLayout>
@@ -137,7 +140,10 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@id/options"
-        android:numColumns="3"/>
+        android:horizontalSpacing="8dp"
+        android:verticalSpacing="8dp"
+        android:numColumns="3"
+        android:padding="3dp"/>
 
     <ProgressBar
         style="?android:attr/progressBarStyleLarge"

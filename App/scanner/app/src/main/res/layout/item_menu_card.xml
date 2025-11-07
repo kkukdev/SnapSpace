@@ -21,7 +21,7 @@
             android:id="@+id/card_icon"
             android:layout_width="120dp"
             android:layout_height="120dp"
-            android:src="@drawable/ic_space_scan" />
+            android:src="@drawable/icon_space_scan" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -36,7 +36,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/text_middle"
                 android:text="제목"
-                android:textColor="@color/text_primary"
+                android:textColor="@color/primary"
                 android:textSize="32sp"
                 android:fontFamily="@font/pretendard_bold" />
 
@@ -48,7 +48,7 @@
                 android:layout_marginTop="12dp"
                 android:text="설명"
                 android:textAlignment="center"
-                android:textColor="@color/text_highlight"
+                android:textColor="@color/primary"
                 android:textSize="@dimen/text_small"
                 android:fontFamily="@font/pretendard_medium"/>
         </LinearLayout>
