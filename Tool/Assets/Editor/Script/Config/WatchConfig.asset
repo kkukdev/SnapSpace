@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6dbb9b11e1026488dfa42a3f6eb7c0, type: 3}
   m_Name: WatchConfig
   m_EditorClassIdentifier: 
-  rootWatchDirectory: C:/Users/SSAFY/Desktop/dev_dydgk/S13P31S102/storage/uploads
+  rootWatchDirectory: C:/Users/SSAFY/Desktop/dev_dydgk/S13P31S102/storage/outputs/final
   includeSubdirectories: 1
   scanDebounceMs: 800
   objPatterns: '*.obj'

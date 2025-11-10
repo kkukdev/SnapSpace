@@ -53,7 +53,7 @@ public class ObjDropWatcherWindow : EditorWindow
                 if (!string.IsNullOrEmpty(selectedPath))
                 {
                     config.rootWatchDirectory = selectedPath;
-                    EditorUtility.SetDirty(config);
+                    MarkConfigDirty();
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -142,7 +142,7 @@ public class ObjDropWatcherWindow : EditorWindow
             
             if (GUI.changed)
             {
-                EditorUtility.SetDirty(config);
+                MarkConfigDirty();
             }
         }
         else
@@ -266,17 +266,16 @@ public class ObjDropWatcherWindow : EditorWindow
 
     void StopWatching()
     {
-        try
+        if (_watcher != null)
         {
-            if (_watcher != null)
-            {
-                _watcher.EnableRaisingEvents = false;
-                _watcher.Created -= OnFsEvent;
-                _watcher.Renamed -= OnFsEvent;
-                _watcher.Dispose();
-            }
-        } catch { }
-        _watcher = null; _watching = false; RemoveNotification();
+            _watcher.EnableRaisingEvents = false;
+            _watcher.Created -= OnFsEvent;
+            _watcher.Renamed -= OnFsEvent;
+            _watcher.Dispose();
+            _watcher = null;
+        }
+        _watching = false;
+        RemoveNotification();
     }
 
     void OnFsEvent(object s, FileSystemEventArgs e)
@@ -441,5 +440,19 @@ public class ObjDropWatcherWindow : EditorWindow
     {
         if (string.IsNullOrEmpty(path)) return;
         EditorUtility.RevealInFinder(path);
+    }
+
+    void MarkConfigDirty()
+    {
+        if (config == null)
+            return;
+
+        if ((config.hideFlags & HideFlags.DontSaveInEditor) != 0)
+            return;
+
+        if (EditorUtility.IsPersistent(config))
+        {
+            EditorUtility.SetDirty(config);
+        }
     }
 }
