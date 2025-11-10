@@ -379,7 +379,8 @@ public class ObjDropWatcherWindow : EditorWindow
             Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
             Selection.activeObject = go;
 
-            go.transform.position = Vector3.up * 0.5f;
+            // RuntimeObjLoader shifts the mesh so the lowest Y becomes 0, so spawn directly on ground.
+            go.transform.position = Vector3.zero;
             go.transform.rotation = Quaternion.identity;
 
             // ----------------------------------------------------
@@ -417,7 +418,7 @@ public class ObjDropWatcherWindow : EditorWindow
             try
             {
                 var go = RuntimeObjLoader.LoadObj(objPath);
-                go.transform.position = Vector3.up * 0.5f;
+                go.transform.position = Vector3.zero;
                 go.transform.rotation = Quaternion.identity;
 
                 float unitScale = config ? config.unitScale : 1000f; // mm→m 기본 1000배
