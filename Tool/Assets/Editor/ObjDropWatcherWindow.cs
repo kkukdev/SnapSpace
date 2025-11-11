@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
@@ -19,11 +20,12 @@ public class ObjDropWatcherWindow : EditorWindow
 
     [Serializable] class Item { public string folder; public string obj; public string label; }
 
+
     [MenuItem("Tools/OBJ Drop Watcher")]
     public static void Open()
     {
         var w = GetWindow<ObjDropWatcherWindow>("OBJ Drop Watcher");
-        w.minSize = new Vector2(520, 340);
+        w.minSize = new Vector2(520, 400);
         w.Show();
     }
 
@@ -171,8 +173,8 @@ public class ObjDropWatcherWindow : EditorWindow
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Detected OBJ files", EditorStyles.boldLabel);
-
-        _scroll = EditorGUILayout.BeginScrollView(_scroll);
+        
+        _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true), GUILayout.MinHeight(150));
         if (_items.Count == 0)
         {
             EditorGUILayout.HelpBox("감지된 항목이 없습니다.\n- Start Watching 후 새 폴더를 만들고 OBJ를 넣어보세요.\n- 또는 Initial Scan으로 기존 폴더를 스캔하세요.", MessageType.Info);
@@ -193,6 +195,13 @@ public class ObjDropWatcherWindow : EditorWindow
             }
         }
         EditorGUILayout.EndScrollView();
+        
+        EditorGUILayout.Space();
+        EditorGUILayout.HelpBox("Transform Export/Import 기능은 별도 툴로 분리되었습니다.\nTools > Object Transform Exporter를 사용하세요.", MessageType.Info);
+        if (GUILayout.Button("Open Transform Exporter", GUILayout.Height(24)))
+        {
+            ObjectTransformExporterWindow.Open();
+        }
     }
 
     void RefreshFolderList()
@@ -643,12 +652,23 @@ public class ObjDropWatcherWindow : EditorWindow
         if (config == null)
             return;
 
+        // DontSaveInEditor 플래그가 설정되어 있으면 저장하지 않음
         if ((config.hideFlags & HideFlags.DontSaveInEditor) != 0)
             return;
 
-        if (EditorUtility.IsPersistent(config))
+        // AssetDatabase를 사용하여 더 안전하게 체크
+        if (AssetDatabase.Contains(config))
         {
-            EditorUtility.SetDirty(config);
+            try
+            {
+                EditorUtility.SetDirty(config);
+            }
+            catch (Exception ex)
+            {
+                // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
+                Debug.LogWarning($"[ObjDropWatcher] Failed to mark config dirty: {ex.Message}");
+            }
         }
     }
+
 }
