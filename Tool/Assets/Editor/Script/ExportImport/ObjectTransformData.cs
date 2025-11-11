@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Linq;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -41,8 +43,7 @@ namespace ObjDropWatcher.ExportImport
             }
 
             // 2. MeshFilter의 메시 이름에서도 시도
-            var meshFilter = obj.GetComponent<MeshFilter>();
-            if (meshFilter != null && meshFilter.sharedMesh != null)
+            if (obj.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
             {
                 string meshName = meshFilter.sharedMesh.name;
                 // 메시 이름이 파일명과 유사하면 사용
@@ -230,6 +231,259 @@ namespace ObjDropWatcher.ExportImport
     }
 
     /// <summary>
+    /// 컴포넌트 속성의 키-값 쌍
+    /// </summary>
+    [Serializable]
+    public class PropertyPair
+    {
+        public string key;
+        public string value;
+
+        public PropertyPair() { }
+        public PropertyPair(string k, string v) { key = k; value = v; }
+    }
+
+    /// <summary>
+    /// 컴포넌트의 속성값을 저장하는 데이터 클래스
+    /// </summary>
+    [Serializable]
+    public class ComponentData
+    {
+        public string componentType; // 컴포넌트 타입 이름
+        public List<PropertyPair> properties = new List<PropertyPair>(); // 속성명 -> JSON 값
+
+        public ComponentData() 
+        {
+            properties = new List<PropertyPair>();
+        }
+
+        public ComponentData(Component component) : this()
+        {
+            if (component == null) return;
+
+            // Unity 타입은 FullName 대신 AssemblyQualifiedName 사용 (더 정확함)
+            Type type = component.GetType();
+            componentType = type.AssemblyQualifiedName ?? type.FullName;
+            SaveComponentProperties(component);
+        }
+
+        void SaveComponentProperties(Component component)
+        {
+            Type type = component.GetType();
+            
+            SaveFields(component, type);
+            SaveProperties(component, type);
+        }
+
+        /// <summary>
+        /// 필드들을 저장합니다.
+        /// </summary>
+        void SaveFields(Component component, Type type)
+        {
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
+                .Where(IsSerializableField);
+
+            foreach (var field in fields)
+            {
+                try
+                {
+                    object value = field.GetValue(component);
+                    if (value != null)
+                    {
+                        string jsonValue = SerializeValue(value);
+                        if (jsonValue != null)
+                        {
+                            properties.Add(new PropertyPair($"field_{field.Name}", jsonValue));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ComponentData] Failed to save field {field.Name}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 속성들을 저장합니다.
+        /// </summary>
+        void SaveProperties(Component component, Type type)
+        {
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0)
+                .Where(p => !IsIgnoredProperty(p.Name));
+
+            foreach (var prop in props)
+            {
+                try
+                {
+                    object value = prop.GetValue(component);
+                    if (value != null)
+                    {
+                        string jsonValue = SerializeValue(value);
+                        if (jsonValue != null)
+                        {
+                            properties.Add(new PropertyPair($"property_{prop.Name}", jsonValue));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ComponentData] Failed to save property {prop.Name}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 무시할 속성인지 확인합니다.
+        /// </summary>
+        static bool IsIgnoredProperty(string propName)
+        {
+            string[] ignored = { "enabled", "gameObject", "transform" };
+            return ignored.Contains(propName);
+        }
+
+        bool IsSerializableField(FieldInfo field)
+        {
+            // Unity 직렬화 가능한 타입인지 확인
+            Type fieldType = field.FieldType;
+            
+            // 기본 Unity 타입들
+            if (fieldType == typeof(int) || fieldType == typeof(float) || fieldType == typeof(bool) ||
+                fieldType == typeof(string) || fieldType == typeof(Vector2) || fieldType == typeof(Vector3) ||
+                fieldType == typeof(Vector4) || fieldType == typeof(Quaternion) || fieldType == typeof(Color) ||
+                fieldType.IsEnum || fieldType.IsPrimitive)
+            {
+                return true;
+            }
+
+            // UnityEngine.Object 타입은 참조이므로 저장하지 않음 (나중에 처리)
+            if (typeof(UnityEngine.Object).IsAssignableFrom(fieldType))
+            {
+                return false;
+            }
+
+            // SerializeField 속성이 있으면 저장
+            return field.IsPublic || field.GetCustomAttributes(typeof(SerializeField), true).Length > 0;
+        }
+
+        string SerializeValue(object value)
+        {
+            if (value == null) return null;
+
+            try
+            {
+                // 기본 타입들은 직접 문자열로 변환
+                if (value is int || value is float || value is bool || value is string || value is Enum)
+                    return value.ToString();
+
+                // Unity 타입들은 JSON으로 직렬화
+                if (value is Vector2 || value is Vector3 || value is Vector4 || 
+                    value is Quaternion || value is Color)
+                    return JsonUtility.ToJson(value);
+
+                // 배열이나 리스트 처리
+                if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                {
+                    var list = enumerable.Cast<object>().ToList();
+                    return JsonUtility.ToJson(list.ToArray());
+                }
+
+                // 그 외는 JSON으로 시도
+                return JsonUtility.ToJson(value);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public void ApplyToComponent(Component component)
+        {
+            if (component == null) return;
+
+            Type type = component.GetType();
+            string typeName = type.AssemblyQualifiedName ?? type.FullName;
+            if (typeName != componentType && type.FullName != componentType) return;
+
+            foreach (var kvp in properties)
+            {
+                try
+                {
+                    if (kvp.key.StartsWith("field_"))
+                    {
+                        RestoreField(component, type, kvp.key.Substring(6), kvp.value);
+                    }
+                    else if (kvp.key.StartsWith("property_"))
+                    {
+                        RestoreProperty(component, type, kvp.key.Substring(9), kvp.value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ComponentData] Failed to restore {kvp.key}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 필드를 복원합니다.
+        /// </summary>
+        void RestoreField(Component component, Type type, string fieldName, string jsonValue)
+        {
+            var field = type.GetField(fieldName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null || !IsSerializableField(field)) return;
+
+            object value = DeserializeValue(jsonValue, field.FieldType);
+            if (value != null)
+                field.SetValue(component, value);
+        }
+
+        /// <summary>
+        /// 속성을 복원합니다.
+        /// </summary>
+        void RestoreProperty(Component component, Type type, string propName, string jsonValue)
+        {
+            var prop = type.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+            if (prop == null || !prop.CanWrite) return;
+
+            object value = DeserializeValue(jsonValue, prop.PropertyType);
+            if (value != null)
+                prop.SetValue(component, value);
+        }
+
+        object DeserializeValue(string jsonValue, Type targetType)
+        {
+            if (string.IsNullOrEmpty(jsonValue)) return null;
+
+            try
+            {
+                // 기본 타입 파싱
+                if (targetType == typeof(int)) return int.Parse(jsonValue);
+                if (targetType == typeof(float)) return float.Parse(jsonValue);
+                if (targetType == typeof(bool)) return bool.Parse(jsonValue);
+                if (targetType == typeof(string)) return jsonValue;
+                if (targetType.IsEnum) return Enum.Parse(targetType, jsonValue);
+
+                // Unity 타입 JSON 역직렬화
+                return targetType.Name switch
+                {
+                    nameof(Vector2) => JsonUtility.FromJson<Vector2>(jsonValue),
+                    nameof(Vector3) => JsonUtility.FromJson<Vector3>(jsonValue),
+                    nameof(Vector4) => JsonUtility.FromJson<Vector4>(jsonValue),
+                    nameof(Quaternion) => JsonUtility.FromJson<Quaternion>(jsonValue),
+                    nameof(Color) => JsonUtility.FromJson<Color>(jsonValue),
+                    _ => JsonUtility.FromJson(jsonValue, targetType)
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
     /// 오브젝트의 Transform 정보를 저장하는 데이터 클래스
     /// </summary>
     [Serializable]
@@ -242,19 +496,61 @@ namespace ObjDropWatcher.ExportImport
         public string objFilePath; // 원본 OBJ 파일 경로 (선택적)
         public ObjectType objectType = ObjectType.Unknown; // 오브젝트 타입
         public string primitiveType; // Unity 기본 오브젝트 타입 (Plane, Cube, Sphere 등)
+        public List<ComponentData> components = new List<ComponentData>(); // 모든 컴포넌트 정보
+        public List<ObjectTransformData> children = new List<ObjectTransformData>(); // 자식 오브젝트들
 
         public ObjectTransformData() { }
 
-        public ObjectTransformData(GameObject obj, string objPath = null)
+        public ObjectTransformData(GameObject obj, string objPath = null, bool includeChildren = true)
         {
             objectName = obj.name;
-            position = obj.transform.position;
-            rotation = obj.transform.eulerAngles;
+            position = obj.transform.localPosition;
+            rotation = obj.transform.localEulerAngles;
             scale = obj.transform.localScale;
             objFilePath = objPath;
             
             // 오브젝트 타입 감지
             DetectObjectType(obj);
+            
+            // 모든 컴포넌트 저장 (Transform 제외)
+            SaveAllComponents(obj);
+            
+            // 자식 오브젝트들 저장
+            if (includeChildren)
+            {
+                SaveChildren(obj);
+            }
+        }
+
+        void SaveAllComponents(GameObject obj)
+        {
+            var allComponents = obj.GetComponents<Component>()
+                .Where(c => !(c is Transform)); // Transform 제외
+
+            foreach (var component in allComponents)
+            {
+                try
+                {
+                    var compData = new ComponentData(component);
+                    if (compData.properties.Count > 0 || !string.IsNullOrEmpty(compData.componentType))
+                    {
+                        components.Add(compData);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ObjectTransformData] Failed to save component {component.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+
+        void SaveChildren(GameObject obj)
+        {
+            foreach (Transform child in obj.transform)
+            {
+                var childData = new ObjectTransformData(child.gameObject, null, true);
+                children.Add(childData);
+            }
         }
 
         /// <summary>
@@ -268,113 +564,415 @@ namespace ObjDropWatcher.ExportImport
                 return;
             }
 
-            // MeshFilter가 있는지 확인
-            var meshFilter = obj.GetComponent<MeshFilter>();
-            if (meshFilter != null && meshFilter.sharedMesh != null)
+            if (!obj.TryGetComponent<MeshFilter>(out var meshFilter) || meshFilter.sharedMesh == null)
             {
-                string meshName = meshFilter.sharedMesh.name;
-                
-                // Unity 기본 메시인지 확인
-                if (IsUnityPrimitiveMesh(meshName))
-                {
-                    objectType = ObjectType.Primitive;
-                    primitiveType = meshName;
-                }
-                else if (!string.IsNullOrEmpty(objFilePath))
-                {
-                    // OBJ 파일 경로가 있으면 OBJ 파일에서 로드된 것으로 간주
-                    objectType = ObjectType.ObjFile;
-                }
-                else
-                {
-                    // 메시는 있지만 타입을 알 수 없음
-                    objectType = ObjectType.Unknown;
-                }
+                objectType = ObjectType.Empty;
+                return;
+            }
+
+            string meshName = meshFilter.sharedMesh.name;
+            
+            // Unity 기본 메시인지 확인
+            if (IsUnityPrimitiveMesh(meshName))
+            {
+                objectType = ObjectType.Primitive;
+                primitiveType = meshName;
+            }
+            else if (!string.IsNullOrEmpty(objFilePath))
+            {
+                objectType = ObjectType.ObjFile;
             }
             else
             {
-                // MeshFilter가 없으면 빈 GameObject
-                objectType = ObjectType.Empty;
+                objectType = ObjectType.Unknown;
             }
         }
 
         /// <summary>
         /// Unity 기본 메시인지 확인합니다.
         /// </summary>
-        bool IsUnityPrimitiveMesh(string meshName)
+        static bool IsUnityPrimitiveMesh(string meshName)
         {
             if (string.IsNullOrEmpty(meshName))
                 return false;
 
-            // Unity 기본 메시 이름들
-            string[] primitiveNames = {
-                "Plane", "Cube", "Sphere", "Capsule", "Cylinder", "Quad"
-            };
-
-            foreach (var name in primitiveNames)
-            {
-                if (string.Equals(meshName, name, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
+            string[] primitiveNames = { "Plane", "Cube", "Sphere", "Capsule", "Cylinder", "Quad" };
+            return primitiveNames.Any(name => string.Equals(meshName, name, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
-        /// GameObject를 생성합니다.
+        /// GameObject를 생성하고 모든 정보를 복원합니다.
         /// </summary>
         public GameObject CreateGameObject()
         {
-            GameObject obj = null;
+            GameObject obj = CreateBaseGameObject();
+            if (obj == null) return null;
 
-            switch (objectType)
-            {
-                case ObjectType.Primitive:
-                    // Unity 기본 오브젝트 생성
-                    obj = CreatePrimitiveObject();
-                    break;
-
-                case ObjectType.ObjFile:
-                    // OBJ 파일에서 로드
-                    if (!string.IsNullOrEmpty(objFilePath) && File.Exists(objFilePath))
-                    {
-                        try
-                        {
-                            obj = RuntimeObjLoader.LoadObj(objFilePath);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.LogWarning($"[ObjectTransformData] Failed to load OBJ: {objFilePath}\n{ex}");
-                        }
-                    }
-                    break;
-
-                case ObjectType.Empty:
-                case ObjectType.Unknown:
-                default:
-                    // 빈 GameObject 생성
-                    obj = new GameObject(objectName);
-                    break;
-            }
-
-            if (obj != null)
-            {
-                obj.name = objectName;
-                
-                // Unity 에디터에서 DontSaveInEditor 플래그 제거
-                #if UNITY_EDITOR
-                obj.hideFlags = HideFlags.None;
-                #endif
-                
-                ApplyToGameObject(obj);
-                
-                // Unity 에디터에서 Undo 시스템에 등록
-                #if UNITY_EDITOR
-                Undo.RegisterCreatedObjectUndo(obj, $"Import {objectName}");
-                #endif
-            }
+            SetupGameObject(obj);
+            RestoreAllComponents(obj);
+            RestoreChildren(obj);
+            RegisterUndo(obj);
 
             return obj;
+        }
+
+        /// <summary>
+        /// 기본 GameObject를 생성합니다 (타입에 따라).
+        /// </summary>
+        GameObject CreateBaseGameObject()
+        {
+            return objectType switch
+            {
+                ObjectType.Primitive => CreatePrimitiveObject(),
+                ObjectType.ObjFile => LoadObjFile(),
+                _ => new GameObject(objectName)
+            };
+        }
+
+        /// <summary>
+        /// OBJ 파일에서 GameObject를 로드합니다.
+        /// </summary>
+        GameObject LoadObjFile()
+        {
+            // OBJ 파일 경로 찾기
+            string objPath = string.IsNullOrEmpty(objFilePath) || !File.Exists(objFilePath)
+                ? ObjPathFinder.FindObjPathForImport(objectName, objFilePath)
+                : objFilePath;
+
+            if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
+            {
+                Debug.LogWarning($"[ObjectTransformData] OBJ file not found for '{objectName}', creating empty GameObject");
+                return new GameObject(objectName);
+            }
+
+            try
+            {
+                return RuntimeObjLoader.LoadObj(objPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ObjectTransformData] Failed to load OBJ: {objPath}\n{ex}");
+                return new GameObject(objectName);
+            }
+        }
+
+        /// <summary>
+        /// GameObject의 기본 설정을 적용합니다.
+        /// </summary>
+        void SetupGameObject(GameObject obj)
+        {
+            obj.name = objectName;
+            
+            #if UNITY_EDITOR
+            obj.hideFlags = HideFlags.None;
+            
+            // MeshRenderer의 material이 제대로 보이도록 설정
+            if (obj.TryGetComponent<MeshRenderer>(out var meshRenderer))
+            {
+                // Material의 renderQueue와 투명도 설정 확인
+                if (meshRenderer.sharedMaterials != null)
+                {
+                    bool materialFixed = false;
+                    foreach (var mat in meshRenderer.sharedMaterials)
+                    {
+                        if (mat != null)
+                        {
+                            Color originalColor = mat.color;
+                            bool needsFix = false;
+                            
+                            // 1. renderQueue가 Transparent 범위에 있으면 무조건 Geometry로 변경
+                            if (mat.renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent)
+                            {
+                                mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+                                needsFix = true;
+                            }
+                            
+                            // 2. _Surface 속성이 Transparent(1)이면 Opaque(0)로 변경
+                            if (mat.HasProperty("_Surface"))
+                            {
+                                float surface = mat.GetFloat("_Surface");
+                                if (surface >= 0.5f) // 1이면 Transparent
+                                {
+                                    mat.SetFloat("_Surface", 0); // Opaque
+                                    needsFix = true;
+                                }
+                            }
+                            
+                            // 3. 투명 관련 키워드 비활성화
+                            if (mat.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"))
+                            {
+                                mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                                needsFix = true;
+                            }
+                            if (mat.IsKeywordEnabled("_ALPHAPREMULTIPLY_ON"))
+                            {
+                                mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                                needsFix = true;
+                            }
+                            
+                            // 4. Color alpha가 1.0이 아니면 1.0으로 변경
+                            if (originalColor.a < 0.999f)
+                            {
+                                mat.color = new Color(originalColor.r, originalColor.g, originalColor.b, 1f);
+                                needsFix = true;
+                            }
+                            
+                            // 5. Blend 모드가 Transparent용이면 Opaque용으로 변경
+                            if (mat.HasProperty("_SrcBlend") && mat.HasProperty("_DstBlend"))
+                            {
+                                int srcBlend = mat.GetInt("_SrcBlend");
+                                int dstBlend = mat.GetInt("_DstBlend");
+                                // Transparent blend 모드인지 확인
+                                if (srcBlend == (int)UnityEngine.Rendering.BlendMode.SrcAlpha && 
+                                    dstBlend == (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha)
+                                {
+                                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+                                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+                                    needsFix = true;
+                                }
+                            }
+                            
+                            // 6. ZWrite가 0이면 1로 변경 (Opaque는 ZWrite 필요)
+                            if (mat.HasProperty("_ZWrite"))
+                            {
+                                int zWrite = mat.GetInt("_ZWrite");
+                                if (zWrite == 0)
+                                {
+                                    mat.SetInt("_ZWrite", 1);
+                                    needsFix = true;
+                                }
+                            }
+                            
+                            if (needsFix)
+                            {
+                                materialFixed = true;
+                                Debug.Log($"[ObjectTransformData] Fixed material '{mat.name}' to be opaque (renderQueue: {mat.renderQueue}, color alpha: {mat.color.a})");
+                            }
+                            
+                            EditorUtility.SetDirty(mat);
+                        }
+                    }
+                    
+                    if (materialFixed)
+                    {
+                        // Material 배열을 다시 할당하여 변경사항 적용
+                        var materials = meshRenderer.sharedMaterials;
+                        meshRenderer.sharedMaterials = materials;
+                    }
+                }
+                
+                EditorUtility.SetDirty(meshRenderer);
+            }
+            #endif
+            
+            ApplyToGameObject(obj);
+        }
+
+        /// <summary>
+        /// Undo 시스템에 등록합니다.
+        /// </summary>
+        void RegisterUndo(GameObject obj)
+        {
+            #if UNITY_EDITOR
+            Undo.RegisterCreatedObjectUndo(obj, $"Import {objectName}");
+            #endif
+        }
+
+        /// <summary>
+        /// 모든 컴포넌트를 복원합니다.
+        /// </summary>
+        void RestoreAllComponents(GameObject obj)
+        {
+            foreach (var compData in components)
+            {
+                try
+                {
+                    Type compType = FindComponentType(compData.componentType);
+                    if (compType == null) continue;
+
+                    Component component = GetOrAddComponent(obj, compType);
+                    compData.ApplyToComponent(component);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ObjectTransformData] Failed to restore component {compData.componentType}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 컴포넌트 타입을 찾습니다.
+        /// </summary>
+        static Type FindComponentType(string typeName)
+        {
+            // 1. AssemblyQualifiedName으로 직접 찾기
+            Type type = Type.GetType(typeName);
+            if (type != null) return type;
+
+            // 2. FullName으로 찾기
+            if (typeName.Contains(","))
+            {
+                string fullName = typeName.Split(',')[0];
+                type = Type.GetType(fullName);
+                if (type != null) return type;
+            }
+
+            // 3. 모든 어셈블리에서 찾기
+            foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = assembly.GetType(typeName);
+                if (type != null) return type;
+
+                if (typeName.Contains(","))
+                {
+                    string fullName = typeName.Split(',')[0];
+                    type = assembly.GetType(fullName);
+                    if (type != null) return type;
+                }
+            }
+
+            Debug.LogWarning($"[ObjectTransformData] Component type not found: {typeName}");
+            return null;
+        }
+
+        /// <summary>
+        /// 컴포넌트를 가져오거나 추가합니다.
+        /// </summary>
+        static Component GetOrAddComponent(GameObject obj, Type componentType)
+        {
+            Component existing = obj.GetComponent(componentType);
+            return existing ?? obj.AddComponent(componentType);
+        }
+
+        /// <summary>
+        /// 자식 오브젝트들을 복원합니다.
+        /// </summary>
+        void RestoreChildren(GameObject parent)
+        {
+            foreach (var childData in children)
+            {
+                try
+                {
+                    GameObject child = childData.CreateGameObject();
+                    if (child != null)
+                    {
+                        child.transform.SetParent(parent.transform, false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ObjectTransformData] Failed to restore child {childData.objectName}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Import 시 GameObject를 찾거나 생성합니다.
+        /// </summary>
+        public GameObject FindOrCreateGameObject(bool createNew)
+        {
+            if (!createNew)
+            {
+                return GameObject.Find(objectName);
+            }
+
+            // createNew가 true일 때는 항상 새로 생성 (같은 모델을 여러 번 import 가능하도록)
+            // OBJ 파일 경로 업데이트 (필요한 경우)
+            if (!UpdateObjFilePathIfNeeded())
+            {
+                // 경로를 찾지 못한 경우 null 반환 (ApplyCollection에서 처리)
+                return null;
+            }
+
+            // 새 오브젝트 생성 (고유한 이름으로)
+            GameObject newObj = CreateGameObject();
+            if (newObj != null)
+            {
+                // 같은 이름이 이미 존재하면 고유한 이름 생성
+                if (GameObject.Find(newObj.name) != null && GameObject.Find(newObj.name) != newObj)
+                {
+                    int counter = 1;
+                    string baseName = newObj.name;
+                    string uniqueName;
+                    do
+                    {
+                        uniqueName = $"{baseName} ({counter})";
+                        counter++;
+                    } while (GameObject.Find(uniqueName) != null);
+                    
+                    newObj.name = uniqueName;
+                    Debug.Log($"[ObjectTransformData] Renamed object to '{uniqueName}' to avoid duplicate");
+                }
+            }
+
+            return newObj;
+        }
+
+        /// <summary>
+        /// OBJ 파일 경로를 업데이트합니다 (필요한 경우).
+        /// 경로를 찾지 못하면 사용자에게 경로를 지정하도록 요청합니다.
+        /// </summary>
+        bool UpdateObjFilePathIfNeeded()
+        {
+            if (objectType != ObjectType.ObjFile)
+                return true; // OBJ 파일이 아니면 경로 업데이트 불필요
+
+            // 이미 경로가 있고 파일이 존재하면 OK
+            if (!string.IsNullOrEmpty(objFilePath) && File.Exists(objFilePath))
+            {
+                // 절대 경로로 변환
+                if (!Path.IsPathRooted(objFilePath))
+                {
+                    objFilePath = Path.GetFullPath(objFilePath);
+                }
+                return true;
+            }
+
+            // 저장된 경로가 있지만 파일이 없는 경우
+            if (!string.IsNullOrEmpty(objFilePath) && !File.Exists(objFilePath))
+            {
+                // 절대 경로로 변환 후 다시 확인
+                string absolutePath = Path.IsPathRooted(objFilePath) ? objFilePath : Path.GetFullPath(objFilePath);
+                if (File.Exists(absolutePath))
+                {
+                    objFilePath = absolutePath;
+                    return true;
+                }
+            }
+
+            // 검색 경로에서 찾기 시도
+            string foundPath = ObjPathFinder.FindObjPathForImport(objectName, objFilePath);
+            if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
+            {
+                if (!Path.IsPathRooted(foundPath))
+                    foundPath = Path.GetFullPath(foundPath);
+                objFilePath = foundPath;
+                return true;
+            }
+
+            // 경로를 찾지 못한 경우 - 사용자에게 경로 지정 요청
+            #if UNITY_EDITOR
+            string message = $"OBJ 파일을 찾을 수 없습니다.\n\n오브젝트: {objectName}\n저장된 경로: {objFilePath ?? "(없음)"}\n\n파일 경로를 지정하시겠습니까?";
+            bool selectPath = EditorUtility.DisplayDialog("OBJ 파일 경로 찾기", message, "경로 지정", "건너뛰기");
+            
+            if (selectPath)
+            {
+                string selectedPath = EditorUtility.OpenFilePanel("OBJ 파일 선택", Application.dataPath, "obj");
+                if (!string.IsNullOrEmpty(selectedPath) && File.Exists(selectedPath))
+                {
+                    objFilePath = selectedPath;
+                    Debug.Log($"[ObjectTransformData] User selected OBJ path for '{objectName}': {objFilePath}");
+                    return true;
+                }
+                else
+                {
+                    Debug.LogWarning($"[ObjectTransformData] User cancelled or invalid path for '{objectName}'");
+                    return false;
+                }
+            }
+            #endif
+
+            return false; // 경로를 찾지 못함
         }
 
         /// <summary>
@@ -385,54 +983,44 @@ namespace ObjDropWatcher.ExportImport
             if (string.IsNullOrEmpty(primitiveType))
                 return new GameObject(objectName);
 
-            PrimitiveType primitiveTypeEnum;
-            
-            // 문자열을 PrimitiveType enum으로 변환
-            switch (primitiveType.ToLower())
-            {
-                case "plane":
-                    primitiveTypeEnum = PrimitiveType.Plane;
-                    break;
-                case "cube":
-                    primitiveTypeEnum = PrimitiveType.Cube;
-                    break;
-                case "sphere":
-                    primitiveTypeEnum = PrimitiveType.Sphere;
-                    break;
-                case "capsule":
-                    primitiveTypeEnum = PrimitiveType.Capsule;
-                    break;
-                case "cylinder":
-                    primitiveTypeEnum = PrimitiveType.Cylinder;
-                    break;
-                case "quad":
-                    // Quad는 GameObject.CreatePrimitive로 생성할 수 없으므로 수동 생성
-                    return CreateQuadObject();
-                default:
-                    return new GameObject(objectName);
-            }
+            // Quad는 특별 처리
+            if (string.Equals(primitiveType, "Quad", StringComparison.OrdinalIgnoreCase))
+                return CreateQuadObject();
 
-            var primitive = GameObject.CreatePrimitive(primitiveTypeEnum);
+            // PrimitiveType enum으로 변환
+            PrimitiveType? primitiveTypeEnum = primitiveType.ToLower() switch
+            {
+                "plane" => PrimitiveType.Plane,
+                "cube" => PrimitiveType.Cube,
+                "sphere" => PrimitiveType.Sphere,
+                "capsule" => PrimitiveType.Capsule,
+                "cylinder" => PrimitiveType.Cylinder,
+                _ => null
+            };
+
+            if (!primitiveTypeEnum.HasValue)
+                return new GameObject(objectName);
+
+            var primitive = GameObject.CreatePrimitive(primitiveTypeEnum.Value);
+            SetPrimitiveHideFlags(primitive);
             
-            // Unity 에디터에서 DontSaveInEditor 플래그 제거
+            return primitive;
+        }
+
+        /// <summary>
+        /// Primitive 오브젝트의 hideFlags를 설정합니다.
+        /// </summary>
+        void SetPrimitiveHideFlags(GameObject primitive)
+        {
             #if UNITY_EDITOR
             primitive.hideFlags = HideFlags.None;
             
-            // MeshFilter와 MeshRenderer의 hideFlags도 설정
-            var meshFilter = primitive.GetComponent<MeshFilter>();
-            if (meshFilter != null && meshFilter.sharedMesh != null)
-            {
+            if (primitive.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
                 meshFilter.sharedMesh.hideFlags = HideFlags.None;
-            }
             
-            var meshRenderer = primitive.GetComponent<MeshRenderer>();
-            if (meshRenderer != null && meshRenderer.sharedMaterial != null)
-            {
+            if (primitive.TryGetComponent<MeshRenderer>(out var meshRenderer) && meshRenderer.sharedMaterial != null)
                 meshRenderer.sharedMaterial.hideFlags = HideFlags.None;
-            }
             #endif
-            
-            return primitive;
         }
 
         /// <summary>
@@ -517,9 +1105,110 @@ namespace ObjDropWatcher.ExportImport
         public void ApplyToGameObject(GameObject obj)
         {
             if (obj == null) return;
-            obj.transform.position = position;
-            obj.transform.eulerAngles = rotation;
+            obj.transform.localPosition = position;
+            obj.transform.localEulerAngles = rotation;
             obj.transform.localScale = scale;
+        }
+
+        /// <summary>
+        /// Import 결과를 나타내는 구조체
+        /// </summary>
+        public struct ImportResult
+        {
+            public int successCount;
+            public int failCount;
+        }
+
+        /// <summary>
+        /// Export 시 OBJ 파일 경로를 가져옵니다. (공통 로직)
+        /// 절대 경로를 반환하며, 파일이 존재하는 경우에만 반환합니다.
+        /// </summary>
+        public static string GetObjPathForExport(GameObject obj)
+        {
+            string objPath = ObjPathFinder.FindObjPath(obj);
+            
+            // 절대 경로로 변환하고 파일 존재 여부 확인
+            if (!string.IsNullOrEmpty(objPath))
+            {
+                // 상대 경로인 경우 절대 경로로 변환
+                if (!Path.IsPathRooted(objPath))
+                {
+                    objPath = Path.GetFullPath(objPath);
+                }
+                
+                // 파일이 존재하는지 확인
+                if (File.Exists(objPath))
+                {
+                    return objPath;
+                }
+            }
+            
+            // 찾지 못한 경우 MeshFilter의 메시 이름으로 시도
+            if (obj.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
+            {
+                string meshName = meshFilter.sharedMesh.name;
+                if (!string.IsNullOrEmpty(meshName))
+                {
+                    // 메시 이름이 .obj로 끝나는 경우
+                    if (meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // 검색 경로에서 찾기
+                        string foundPath = ObjPathFinder.FindObjPath(obj);
+                        if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
+                        {
+                            if (!Path.IsPathRooted(foundPath))
+                                foundPath = Path.GetFullPath(foundPath);
+                            return foundPath;
+                        }
+                    }
+                }
+            }
+            
+            return null; // 경로를 찾지 못한 경우
+        }
+
+        /// <summary>
+        /// 컬렉션의 모든 오브젝트를 Import합니다. (공통 로직)
+        /// </summary>
+        public static ImportResult ApplyCollection(ObjectTransformCollection collection, bool createNew, string logPrefix)
+        {
+            if (collection == null || collection.objects == null)
+                return new ImportResult { successCount = 0, failCount = 0 };
+
+            int successCount = 0;
+            int failCount = 0;
+            int skippedCount = 0;
+
+            foreach (var data in collection.objects)
+            {
+                // OBJ 파일만 처리 (다른 타입은 건너뛰기)
+                if (data.objectType != ObjectType.ObjFile)
+                {
+                    Debug.Log($"{logPrefix} Skipping non-OBJ object: {data.objectName} (Type: {data.objectType})");
+                    skippedCount++;
+                    continue;
+                }
+
+                GameObject obj = data.FindOrCreateGameObject(createNew);
+                
+                if (obj != null)
+                {
+                    data.ApplyToGameObject(obj);
+                    successCount++;
+                }
+                else
+                {
+                    Debug.LogWarning($"{logPrefix} Failed to create/find object: {data.objectName} (OBJ file path not found or invalid)");
+                    failCount++;
+                }
+            }
+
+            if (skippedCount > 0)
+            {
+                Debug.Log($"{logPrefix} Skipped {skippedCount} non-OBJ objects");
+            }
+
+            return new ImportResult { successCount = successCount, failCount = failCount };
         }
 
         /// <summary>
@@ -527,7 +1216,7 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         public SerializableObjectTransformData ToSerializable()
         {
-            return new SerializableObjectTransformData
+            var serializable = new SerializableObjectTransformData
             {
                 objectName = objectName,
                 position = new SerializableVector3(position.x, position.y, position.z),
@@ -537,6 +1226,24 @@ namespace ObjDropWatcher.ExportImport
                 objectType = (int)objectType,
                 primitiveType = primitiveType ?? ""
             };
+
+            // 컴포넌트 변환
+            foreach (var comp in components)
+            {
+                serializable.components.Add(new SerializableComponentData
+                {
+                    componentType = comp.componentType,
+                    properties = comp.properties
+                });
+            }
+
+            // 자식 오브젝트 변환
+            foreach (var child in children)
+            {
+                serializable.children.Add(child.ToSerializable());
+            }
+
+            return serializable;
         }
 
         /// <summary>
@@ -544,7 +1251,7 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         public static ObjectTransformData FromSerializable(SerializableObjectTransformData data)
         {
-            return new ObjectTransformData
+            var objData = new ObjectTransformData
             {
                 objectName = data.objectName,
                 position = data.position,
@@ -554,7 +1261,35 @@ namespace ObjDropWatcher.ExportImport
                 objectType = (ObjectType)data.objectType,
                 primitiveType = data.primitiveType ?? ""
             };
+
+            // 컴포넌트 복원
+            foreach (var comp in data.components)
+            {
+                objData.components.Add(new ComponentData
+                {
+                    componentType = comp.componentType,
+                    properties = comp.properties
+                });
+            }
+
+            // 자식 오브젝트 복원
+            foreach (var child in data.children)
+            {
+                objData.children.Add(FromSerializable(child));
+            }
+
+            return objData;
         }
+    }
+
+    /// <summary>
+    /// BinaryFormatter용 직렬화 가능한 Component 데이터
+    /// </summary>
+    [Serializable]
+    public class SerializableComponentData
+    {
+        public string componentType;
+        public List<PropertyPair> properties = new List<PropertyPair>();
     }
 
     /// <summary>
@@ -570,6 +1305,8 @@ namespace ObjDropWatcher.ExportImport
         public string objFilePath;
         public int objectType; // ObjectType enum을 int로 저장
         public string primitiveType;
+        public List<SerializableComponentData> components = new List<SerializableComponentData>();
+        public List<SerializableObjectTransformData> children = new List<SerializableObjectTransformData>();
     }
 
     /// <summary>

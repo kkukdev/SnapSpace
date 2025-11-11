@@ -103,6 +103,9 @@ public class ObjectTransformExporterWindow : EditorWindow
         {
             _collectedObjects.Clear();
             
+            // OBJ 파일 검색 경로 설정
+            SetupSearchPaths();
+            
             // 씬의 모든 오브젝트 수집
             var allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
             
@@ -111,18 +114,47 @@ public class ObjectTransformExporterWindow : EditorWindow
                 // 루트 오브젝트만 수집 (자식은 제외)
                 if (obj.transform.parent == null)
                 {
-                    _collectedObjects.Add(obj);
+                    // OBJ 파일인지 확인 (MeshFilter가 있고, OBJ 파일 경로를 찾을 수 있는 경우)
+                    if (IsObjFile(obj))
+                    {
+                        _collectedObjects.Add(obj);
+                    }
                 }
             }
 
-            // OBJ 파일 검색 경로 설정
-            SetupSearchPaths();
-
             EditorUtility.DisplayDialog("수집 완료", 
-                $"{_collectedObjects.Count}개의 오브젝트를 수집했습니다.\n이제 Export 버튼을 눌러 저장하세요.", "OK");
-            Debug.Log($"[Object Collection] Collected {_collectedObjects.Count} objects from scene");
+                $"{_collectedObjects.Count}개의 OBJ 오브젝트를 수집했습니다.\n이제 Export 버튼을 눌러 저장하세요.", "OK");
+            Debug.Log($"[Object Collection] Collected {_collectedObjects.Count} OBJ objects from scene");
             Repaint();
         };
+    }
+
+    /// <summary>
+    /// GameObject가 OBJ 파일인지 확인합니다.
+    /// </summary>
+    bool IsObjFile(GameObject obj)
+    {
+        if (obj == null) return false;
+
+        // MeshFilter가 있어야 함
+        if (!obj.TryGetComponent<MeshFilter>(out var meshFilter) || meshFilter.sharedMesh == null)
+            return false;
+
+        // OBJ 파일 경로를 찾을 수 있어야 함
+        string objPath = ObjPathFinder.FindObjPath(obj);
+        if (!string.IsNullOrEmpty(objPath) && File.Exists(objPath))
+            return true;
+
+        // 경로를 찾지 못했지만 메시 이름이 .obj로 끝나거나 OBJ 파일로 보이는 경우
+        string meshName = meshFilter.sharedMesh.name;
+        if (!string.IsNullOrEmpty(meshName) && 
+            (meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase) ||
+             obj.name.EndsWith(".obj", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     void SetupSearchPaths()
