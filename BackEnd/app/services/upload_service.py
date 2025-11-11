@@ -34,7 +34,7 @@ class UploadService(BaseService):
         original_file_path: str,
         original_filename: str,
         file_size: int,
-        is_zip: bool = False
+        model_type: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """업로드된 파일에 대한 스캔 정보 생성"""
         try:
@@ -43,6 +43,9 @@ class UploadService(BaseService):
                 group_id_int = int(group_id) if group_id else 1
             except (ValueError, TypeError):
                 group_id_int = 1
+            
+            # model_type 기본값 설정 (없으면 "space")
+            model_type_value = model_type if model_type else "space"
             
             # DB 세션 생성
             db = SessionLocal()
@@ -53,7 +56,7 @@ class UploadService(BaseService):
                     meta_data={
                         "original_filename": original_filename,
                         "file_size": file_size,
-                        "is_zip": is_zip,
+                        "model_type": model_type_value,
                         "uploaded_at": get_current_datetime().isoformat()
                     },
                     status=ScanStatus.UPLOADED,
@@ -636,7 +639,7 @@ class UploadService(BaseService):
                 original_file_path=str(file_path.absolute()),
                 original_filename=file.filename,
                 file_size=total_size,
-                is_zip=False
+                model_type=model_type
             )
             
             # 스캔 정보를 업로드 결과에 추가
@@ -783,7 +786,7 @@ class UploadService(BaseService):
                 original_file_path=representative_file_path,
                 original_filename=file.filename,
                 file_size=total_size,
-                is_zip=True
+                model_type=model_type
             )
             
             # 결과 딕셔너리 초기화 (메모 파일 처리에서 사용하기 위해 미리 생성)
