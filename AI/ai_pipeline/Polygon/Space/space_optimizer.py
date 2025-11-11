@@ -40,9 +40,31 @@ import argparse
 import os
 import time
 import numpy as np
+import unicodedata
+import hashlib
 # 전역 출력 경로 (main에서 설정)
 TEMP_DIR = None
 OPTIMIZED_DIR = None
+
+
+def sanitize_filename(name: str) -> str:
+    """
+    파일명을 ASCII 안전하게 변환합니다.
+    """
+    normalized = unicodedata.normalize("NFKD", name or "")
+    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in ascii_name)
+    safe = safe.strip("_")
+    if safe:
+        return safe
+    digest = hashlib.sha1((name or "").encode("utf-8")).hexdigest()[:16]
+    return f"file_{digest}"
+
+
+def build_temp_path(base_name: str, suffix: str, directory: str) -> str:
+    safe_base = sanitize_filename(base_name)
+    filename = f"{safe_base}{suffix}"
+    return os.path.join(directory, filename)
 
 
 # ===========================================================
@@ -75,7 +97,7 @@ def remove_invalid_lines(input_path):
     base = os.path.splitext(os.path.basename(input_path))[0]
     out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
     os.makedirs(out_dir, exist_ok=True)
-    tmp = os.path.join(out_dir, f"{base}_safe.obj")
+    tmp = build_temp_path(base, "_safe.obj", out_dir)
     with open(tmp, "w", encoding="utf-8") as f:
         f.writelines(valid)
 
@@ -109,7 +131,7 @@ def preclean_with_open3d(input_path):
     base = os.path.splitext(os.path.basename(input_path))[0]
     out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
     os.makedirs(out_dir, exist_ok=True)
-    temp_path = os.path.join(out_dir, f"{base}_precleaned.obj")
+    temp_path = build_temp_path(base, "_precleaned.obj", out_dir)
     o3d.io.write_triangle_mesh(temp_path, mesh, write_triangle_uvs=False)
     print(f"✅ Open3D 사전 정리 완료 → {temp_path}")
     return temp_path
@@ -134,6 +156,9 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     
     # 원본 파일명 저장 (나중에 최종 파일명에 사용)
     original_base_name = os.path.splitext(os.path.basename(input_path))[0]
+    safe_base_name = sanitize_filename(original_base_name)
+    temp_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
+    optimized_dir = OPTIMIZED_DIR if OPTIMIZED_DIR else os.path.dirname(input_path)
 
     # Step 1️⃣ 손상된 라인 정리 + Open3D 사전 정리
     input_path = remove_invalid_lines(input_path)
@@ -173,7 +198,7 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
         trim_dist = max(1e-5, float(trim_dist_ratio) * diag)
 
         # 현재 MeshSet의 현재 메쉬(포아송 결과)를 임시 저장
-        cur_tmp = input_path.replace(".obj", "_poisson_tmp.obj")
+        cur_tmp = build_temp_path(safe_base_name, "_poisson_tmp.obj", temp_dir)
         ms.save_current_mesh(cur_tmp)
 
         trimmed = _trim_poisson_to_original_neighborhood(cur_tmp, input_path, trim_dist)
@@ -219,7 +244,7 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
     print("🔹 홀 메우기 + 노멀 재계산")
     try:
         # 공간 대각선 비율 기반으로 상한 설정
-        mesh_for_aabb = trimmed if trimmed is not None else input_path.replace(".obj", "_poisson_tmp.obj")
+        mesh_for_aabb = trimmed if trimmed is not None else cur_tmp
         o3d_m3 = o3d.io.read_triangle_mesh(mesh_for_aabb)
         aabb3 = o3d_m3.get_axis_aligned_bounding_box()
         diag3 = np.linalg.norm(aabb3.get_max_bound() - aabb3.get_min_bound())
@@ -234,9 +259,8 @@ def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_ite
         print(f"⚠️ 후처리 실패: {e}")
 
     # Step 6️⃣ 결과 저장 (원본 파일명 기준으로 저장)
-    out_dir = OPTIMIZED_DIR if OPTIMIZED_DIR else os.path.dirname(input_path)
-    os.makedirs(out_dir, exist_ok=True)
-    output_path = os.path.join(out_dir, f"{original_base_name}_cleaned.obj")
+    os.makedirs(optimized_dir, exist_ok=True)
+    output_path = os.path.join(optimized_dir, f"{safe_base_name}_cleaned.obj")
     ms.save_current_mesh(output_path)
     print(f"✅ 클린업 완료 → {output_path}")
     return output_path
@@ -287,7 +311,9 @@ def _trim_poisson_to_original_neighborhood(poisson_path, original_path, trim_dis
     pm.remove_triangles_by_mask(drop_tri)
     pm.remove_unreferenced_vertices()
 
-    outp = poisson_path.replace(".obj", "_trimmed.obj")
+    base = os.path.splitext(os.path.basename(poisson_path))[0]
+    out_dir = os.path.dirname(poisson_path)
+    outp = build_temp_path(base, "_trimmed.obj", out_dir)
     o3d.io.write_triangle_mesh(outp, pm, write_triangle_uvs=False)
     return outp
 
