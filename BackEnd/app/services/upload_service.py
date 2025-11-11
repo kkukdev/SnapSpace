@@ -544,7 +544,7 @@ class UploadService(BaseService):
                     pass
             raise
 
-    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
+    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """파일 업로드 처리 (최적화된 버전)"""
         try:
             # 파일명 검증
@@ -568,7 +568,7 @@ class UploadService(BaseService):
             
             # zip 파일인 경우 별도 처리
             if file_extension == '.zip':
-                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name)
+                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name, model_type)
             
             # 일반 파일 업로드: storage/uploads/{group_name}/{날짜_파일명}/파일명 형태
             folder_name = self.generate_folder_name(file.filename)
@@ -690,6 +690,7 @@ class UploadService(BaseService):
                         "original_file_path": str(file_path.absolute()),
                         "group_id": group_id_str,
                         "group_name": group_name,  # group_name 추가
+                        "model_type": model_type,  # model_type 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "saved_filename": filename,
@@ -714,7 +715,7 @@ class UploadService(BaseService):
                 detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
-    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
+    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
         # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
@@ -855,6 +856,7 @@ class UploadService(BaseService):
                         "original_file_path": str(file_path.absolute()),
                         "group_id": group_id_str,
                         "group_name": group_name,  # group_name 추가
+                        "model_type": model_type,  # model_type 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "extracted_from_zip": True,
