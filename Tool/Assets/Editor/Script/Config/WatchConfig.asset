@@ -16,4 +16,4 @@ MonoBehaviour:
   includeSubdirectories: 1
   scanDebounceMs: 800
   objPatterns: '*.obj'
-  unitScale: 1000
+  unitScale: 100

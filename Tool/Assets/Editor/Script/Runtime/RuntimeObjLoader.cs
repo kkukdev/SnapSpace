@@ -203,6 +203,23 @@ public static class RuntimeObjLoader
             }
         }
 
+        // -------- Pivot Adjustment (align lowest Y to 0) --------
+        if (outVerts.Count > 0)
+        {
+            float minY = float.PositiveInfinity;
+            for (int i = 0; i < outVerts.Count; i++)
+                if (outVerts[i].y < minY) minY = outVerts[i].y;
+
+            if (!Mathf.Approximately(minY, 0f) && !float.IsInfinity(minY))
+            {
+                var offset = new Vector3(0f, -minY, 0f);
+                for (int i = 0; i < outVerts.Count; i++)
+                    outVerts[i] += offset;
+
+                Debug.Log($"[Pivot] Shifted vertices by {offset} to align lowest Y ({minY}) with 0.");
+            }
+        }
+
         var go = new GameObject(Path.GetFileNameWithoutExtension(objPath));
         var mf = go.AddComponent<MeshFilter>();
         var mr = go.AddComponent<MeshRenderer>();
