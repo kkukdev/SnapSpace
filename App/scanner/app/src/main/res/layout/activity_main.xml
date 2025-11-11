@@ -84,7 +84,7 @@
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_weight="2"
                 android:text="메모"
                 android:textColor="@android:color/black"
                 android:textSize="15sp"
@@ -92,26 +92,42 @@
                 android:layout_gravity="center_vertical"/>
 
             <Button
-                android:id="@+id/memo_position_button"
-                android:layout_width="wrap_content"
+                android:id="@+id/memo_voice_record"
+                android:layout_width="0dp"
                 android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="2sp"
+                android:text="음성 녹음"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"
+                android:background="@drawable/background_button_normal_blue"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
+
+            <Button
+                android:id="@+id/memo_position_button"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="2sp"
                 android:text="좌표 삽입"
                 android:textColor="@android:color/white"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_small"
                 android:background="@drawable/background_button_normal_blue"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"/>
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
 
             <Button
                 android:id="@+id/memo_close_button"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="32dp"
+                android:layout_weight="1"
                 android:text="완료"
                 android:textColor="@android:color/white"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_small"
                 android:background="@drawable/background_button_normal_blue"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"/>
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
         </LinearLayout>
 
         <EditText
@@ -135,68 +151,130 @@
 
     </LinearLayout>
 
+    <!--  스캔 중 하단 바  -->
     <LinearLayout
         android:id="@+id/layout_rec"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:layout_height="120sp"
+        android:orientation="horizontal"
         android:layout_alignParentBottom="true"
-        android:layout_centerHorizontal="true">
+        android:background="#B0000000" >
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="2dp"
-            android:background="#B0000000">
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
 
             <ImageButton
                 android:id="@+id/toggle_button"
-                android:layout_width="0dp"
-                android:layout_height="45dp"
-                android:layout_weight="1"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
                 android:adjustViewBounds="true"
                 android:background="@android:color/transparent"
                 android:importantForAccessibility="no"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_pause"
+                android:src="@drawable/icon_pause_circle"
                 android:text="" />
+
+            <TextView
+                android:id="@+id/toggle_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="일시정지"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
 
             <ImageButton
                 android:id="@+id/save_button"
-                android:layout_width="0dp"
-                android:layout_height="45dp"
-                android:layout_weight="1"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
                 android:adjustViewBounds="true"
                 android:background="@android:color/transparent"
                 android:importantForAccessibility="no"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_save"
+                android:src="@drawable/icon_save"
                 android:text="" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="저장"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
 
             <ImageButton
                 android:id="@+id/clear_button"
-                android:layout_width="0dp"
-                android:layout_height="45dp"
-                android:layout_weight="1"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
                 android:adjustViewBounds="true"
                 android:background="@android:color/transparent"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_delete"
+                android:src="@drawable/icon_scan_delete"
                 android:text="" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="삭제"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
 
             <ImageButton
                 android:id="@+id/memo_button"
-                android:layout_width="0dp"
-                android:layout_height="45dp"
-                android:layout_weight="1"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
                 android:adjustViewBounds="true"
                 android:background="@android:color/transparent"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_memo"
+                android:src="@drawable/icon_note"
                 android:text="" />
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="메모"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
         </LinearLayout>
+
     </LinearLayout>
 
     <LinearLayout
