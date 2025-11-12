@@ -1,261 +1,457 @@
 """
-============================================================
-📦 Mesh Optimizer & Cleaner (Safe Mode)
-------------------------------------------------------------
-3D 스캔으로 생성된 OBJ 파일을 자동으로 정리(clean-up)하는 도구입니다.
-Open3D + PyMeshLab을 결합하여 다음 작업을 수행합니다.
-
-🧩 주요 기능:
-1️⃣ 손상된 OBJ 파일 자동 복구 (잘린 줄 제거)
-2️⃣ Open3D 기반 사전 정리 (중복 정점, 비정상 엣지 제거)
-3️⃣ PyMeshLab 기반 Poisson 표면 복원 + 평탄화(Smoothing)
-4️⃣ 홀 메움 + 노멀 재계산
-5️⃣ 결과 시각화 (Open3D Viewer)
-
-------------------------------------------------------------
-💻 실행 예시:
-python mesh_optimizer.py --input ../../datasets/obj/mainhall.obj --visualize
-
-⚙️ 옵션 설명:
---input       : 입력 OBJ 파일 경로 (필수)
---visualize   : 결과를 Open3D 뷰어로 시각화 (선택)
-
-------------------------------------------------------------
-✅ 출력 예시:
-🧹 손상된 라인 제거 완료 → mainhall_safe.obj
-🧭 [Open3D] 비정상 요소 제거 중...
-✅ Open3D 사전 정리 완료 → mainhall_precleaned.obj
-🔹 Poisson Surface Reconstruction 실행 중...
-   → 새 mesh로 전환 완료 (Face: 240,532)
-🔹 평탄화 (Smoothing)
-   → Taubin smoothing 완료
-🔹 홀 메우기 + 노멀 재계산
-✅ 클린업 완료 → mainhall_precleaned_cleaned.obj
-============================================================
+python mesh_denoiser.py -i ../../datasets/mainhall_safe_precleaned_cleaned.obj  --visualize
 """
 
-import open3d as o3d
-import pymeshlab as ml
+
 import argparse
 import os
+import sys
 import time
+import subprocess
+import shutil
+import glob
 import numpy as np
-import unicodedata
-import hashlib
-# 전역 출력 경로 (main에서 설정)
-TEMP_DIR = None
-OPTIMIZED_DIR = None
+from typing import Optional, List
+import open3d as o3d
 
-
-def sanitize_filename(name: str) -> str:
-    normalized = unicodedata.normalize("NFKD", name or "")
-    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
-    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in ascii_name)
-    safe = safe.strip("_")
-    if safe:
-        return safe
-    digest = hashlib.sha1((name or "").encode("utf-8")).hexdigest()[:16]
-    return f"file_{digest}"
-
-
-def build_temp_path(base_name: str, suffix: str, directory: str) -> str:
-    safe_base = sanitize_filename(base_name)
-    filename = f"{safe_base}{suffix}"
-    return os.path.join(directory, filename)
-
-
-# ===========================================================
-# 1️⃣ 손상된 OBJ 자동 복구 (잘린 줄 제거)
-# ===========================================================
-def remove_invalid_lines(input_path):
-    """
-    OBJ 파일의 끝부분에 존재할 수 있는
-    '숫자만 있는 잘린 줄'을 자동으로 제거하여 안전하게 복원합니다.
-
-    🧠 배경:
-    PyMeshLab은 OBJ 파일 끝에 쓰다만 숫자 같은 라인이 있으면
-    파싱 중 세그멘테이션 오류(Segmentation Fault)가 발생합니다.
-    """
-    with open(input_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-
-    valid = []
-    for line in lines:
-        s = line.strip()
-        if not s:
-            continue  # 빈 줄 제거
-        if s.startswith(("v ", "vt ", "vn ", "f ", "usemtl", "o ", "s ")):
-            valid.append(line)  # 정상 OBJ 데이터
-        elif not any(c.isalpha() for c in s):
-            continue  # 숫자만 있는 잘린 줄 제거
-        else:
-            valid.append(line)
-
-    base = os.path.splitext(os.path.basename(input_path))[0]
-    out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
-    os.makedirs(out_dir, exist_ok=True)
-    tmp = build_temp_path(base, "_safe.obj", out_dir)
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.writelines(valid)
-
-    print(f"🧹 손상된 라인 제거 완료 → {tmp}")
-    return tmp
-
-
-# ===========================================================
-# 2️⃣ Open3D 기반 사전 클린 (비정상 vertex/face 제거)
-# ===========================================================
-def preclean_with_open3d(input_path):
-    """
-    Open3D를 사용하여 메쉬 구조를 안전하게 정리합니다.
-    - 중복 정점 / 면 제거
-    - degenerate(면적 0) 삼각형 제거
-    - 비정상(non-manifold) 엣지 제거
-    """
-    mesh = o3d.io.read_triangle_mesh(input_path)
+# ----------------------------------------
+# 기본 메쉬 로드 함수
+# ----------------------------------------
+def _load_mesh(path: str) -> o3d.geometry.TriangleMesh:
+    """OBJ 파일을 읽어서 Open3D의 TriangleMesh 객체로 반환"""
+    mesh = o3d.io.read_triangle_mesh(path)
     if mesh.is_empty():
-        raise ValueError("❌ 메쉬가 비어 있습니다.")
+        raise ValueError("Empty mesh: " + path)
+    return mesh
 
-    print("🧭 [Open3D] 비정상 요소 제거 중...")
 
+# ----------------------------------------
+# 메쉬 전처리 (불량 요소 제거)
+# ----------------------------------------
+def _preclean_mesh(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+    """
+    불필요하거나 비정상적인 요소 제거:
+    - 참조되지 않는 정점
+    - 중복된 정점 및 삼각형
+    - 퇴화 삼각형(면적=0)
+    - 비매니폴드 엣지 (엣지 연결이 비정상인 경우)
+    """
     mesh.remove_unreferenced_vertices()
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_vertices()
     mesh.remove_duplicated_triangles()
     mesh.remove_non_manifold_edges()
+    mesh.compute_vertex_normals()  # 정점 노멀 재계산
+    return mesh
+
+
+# ----------------------------------------
+# 메쉬 평탄화 (스무딩) 알고리즘 선택
+# ----------------------------------------
+def _smooth_mesh(mesh: o3d.geometry.TriangleMesh, algo: str, iterations: int) -> o3d.geometry.TriangleMesh:
+    """
+    지정한 알고리즘으로 반복적 스무딩 수행.
+    - taubin : 형태 유지하면서 부드럽게
+    - laplacian : 단순 인접 평균화
+    - simple : 기본 스무딩
+    """
+    algo = algo.lower()
+    iterations = max(1, int(iterations))
+    if algo == "taubin":
+        mesh = mesh.filter_smooth_taubin(number_of_iterations=iterations)
+    elif algo == "laplacian":
+        mesh = mesh.filter_smooth_laplacian(number_of_iterations=iterations)
+    elif algo == "simple":
+        mesh = mesh.filter_smooth_simple(number_of_iterations=iterations)
+    else:
+        raise ValueError("Unknown algorithm: " + algo)
     mesh.compute_vertex_normals()
-
-    base = os.path.splitext(os.path.basename(input_path))[0]
-    out_dir = TEMP_DIR if TEMP_DIR else os.path.dirname(input_path)
-    os.makedirs(out_dir, exist_ok=True)
-    temp_path = build_temp_path(base, "_precleaned.obj", out_dir)
-    o3d.io.write_triangle_mesh(temp_path, mesh, write_triangle_uvs=False)
-    print(f"✅ Open3D 사전 정리 완료 → {temp_path}")
-    return temp_path
+    return mesh
 
 
-# ===========================================================
-# 3️⃣ PyMeshLab 기반 클린업 (★수정된 버전★)
-# ===========================================================
-def clean_and_reconstruct(input_path, min_faces=20, poisson_depth=10, smooth_iter=15, target_faces=200000):
+# ----------------------------------------
+# 여러 메쉬 비교 시각화
+# ----------------------------------------
+def _visualize_compare(paths: List[str], overlay: bool = False, gap_scale: float = 1.2) -> None:
     """
-    전체 클린업 파이프라인의 핵심 함수입니다. (수정된 로직)
-
-    처리 순서:
-    1. 손상된 줄 제거 (remove_invalid_lines)
-    2. Open3D 기반 사전 정리 (preclean_with_open3d)
-    3. (★중요) 가장 큰 메시 덩어리(Component)만 분리
-    4. (★제거) Poisson 표면 복원 (문제의 원인)
-    5. (★추가) 폴리곤 수 최적화 (Decimation)
-    6. 평탄화(Smoothing) 및 홀 메움
-    7. 노멀 재계산 및 최종 저장
+    여러 OBJ를 한 화면에서 비교 시각화
+    overlay=False → 옆으로 나란히 배치
+    overlay=True  → 동일 좌표계에 겹쳐 표시(색상으로 구분)
     """
-    print("\n🧹 [Clean Mode] 스캔 메쉬 클린업 시작 (★중심 인물 보존 모드★)")
-    
-    # 원본 파일명 저장
-    original_base_name = os.path.splitext(os.path.basename(input_path))[0]
-    safe_base_name = sanitize_filename(original_base_name)
+    if not paths:
+        raise ValueError("No paths provided for comparison")
 
-    # Step 1️⃣ 손상된 라인 정리 + Open3D 사전 정리
-    input_path = remove_invalid_lines(input_path)
-    input_path = preclean_with_open3d(input_path)
+    colors = [
+        (1.0, 0.2, 0.2),  # 빨강
+        (0.2, 0.6, 1.0),  # 파랑
+        (0.2, 0.8, 0.3),  # 초록
+        (1.0, 0.6, 0.0),  # 주황
+        (0.8, 0.2, 0.8),  # 보라
+        (0.9, 0.9, 0.1),  # 노랑
+    ]
 
-    ms = ml.MeshSet()
-    ms.load_new_mesh(input_path)
+    geoms = []
+    cur_offset = 0.0
+    for idx, p in enumerate(paths):
+        if not os.path.isfile(p):
+            raise FileNotFoundError(p)
+        m = _load_mesh(p)
+        m.compute_vertex_normals()
+        m.paint_uniform_color(colors[idx % len(colors)])
 
-    # Step 2️⃣ 작은 노이즈 컴포넌트 제거
-    print("🔹 작은 노이즈 조각들 제거 중...")
-    ms.apply_filter("meshing_remove_connected_component_by_face_number", mincomponentsize=min_faces)
-    ms.apply_filter("meshing_remove_unreferenced_vertices")
-    ms.apply_filter("meshing_remove_duplicate_faces")
-    ms.apply_filter("meshing_remove_null_faces")
-    print(f"   → 노이즈 제거 완료, 최종 Face 개수: {ms.current_mesh().face_number()}")
+        # overlay=False → 좌우로 배치
+        if not overlay:
+            bbox = m.get_axis_aligned_bounding_box()
+            extent = bbox.get_extent()
+            width = float(extent[0]) if extent[0] > 0 else 1.0
+            center = bbox.get_center()
+            m.translate(-center)
+            m.translate((cur_offset + width * 0.5, 0.0, 0.0))
+            cur_offset += width * gap_scale
+        geoms.append(m)
+
+    win_name = f"Compare {len(paths)} Meshes ({'overlay' if overlay else 'side-by-side'})"
+    o3d.visualization.draw_geometries(geoms, window_name=win_name)
 
 
-    # Step 3️⃣ (★제거★) Poisson Surface Reconstruction
-    # 이 필터가 인물과 바닥을 '녹여서' 붙이는 원인이므로 제거합니다.
-    # print("🔹 Poisson Surface Reconstruction 실행 중...")
-    # try:
-    #     ms.apply_filter("generate_surface_reconstruction_screened_poisson", depth=poisson_depth)
-    #     ...
-    # except Exception as e:
-    #     print(f"⚠️ Poisson 실패: {e}")
-
-    # Step 4️⃣ (★추가★) 폴리곤 수 최적화 (Decimation)
-    # Unity에서 사용하기 좋게 폴리곤 수를 줄입니다.
-    if ms.current_mesh().face_number() > target_faces:
-        print(f"🔹 폴리곤 수 최적화 (Decimation) 실행... (목표: {target_faces}개)")
-        ms.apply_filter(
-            "meshing_decimation_quadric_edge_collapse",
-            targetfacenum=target_faces,
-            qualitythr=0.5,
-            preserveboundary=True
-        )
-        print(f"   → 최적화 완료 (Face: {ms.current_mesh().face_number()})")
-    
-    
-    # Step 5️⃣ 평탄화 (Smoothing)
-    print("🔹 평탄화 (Smoothing)")
-    try:
-        ms.apply_filter("apply_coord_taubin_smoothing")
-        print("   → Taubin smoothing 완료")
-    except Exception as e1:
-        print(f"⚠️ Taubin 실패 ({e1}), Laplacian으로 대체")
+# ----------------------------------------
+# DeepMeshPrior의 최신 결과 파일 탐색
+# ----------------------------------------
+def _pick_latest_dmp_output(mesh_basename: str, created_after: float, root: str) -> Optional[str]:
+    """
+    DeepMeshPrior 실행 결과(root/... ) 중 가장 최근의 *_output.obj 파일을 탐색
+    """
+    if not os.path.isdir(root):
+        return None
+    buckets = []
+    for d in os.listdir(root):
+        if not d.lower().startswith(mesh_basename.lower()):
+            continue
+        full = os.path.join(root, d)
         try:
-            ms.apply_filter("apply_coord_laplacian_smoothing")
-            print("   → Laplacian smoothing 완료")
-        except Exception as e2:
-            print(f"⚠️ Laplacian smoothing 실패 ({e2})")
+            mtime = os.path.getmtime(full)
+        except OSError:
+            continue
+        if mtime >= created_after - 5:
+            buckets.append((mtime, full))
+    if not buckets:
+        return None
+    _, latest_dir = max(buckets, key=lambda x: x[0])
+    objs = glob.glob(os.path.join(latest_dir, "*_output.obj"))
+    if not objs:
+        return None
 
-    # Step 6️⃣ 홀 메움 + 노멀 재계산
-    print("🔹 홀 메우기 + 노멀 재계산")
+    # 파일명 앞부분(epoch 값)을 기준으로 최신 결과 선택
+    def _epoch_key(p: str) -> int:
+        base = os.path.basename(p)
+        try:
+            return int(base.split("_")[0])
+        except Exception:
+            return -1
+
+    return max(objs, key=_epoch_key)
+
+
+# ----------------------------------------
+# AI 기반 노이즈 제거 (DeepMeshPrior)
+# ----------------------------------------
+def _ai_denoise_with_deepmeshprior(
+    input_path: str,
+    iters: int,
+    lr: float,
+    lap: float,
+    dmp_script: str,
+    dmp_output_root: str
+) -> Optional[str]:
+    """
+    DeepMeshPrior(unsupervised mesh denoising 모델)을 subprocess로 실행하여
+    AI 기반 노이즈 제거 수행.
+    """
+    script = dmp_script
+    if not os.path.isfile(script):
+        print("[warn] DeepMeshPrior script not found. Skipping AI denoise.")
+        return None
+
+    mesh_basename = os.path.splitext(os.path.basename(input_path))[0]
+    t0 = time.time()
+    cmd = [
+        sys.executable,
+        script,
+        "-i", os.path.abspath(input_path),
+        "--iter", str(int(iters)),
+        "--lr", str(float(lr)),
+        "--lap", str(float(lap)),
+        "--no-log",
+        "--save-every", "100",
+    ]
+    print("[AI] Running:", " ".join(cmd))
     try:
-        ms.apply_filter("meshing_close_holes", maxholesize=1000)
-        ms.apply_filter("compute_normal_for_point_clouds", k=10)
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print("[warn] AI denoise failed:", e)
+        return None
+
+    # 결과 파일 탐색
+    latest_obj = _pick_latest_dmp_output(mesh_basename, created_after=t0, root=dmp_output_root)
+    if not latest_obj or not os.path.isfile(latest_obj):
+        print("[warn] AI output not found.")
+        return None
+
+    # 결과 복사 및 이름 변경
+    out_path = os.path.join(os.path.dirname(input_path), f"{mesh_basename}_denoised_ai.obj")
+    try:
+        shutil.copyfile(latest_obj, out_path)
     except Exception as e:
-        print(f"⚠️ 후처리 실패: {e}")
-
-    # Step 7️⃣ 결과 저장
-    out_dir = OPTIMIZED_DIR if OPTIMIZED_DIR else os.path.dirname(input_path)
-    os.makedirs(out_dir, exist_ok=True)
-    output_path = os.path.join(out_dir, f"{safe_base_name}_cleaned.obj")
-    ms.save_current_mesh(output_path)
-    print(f"✅ 클린업 완료 → {output_path}")
-    return output_path
+        print("[warn] Failed to copy AI result:", e)
+        return None
+    return out_path
 
 
-# ===========================================================
-# 4️⃣ 시각화 (Open3D)
-# ===========================================================
-def visualize_mesh(mesh_path):
-    """
-    Open3D로 결과 메쉬를 시각화합니다.
-    """
-    mesh = o3d.io.read_triangle_mesh(mesh_path)
-    if mesh.is_empty():
-        raise ValueError("❌ 시각화 실패: 메쉬가 비어 있습니다.")
-    mesh.compute_vertex_normals()
-    o3d.visualization.draw_geometries([mesh], window_name="Cleaned Mesh Viewer")
+# ----------------------------------------
+# 메인 함수 (명령행 인터페이스)
+# ----------------------------------------
+def main():
+    parser = argparse.ArgumentParser(description="Standalone mesh denoiser (algorithmic or AI)")
+    parser.add_argument("--input", "-i", help="Input OBJ file path")
+    parser.add_argument("--output-dir", required=True, help="최종 산출물 저장 디렉토리")
+    parser.add_argument("--mode", choices=["algo","ai","auto_flat"], default="auto_flat")
+    parser.add_argument("--ai-iters", type=int, default=400)
+    parser.add_argument("--ai-lr", type=float, default=0.01)
+    parser.add_argument("--ai-lap", type=float, default=1.2)
+    parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--preclean", action="store_true")
 
+    # auto_flat 모드(바닥/벽 자동 평탄화) 관련 파라미터
+    parser.add_argument("--proj-dist", type=float, default=0.008)
+    parser.add_argument("--floor-ratio", type=float, default=0.6)
+    parser.add_argument("--wall-ratio", type=float, default=2.5)
+    parser.add_argument("--smooth-floor", type=int, default=6)
+    parser.add_argument("--smooth-wall", type=int, default=24)
+    parser.add_argument("--wall-ortho-dot", type=float, default=0.15)
+    parser.add_argument("--max-walls", type=int, default=6)
+    parser.add_argument("--ransac-iters", type=int, default=4000)
+    parser.add_argument("--sample-n", type=int, default=250000)
+    parser.add_argument("--smooth-iters", type=int, default=12)
+    parser.add_argument("--compare", nargs="+")
+    parser.add_argument("--overlay", action="store_true")
+    parser.add_argument("--gap", type=float, default=1.2)
 
-# ===========================================================
-# 5️⃣ 실행부 (CLI 인터페이스)
-# ===========================================================
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="3D Mesh Cleaner (Safe Mode)")
-    parser.add_argument("--input", type=str, required=True, help="입력 .obj 파일 경로")
-    parser.add_argument("--temp-dir", type=str, default="../datasets/temp", help="중간 산출물 저장 디렉토리")
-    parser.add_argument("--optimized-dir", type=str, default="../datasets/optimized", help="최종 cleaned.obj 저장 디렉토리")
-    parser.add_argument("--visualize", action="store_true", help="Open3D 뷰어로 결과 시각화")
+    # 하드코딩된 경로 옵션화
+    parser.add_argument(
+        "--dmp-script",
+        default=os.environ.get("DMP_SCRIPT", os.path.join("ai_pipeline", "DeepMeshPrior", "denoise.py")),
+        help="DeepMeshPrior denoise.py 경로"
+    )
+    parser.add_argument(
+        "--dmp-output-root",
+        default=os.environ.get("DMP_OUTPUT_ROOT", os.path.join(".", "datasets", "d_output")),
+        help="DeepMeshPrior 결과 디렉터리 루트"
+    )
+
     args = parser.parse_args()
 
-    # 전역 출력 경로 설정
-    TEMP_DIR = args.temp_dir
-    OPTIMIZED_DIR = args.optimized_dir
+    # 여러 파일 비교 모드
+    if args.compare:
+        _visualize_compare(args.compare, overlay=args.overlay, gap_scale=max(1.0, float(args.gap)))
+        return
 
-    start = time.time()
-    output = clean_and_reconstruct(args.input)
-    print(f"\n✅ 전체 파이프라인 완료 (총 {time.time() - start:.2f}초)")
+    in_path = args.input
+    if not in_path or not os.path.isfile(in_path):
+        raise FileNotFoundError(str(in_path))
 
+    # AI 모드 실행
+    if args.mode == "ai":
+        out = _ai_denoise_with_deepmeshprior(
+            in_path,
+            args.ai_iters,
+            args.ai_lr,
+            args.ai_lap,
+            dmp_script=args.dmp_script,
+            dmp_output_root=args.dmp_output_root
+        )
+        if out is None:
+            print("[info] Falling back to algorithmic smoothing due to AI failure.")
+            args.mode = "algo"
+        else:
+            if args.visualize:
+                mesh = _load_mesh(out)
+                mesh.compute_vertex_normals()
+                o3d.visualization.draw_geometries([mesh], window_name="AI Denoised Mesh")
+            print("[ok] Saved:", out)
+            return
+
+    # 자동 평면화 모드
+    if args.mode == "auto_flat":
+        out = _auto_flatten_floor_walls(
+            in_path,
+            max_walls=args.max_walls,
+            proj_dist_ratio=args.proj_dist,
+            ransac_iters=args.ransac_iters,
+            sample_n=args.sample_n,
+            smooth_iters=args.smooth_iters,
+            floor_ratio=args.floor_ratio,       # ← 옵션 전달
+            wall_ratio=args.wall_ratio,         # ← 옵션 전달
+            smooth_floor=args.smooth_floor,     # ← 옵션 전달
+            smooth_wall=args.smooth_wall,       # ← 옵션 전달
+            wall_ortho_dot=args.wall_ortho_dot, # ← 옵션 전달
+            do_preclean=args.preclean,
+        )
+        # 출력 디렉토리로 이동 (파일명 규칙 유지)
+        try:
+            os.makedirs(args.output_dir, exist_ok=True)
+            base = os.path.splitext(os.path.basename(in_path))[0]
+            target = os.path.join(args.output_dir, f"{base}_auto_flat.obj")
+            if os.path.abspath(out) != os.path.abspath(target):
+                try:
+                    shutil.move(out, target)
+                except Exception:
+                    # move 실패 시 복사 후 원본 삭제 시도
+                    shutil.copyfile(out, target)
+                    try:
+                        os.remove(out)
+                    except Exception:
+                        pass
+            out = target
+        except Exception as e:
+            print(f"[warn] Failed to place output into output_dir: {e}")
+        if args.visualize:
+            m = _load_mesh(out)
+            m.compute_vertex_normals()
+            o3d.visualization.draw_geometries([m], window_name="Auto Floor/Walls")
+        print("[ok] Saved:", out)
+        return
+
+    # 기본 알고리즘 스무딩
+    mesh = _load_mesh(in_path)
+    if args.preclean:
+        mesh = _preclean_mesh(mesh)
+    mesh = _smooth_mesh(mesh, args.algo, args.iter)
+
+    base = os.path.splitext(in_path)[0]
+    out_path = f"{base}_denoised_{args.algo}.obj"
+    o3d.io.write_triangle_mesh(out_path, mesh, write_triangle_uvs=False)
     if args.visualize:
-        visualize_mesh(output)
+        o3d.visualization.draw_geometries([mesh], window_name="Algo Denoised Mesh")
+    print("[ok] Saved:", out_path)
+
+
+# ----------------------------------------
+# 자동 바닥/벽 평탄화 알고리즘
+# ----------------------------------------
+def _auto_flatten_floor_walls(
+    input_path: str,
+    max_walls: int = 4,
+    proj_dist_ratio: float = 0.02,
+    ransac_iters: int = 3000,
+    sample_n: int = 250000,
+    smooth_iters: int = 12,
+    floor_ratio: float = 0.6,
+    wall_ratio: float = 1.6,
+    smooth_floor: int = 8,
+    smooth_wall: int = 22,
+    wall_ortho_dot: float = 0.2,
+    do_preclean: bool = True
+) -> str:
+    """
+    실내 메쉬에서 바닥 평면과 벽 평면을 자동으로 찾아
+    각 영역을 평탄화 + 부드럽게 스무딩 처리
+    """
+    mesh = _load_mesh(input_path)
+    if do_preclean:
+        mesh = _preclean_mesh(mesh)
+    mesh.compute_vertex_normals()
+    V = np.asarray(mesh.vertices)
+
+    # 장면 크기에 따라 투영 허용 거리 계산
+    aabb = mesh.get_axis_aligned_bounding_box()
+    diag = np.linalg.norm(aabb.get_max_bound() - aabb.get_min_bound())
+    diag = float(diag) if diag > 0 else 1.0
+    base_dist = max(1e-4, float(proj_dist_ratio) * diag)
+    floor_dist = base_dist * float(floor_ratio)
+    wall_dist  = base_dist * float(wall_ratio)
+
+    # 균등 샘플링 포인트로 RANSAC 평면 탐색
+    pcd = mesh.sample_points_uniformly(
+        number_of_points=min(int(sample_n), max(50000, len(V)))
+    )
+    pts = np.asarray(pcd.points)
+
+    # RANSAC 평면 추출 함수
+    def seg_plane(pcd_in, dist, iters):
+        plane, inl = pcd_in.segment_plane(distance_threshold=float(dist),
+                                          ransac_n=3,
+                                          num_iterations=int(iters))
+        n = np.array(plane[:3], dtype=float)
+        n /= (np.linalg.norm(n) + 1e-12)
+        d = float(plane[3])
+        return n, d, np.asarray(inl, dtype=int)
+
+    # 1) 바닥 평면 검출
+    n_floor, d_floor, inl_floor = seg_plane(pcd, floor_dist, ransac_iters)
+
+    # 2) 벽 평면 검출 (바닥과 직교 방향만 유지)
+    wall_list = []
+    mask = np.ones(len(pts), dtype=bool)
+    mask[inl_floor] = False
+    pcd_left = pcd.select_by_index(np.where(mask)[0])
+    for _ in range(int(max_walls)):
+        if len(pcd_left.points) < 500:
+            break
+        try:
+            n, d, inl = seg_plane(pcd_left, wall_dist, max(500, ransac_iters // 2))
+        except RuntimeError:
+            break
+        # 바닥과 평행한 평면 제외, 직교인 경우만 채택
+        if abs(float(np.dot(n, n_floor))) < float(wall_ortho_dot):
+            wall_list.append((n, d))
+        # 다음 평면 탐색을 위한 점 제거
+        all_idx = np.arange(len(pcd_left.points))
+        keep = np.setdiff1d(all_idx, inl, assume_unique=False)
+        if len(keep) < 500:
+            break
+        pcd_left = pcd_left.select_by_index(keep.tolist())
+
+    # 3) 선택 영역을 평면으로 투영
+    sel = np.zeros(len(V), dtype=bool)
+    def project(n, d, thr):
+        dist = V @ n + d
+        idx = np.where(np.abs(dist) < thr)[0]
+        sel[idx] = True
+        V[idx] = V[idx] - dist[idx, None] * n
+    # 바닥
+    project(n_floor, d_floor, floor_dist)
+    # 벽
+    sel_wall = np.zeros(len(V), dtype=bool)
+    for n, d in wall_list:
+        dist = V @ n + d
+        idx = np.where(np.abs(dist) < wall_dist)[0]
+        sel[idx] = True
+        sel_wall[idx] = True
+        V[idx] = V[idx] - dist[idx, None] * n
+
+    # 4) 영역별 스무딩 적용 후 병합
+    mesh.vertices = o3d.utility.Vector3dVector(V)
+    mesh.compute_vertex_normals()
+    m_floor = mesh.filter_smooth_taubin(number_of_iterations=int(smooth_floor), lambda_filter=0.53, mu=-0.55)
+    Vf = np.asarray(m_floor.vertices)
+    m_wall  = mesh.filter_smooth_taubin(number_of_iterations=int(smooth_wall),  lambda_filter=0.53, mu=-0.55)
+    Vw = np.asarray(m_wall.vertices)
+
+    # 바닥 / 벽 / 나머지 구역 병합
+    V_out = V.copy()
+    sel_floor_only = sel & (~sel_wall)
+    V_out[sel_floor_only] = Vf[sel_floor_only]
+    V_out[sel_wall]       = Vw[sel_wall]
+    mesh.vertices = o3d.utility.Vector3dVector(V_out)
+    mesh.compute_vertex_normals()
+
+    out = os.path.splitext(input_path)[0] + "_auto_flat.obj"
+    o3d.io.write_triangle_mesh(out, mesh, write_triangle_uvs=False)
+    return out
+
+
+# ----------------------------------------
+# 엔트리포인트
+# ----------------------------------------
+if __name__ == "__main__":
+    main()
