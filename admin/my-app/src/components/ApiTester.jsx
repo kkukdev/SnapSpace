@@ -23,7 +23,7 @@ function ApiTester() {
   const [formData, setFormData] = useState({
     group: { meta_data: '{}' },
     scan: { group_id: 1, meta_data: '{}', status: 'UPLOADED', memos: '[]' },
-    file: { selected: null, groupName: '' },
+    file: { selected: null, groupName: '', modelType: 'space' },
     groupId: 1,
     scanId: 1,
     groupsList: []
@@ -79,6 +79,9 @@ function ApiTester() {
           // group_name 추가 (백엔드에서 그룹을 찾거나 생성함)
           if (data.groupName && data.groupName.trim()) {
             formData.append('group_name', data.groupName.trim())
+          }
+          if (data.model_type) {
+            formData.append('model_type', data.model_type)
           }
           config.data = formData
         } else {
@@ -530,6 +533,17 @@ function ApiTester() {
                   style={{ marginTop: '8px', width: '100%', padding: '8px' }}
                 />
               </div>
+              <div className="form-group">
+                <label>Model Type:</label>
+                <select
+                  value={formData.file?.modelType || 'space'}
+                  onChange={(e) => handleFormChange('file', 'modelType', e.target.value)}
+                  style={{ width: '100%', padding: '8px' }}
+                >
+                  <option value="space">space</option>
+                  <option value="object">object</option>
+                </select>
+              </div>
               <div className="api-actions">
                 <ApiButton apiKey="upload-status" url="/api/v1/upload/">
                   GET /api/v1/upload/
@@ -538,7 +552,11 @@ function ApiTester() {
                   apiKey="upload-file"
                   url="/api/v1/upload/"
                   method="POST"
-                  data={{ file: formData.file?.selected, groupName: formData.file?.groupName }}
+                  data={{
+                    file: formData.file?.selected,
+                    groupName: formData.file?.groupName,
+                    model_type: formData.file?.modelType || 'space'
+                  }}
                   isFile={true}
                 >
                   POST /api/v1/upload/

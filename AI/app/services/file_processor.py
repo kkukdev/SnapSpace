@@ -17,7 +17,7 @@ class FileProcessor:
         self.processing_tasks: Dict[int, asyncio.Task] = {}
         self.processing_status: Dict[int, Dict] = {}
     
-    async def process_file(self, scan_id: int, file_path: str, group_id: str, metadata: Dict) -> bool:
+    async def process_file(self, scan_id: int, file_path: str, group_id: str, metadata: Dict, model_type: Optional[str] = None) -> bool:
         """파일 처리 시작"""
         try:
             # 처리 상태 초기화
@@ -27,7 +27,8 @@ class FileProcessor:
                 "started_at": datetime.now(),
                 "file_path": file_path,
                 "group_id": group_id,
-                "metadata": metadata
+                "metadata": metadata,
+                "model_type": model_type
             }
             
             from app.services.websocket_manager import websocket_manager
@@ -35,7 +36,7 @@ class FileProcessor:
             await websocket_manager.send_processing_start(scan_id)
             
             # 비동기 파일 처리 시작 (group_id와 metadata 전달)
-            task = asyncio.create_task(self._process_file_async(scan_id, file_path, group_id, metadata))
+            task = asyncio.create_task(self._process_file_async(scan_id, file_path, group_id, metadata, model_type))
             self.processing_tasks[scan_id] = task
             
             return True
@@ -47,7 +48,7 @@ class FileProcessor:
             await websocket_manager.send_processing_error(scan_id, str(e))
             return False
     
-    async def _process_file_async(self, scan_id: int, file_path: str, group_id: str, metadata: Dict):
+    async def _process_file_async(self, scan_id: int, file_path: str, group_id: str, metadata: Dict, model_type: Optional[str]):
         """비동기 파일 처리"""
         # group_id 처리 (빈 문자열이거나 None인 경우 기본값 1 사용)
         if not group_id or group_id.strip() == "":
@@ -63,7 +64,7 @@ class FileProcessor:
         
         # 원본 경로 저장 (폴더명 추출용 - 경로 변환 전)
         original_file_path_for_extraction = file_path
-        logger.info(f"[파일 처리 시작] scan_id={scan_id}, 원본 경로={original_file_path_for_extraction}, group_id={group_id}")
+        logger.info(f"[파일 처리 시작] scan_id={scan_id}, 원본 경로={original_file_path_for_extraction}, group_id={group_id}, model_type={model_type}")
         
         try:
             # 사용할 경로 결정
@@ -278,7 +279,7 @@ class FileProcessor:
                 logger.info(f"[폴더명 추출] 최종 사용할 폴더명: {folder_name}")
             
             # AI 파이프라인 실행 (group_id와 folder_name 전달)
-            output_path = await self._run_ai_pipeline(scan_id, file_path, group_id, folder_name)
+            output_path = await self._run_ai_pipeline(scan_id, file_path, group_id, folder_name, metadata, model_type)
             
             # 진행률 업데이트
             await self._update_progress(scan_id, 90)
@@ -308,7 +309,7 @@ class FileProcessor:
             if scan_id in self.processing_tasks:
                 del self.processing_tasks[scan_id]
     
-    async def _run_ai_pipeline(self, scan_id: int, file_path: str, group_id: str, folder_name: str) -> str:
+    async def _run_ai_pipeline(self, scan_id: int, file_path: str, group_id: str, folder_name: str, metadata: Dict, model_type: Optional[str]) -> str:
         """AI 파이프라인 실행"""
         loop = asyncio.get_event_loop()
         
@@ -319,12 +320,14 @@ class FileProcessor:
             scan_id,
             file_path,
             group_id,
-            folder_name
+            folder_name,
+            metadata,
+            model_type
         )
         
         return output_path
     
-    def _run_ai_pipeline_sync(self, scan_id: int, file_path: str, group_id: str, folder_name: str) -> str:
+    def _run_ai_pipeline_sync(self, scan_id: int, file_path: str, group_id: str, folder_name: str, metadata: Dict, model_type: Optional[str]) -> str:
         """동기 AI 파이프라인 실행"""
         try:
             # AI 파이프라인 실행
@@ -367,7 +370,24 @@ class FileProcessor:
             
             logger.info(f"[파일 처리] storage_base: {storage_base}, outputs_dir: {outputs_dir}")
             ai_pipeline = AIPipeline(progress_callback=progress_callback)
-            final_output_path = ai_pipeline.run_full_pipeline(file_path, outputs_dir, group_id, folder_name)
+
+            effective_model_type = model_type
+            try:
+                if (not effective_model_type or not str(effective_model_type).strip()) and metadata:
+                    effective_model_type = metadata.get("model_type") or metadata.get("modelType")
+            except Exception:
+                effective_model_type = None
+
+            if not effective_model_type or not str(effective_model_type).strip():
+                effective_model_type = "space"
+
+            final_output_path = ai_pipeline.run_full_pipeline(
+                file_path,
+                outputs_dir,
+                group_id,
+                folder_name,
+                model_type=effective_model_type
+            )
             
             logger.info(f"AI pipeline completed: {file_path} -> {final_output_path}")
             return final_output_path
