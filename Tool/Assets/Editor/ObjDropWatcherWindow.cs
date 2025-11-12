@@ -11,14 +11,22 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     [SerializeField] private WatchConfig config;
     private Vector2 _scroll;
     private Vector2 _folderScroll;
-    // TODO: API 연동 후 그룹의 스캔 데이터를 조회하여 _items를 채우는 기능 구현 필요
     private readonly List<Item> _items = new();
     private int? _selectedGroupId;
     private List<GroupData> _availableGroups = new();
     private bool _isLoadingGroups = false;
+    private bool _isLoadingScans = false;
     private UnityWebRequest _pendingRequest = null;
 
-    [Serializable] class Item { public string folder; public string obj; public string label; }
+    [Serializable] class Item 
+    { 
+        public string folder; 
+        public string obj; 
+        public string label;
+        public string originalPath;  // 원본 파일 경로
+        public string retouchedPath;  // 리터치된 파일 경로
+        public int scanId;            // 스캔 ID
+    }
     
     [Serializable]
     class GroupData
@@ -48,6 +56,28 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public int limit;
     }
 
+    [Serializable]
+    class ScanData
+    {
+        public int scan_id;
+        public int group_id;
+        public string status;
+        public string original_file_path;
+        public string retouched_file_path;
+        public string created_at;
+        public string updated_at;
+    }
+
+    [Serializable]
+    class GroupScansResponse
+    {
+        public string message;
+        public bool success;
+        public ScanData[] data;  // 백엔드에서 data는 직접 배열로 반환됨
+        public int total;
+        public string timestamp;
+    }
+
 
     [MenuItem("Tools/OBJ Drop Watcher")]
     public static void Open()
@@ -63,6 +93,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         if (_pendingRequest != null)
         {
             EditorApplication.update -= CheckPendingRequest;
+            EditorApplication.update -= CheckPendingScansRequest;
             _pendingRequest.Dispose();
             _pendingRequest = null;
         }
@@ -222,7 +253,24 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             var selectedGroup = _availableGroups.FirstOrDefault(g => g.group_id == _selectedGroupId.Value);
                             if (selectedGroup != null)
                             {
+                                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                                 EditorGUILayout.HelpBox($"선택된 그룹: {selectedGroup.name} (ID: {selectedGroup.group_id})", MessageType.Info);
+                                
+                                EditorGUILayout.BeginHorizontal();
+                                if (GUILayout.Button("스캔 데이터 조회", GUILayout.Height(24)))
+                                {
+                                    if (!_isLoadingScans)
+                                    {
+                                        EditorApplication.delayCall += () => RefreshGroupScans(_selectedGroupId.Value);
+                                    }
+                                }
+                                
+                                if (_isLoadingScans)
+                                {
+                                    EditorGUILayout.LabelField("로딩 중...", EditorStyles.miniLabel);
+                                }
+                                EditorGUILayout.EndHorizontal();
+                                EditorGUILayout.EndVertical();
                             }
                         }
                         else
@@ -304,10 +352,51 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.LabelField(it.label, EditorStyles.boldLabel);
                 EditorGUILayout.LabelField("Folder", it.folder);
-                EditorGUILayout.LabelField("OBJ", it.obj);
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button("Spawn in Scene", GUILayout.Height(22))) Spawn(it.obj);
-                EditorGUILayout.EndHorizontal();
+                
+                // Original 파일 정보 및 버튼
+                if (!string.IsNullOrEmpty(it.originalPath))
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("Original:", Path.GetFileName(it.originalPath), GUILayout.Width(200));
+                    if (GUILayout.Button("Import Original", GUILayout.Height(22), GUILayout.Width(120)))
+                    {
+                        if (File.Exists(it.originalPath))
+                        {
+                            Spawn(it.originalPath);
+                        }
+                        else
+                        {
+                            EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{it.originalPath}", "OK");
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+                
+                // Retouched 파일 정보 및 버튼
+                if (!string.IsNullOrEmpty(it.retouchedPath))
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("Retouched:", Path.GetFileName(it.retouchedPath), GUILayout.Width(200));
+                    if (GUILayout.Button("Import Retouched", GUILayout.Height(22), GUILayout.Width(120)))
+                    {
+                        if (File.Exists(it.retouchedPath))
+                        {
+                            Spawn(it.retouchedPath);
+                        }
+                        else
+                        {
+                            EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{it.retouchedPath}", "OK");
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+                
+                // 둘 다 없는 경우 (이론적으로는 발생하지 않아야 함)
+                if (string.IsNullOrEmpty(it.originalPath) && string.IsNullOrEmpty(it.retouchedPath))
+                {
+                    EditorGUILayout.HelpBox("OBJ 파일 경로가 없습니다.", MessageType.Warning);
+                }
+                
                 EditorGUILayout.EndVertical();
             }
         }
@@ -359,7 +448,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         
         // API URL 정규화 (끝에 슬래시 제거)
         apiUrl = apiUrl.TrimEnd('/');
-        string groupsEndpoint = $"{apiUrl}/api/v1/groups/";
+        
+        // WatchConfig에서 엔드포인트 경로 가져오기
+        string groupsEndpointPath = config.groupsEndpoint ?? "/api/v1/groups/";
+        if (!groupsEndpointPath.StartsWith("/"))
+            groupsEndpointPath = "/" + groupsEndpointPath;
+        
+        string groupsEndpoint = $"{apiUrl}{groupsEndpointPath}";
         
         _isLoadingGroups = true;
         _availableGroups.Clear();
@@ -372,6 +467,66 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         
         // EditorApplication.update를 사용하여 요청 완료 대기
         EditorApplication.update += CheckPendingRequest;
+    }
+    
+    void RefreshGroupScans(int groupId)
+    {
+        if (config == null)
+        {
+            ScheduleRepaint();
+            return;
+        }
+        
+        // config 접근을 안전하게 처리
+        string apiUrl = null;
+        try
+        {
+            apiUrl = config.apiServerUrl;
+        }
+        catch (System.Exception)
+        {
+            // config가 유효하지 않은 경우 무시
+            ScheduleRepaint();
+            return;
+        }
+        
+        if (string.IsNullOrWhiteSpace(apiUrl))
+        {
+            EditorUtility.DisplayDialog("API URL 없음", "API 서버 URL을 입력하세요.", "OK");
+            ScheduleRepaint();
+            return;
+        }
+        
+        if (!Uri.TryCreate(apiUrl, UriKind.Absolute, out Uri result) || 
+            (result.Scheme != Uri.UriSchemeHttp && result.Scheme != Uri.UriSchemeHttps))
+        {
+            EditorUtility.DisplayDialog("잘못된 URL", "올바른 HTTP/HTTPS URL을 입력하세요.", "OK");
+            ScheduleRepaint();
+            return;
+        }
+        
+        // API URL 정규화 (끝에 슬래시 제거)
+        apiUrl = apiUrl.TrimEnd('/');
+        
+        // WatchConfig에서 엔드포인트 경로 가져오기
+        string groupScansEndpointPath = config.groupScansEndpoint ?? "/api/v1/groups/{group_id}/scans";
+        if (!groupScansEndpointPath.StartsWith("/"))
+            groupScansEndpointPath = "/" + groupScansEndpointPath;
+        
+        // {group_id}를 실제 groupId로 치환
+        string groupScansEndpoint = $"{apiUrl}{groupScansEndpointPath.Replace("{group_id}", groupId.ToString())}";
+        
+        _isLoadingScans = true;
+        _items.Clear();
+        ScheduleRepaint();
+        
+        // UnityWebRequest를 사용하여 비동기 요청
+        _pendingRequest = UnityWebRequest.Get(groupScansEndpoint);
+        _pendingRequest.SetRequestHeader("Content-Type", "application/json");
+        _pendingRequest.SendWebRequest();
+        
+        // EditorApplication.update를 사용하여 요청 완료 대기
+        EditorApplication.update += CheckPendingScansRequest;
     }
     
     void CheckPendingRequest()
@@ -426,10 +581,236 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         }
     }
     
+    void CheckPendingScansRequest()
+    {
+        if (_pendingRequest == null) return;
+        
+        if (_pendingRequest.isDone)
+        {
+            EditorApplication.update -= CheckPendingScansRequest;
+            
+            _isLoadingScans = false;
+            
+            if (_pendingRequest.result == UnityWebRequest.Result.Success)
+            {
+                try
+                {
+                    string jsonResponse = _pendingRequest.downloadHandler.text;
+                    Debug.Log($"[ObjDropWatcher] Scans API Response: {jsonResponse}");
+                    
+                    GroupScansResponse response = JsonUtility.FromJson<GroupScansResponse>(jsonResponse);
+                    
+                    if (response != null && response.success && response.data != null)
+                    {
+                        _items.Clear();
+                        
+                        foreach (var scan in response.data)
+                        {
+                            // original_file_path와 retouched_file_path는 폴더 경로를 반환함
+                            // 폴더 안에서 .obj 파일을 찾아야 함
+                            string originalPath = null;
+                            string retouchedPath = null;
+                            
+                            // 원본 폴더 경로 처리
+                            if (!string.IsNullOrEmpty(scan.original_file_path))
+                            {
+                                // /project_root/ 부분을 실제 projectRoot 경로로 치환
+                                string folderPath = ReplaceProjectRootInPath(scan.original_file_path);
+                                
+                                // 폴더가 존재하는지 확인
+                                if (Directory.Exists(folderPath))
+                                {
+                                    // 폴더 안에서 .obj 파일 찾기
+                                    string[] objFiles = Directory.GetFiles(folderPath, "*.obj", SearchOption.TopDirectoryOnly);
+                                    if (objFiles.Length > 0)
+                                    {
+                                        // 첫 번째 .obj 파일 사용
+                                        originalPath = objFiles[0];
+                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in original folder: {folderPath}");
+                                    }
+                                    else
+                                    {
+                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in original folder: {folderPath}");
+                                    }
+                                }
+                                else
+                                {
+                                    Debug.LogWarning($"[ObjDropWatcher] Original folder does not exist: {folderPath}");
+                                }
+                            }
+                            
+                            // 리터치된 폴더 경로 처리
+                            if (!string.IsNullOrEmpty(scan.retouched_file_path))
+                            {
+                                // /project_root/ 부분을 실제 projectRoot 경로로 치환
+                                string folderPath = ReplaceProjectRootInPath(scan.retouched_file_path);
+                                
+                                // 폴더가 존재하는지 확인
+                                if (Directory.Exists(folderPath))
+                                {
+                                    // 폴더 안에서 .obj 파일 찾기
+                                    string[] objFiles = Directory.GetFiles(folderPath, "*.obj", SearchOption.TopDirectoryOnly);
+                                    if (objFiles.Length > 0)
+                                    {
+                                        // 첫 번째 .obj 파일 사용
+                                        retouchedPath = objFiles[0];
+                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in retouched folder: {folderPath}");
+                                    }
+                                    else
+                                    {
+                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in retouched folder: {folderPath}");
+                                    }
+                                }
+                                else
+                                {
+                                    Debug.LogWarning($"[ObjDropWatcher] Retouched folder does not exist: {folderPath}");
+                                }
+                            }
+                            
+                            // original 또는 retouched 중 하나라도 있으면 Item 추가
+                            if (!string.IsNullOrEmpty(originalPath) || !string.IsNullOrEmpty(retouchedPath))
+                            {
+                                // 기본 경로 결정 (retouched가 있으면 retouched, 없으면 original)
+                                string basePath = !string.IsNullOrEmpty(retouchedPath) ? retouchedPath : originalPath;
+                                string folder = Path.GetDirectoryName(basePath);
+                                string label = $"Scan {scan.scan_id} (Status: {scan.status})";
+                                
+                                _items.Add(new Item 
+                                { 
+                                    folder = folder, 
+                                    obj = basePath,  // 호환성을 위해 유지
+                                    label = label,
+                                    originalPath = originalPath,
+                                    retouchedPath = retouchedPath,
+                                    scanId = scan.scan_id
+                                });
+                            }
+                        }
+                        
+                        int originalCount = _items.Count(it => !string.IsNullOrEmpty(it.originalPath));
+                        int retouchedCount = _items.Count(it => !string.IsNullOrEmpty(it.retouchedPath));
+                        
+                        Debug.Log($"[ObjDropWatcher] Successfully fetched {_items.Count} items from {response.data.Length} scans (Original: {originalCount}, Retouched: {retouchedCount})");
+                        
+                        if (_items.Count == 0)
+                        {
+                            EditorUtility.DisplayDialog("스캔 조회 완료", 
+                                $"조회된 스캔: {response.data.Length}개\n\nOBJ 파일이 없습니다.", "OK");
+                        }
+                        else
+                        {
+                            EditorUtility.DisplayDialog("스캔 조회 완료", 
+                                $"조회된 스캔: {response.data.Length}개\n항목: {_items.Count}개\n\nOriginal 파일: {originalCount}개\nRetouched 파일: {retouchedCount}개", "OK");
+                        }
+                    }
+                    else
+                    {
+                        string errorMsg = response != null ? response.message : "Unknown error";
+                        Debug.LogWarning($"[ObjDropWatcher] API response indicates failure: {errorMsg}");
+                        EditorUtility.DisplayDialog("API 오류", $"스캔 조회 실패: {errorMsg}", "OK");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[ObjDropWatcher] Failed to parse scans API response: {ex.Message}\nStack trace: {ex.StackTrace}");
+                    EditorUtility.DisplayDialog("파싱 오류", $"응답 파싱 실패: {ex.Message}", "OK");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[ObjDropWatcher] Scans API request failed: {_pendingRequest.error}");
+                EditorUtility.DisplayDialog("요청 실패", $"스캔 조회 실패: {_pendingRequest.error}", "OK");
+            }
+            
+            _pendingRequest.Dispose();
+            _pendingRequest = null;
+            ScheduleRepaint();
+        }
+    }
+    
     void ScheduleRepaint()
     {
         // GUI 이벤트 처리 외부에서 리페인트를 안전하게 스케줄링
         EditorApplication.delayCall += Repaint;
+    }
+
+    /// <summary>
+    /// 프로젝트 루트 경로를 가져옵니다.
+    /// WatchConfig에 projectRoot가 설정되어 있으면 사용하고, 없으면 Unity 프로젝트 루트를 반환합니다.
+    /// </summary>
+    string GetProjectRoot()
+    {
+        if (config != null)
+        {
+            try
+            {
+                string projectRoot = config.projectRoot;
+                if (!string.IsNullOrWhiteSpace(projectRoot))
+                {
+                    // 절대 경로로 변환
+                    if (Path.IsPathRooted(projectRoot))
+                    {
+                        return projectRoot;
+                    }
+                    else
+                    {
+                        // 상대 경로인 경우 Application.dataPath 기준으로 변환
+                        return Path.GetFullPath(Path.Combine(Application.dataPath, "..", projectRoot));
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to get projectRoot from config: {ex.Message}");
+            }
+        }
+        
+        // 기본값: Unity 프로젝트 루트 (Assets의 상위 디렉토리)
+        return Path.GetDirectoryName(Application.dataPath);
+    }
+
+    /// <summary>
+    /// API 응답 경로에서 /project_root/ 부분을 실제 projectRoot 경로로 치환합니다.
+    /// 예: "/project_root/storage/uploads/..." -> "C:\...\storage\uploads\..."
+    /// </summary>
+    string ReplaceProjectRootInPath(string apiPath)
+    {
+        if (string.IsNullOrEmpty(apiPath))
+            return apiPath;
+
+        string projectRootPath = GetProjectRoot();
+        string remainingPath = null;
+
+        // /project_root/ 또는 project_root/ 패턴 찾기
+        string projectRootPlaceholder = "/project_root/";
+        if (apiPath.StartsWith(projectRootPlaceholder, StringComparison.OrdinalIgnoreCase))
+        {
+            remainingPath = apiPath.Substring(projectRootPlaceholder.Length);
+        }
+        // project_root/로 시작하는 경우 (앞에 슬래시 없음)
+        else if (apiPath.StartsWith("project_root/", StringComparison.OrdinalIgnoreCase))
+        {
+            remainingPath = apiPath.Substring("project_root/".Length);
+        }
+        // /project_root로 시작하는 경우 (뒤에 슬래시 없음)
+        else if (apiPath.StartsWith("/project_root", StringComparison.OrdinalIgnoreCase) && 
+                 apiPath.Length > "/project_root".Length)
+        {
+            remainingPath = apiPath.Substring("/project_root".Length).TrimStart('/');
+        }
+
+        if (remainingPath != null)
+        {
+            // 슬래시를 백슬래시로 변환 (Windows 경로 호환성)
+            remainingPath = remainingPath.Replace('/', Path.DirectorySeparatorChar);
+            // 경로 결합
+            string fullPath = Path.Combine(projectRootPath, remainingPath);
+            // 정규화 (.. 처리 등)
+            return Path.GetFullPath(fullPath);
+        }
+
+        // 치환할 패턴이 없으면 원본 반환
+        return apiPath;
     }
 
     void Spawn(string objPath)
