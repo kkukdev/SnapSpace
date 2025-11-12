@@ -6,9 +6,10 @@ using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-public class ObjDropWatcherWindow : EditorWindow
+public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
 {
     [SerializeField] private WatchConfig config;
+    [System.NonSerialized] private WatchConfig _configCache; // 직렬화되지 않는 캐시
     private FileSystemWatcher _watcher;
     private bool _watching;
     private Vector2 _scroll;
@@ -34,18 +35,68 @@ public class ObjDropWatcherWindow : EditorWindow
     void OnGUI()
     {
         EditorGUILayout.Space();
-        config = (WatchConfig)EditorGUILayout.ObjectField("WatchConfig", config, typeof(WatchConfig), false);
+        
+        EditorGUI.BeginChangeCheck();
+        var newConfig = (WatchConfig)EditorGUILayout.ObjectField("WatchConfig", config, typeof(WatchConfig), false);
+        bool configChanged = EditorGUI.EndChangeCheck();
+        
+        if (configChanged)
+        {
+            // Config 변경은 즉시 적용 (GUI가 올바른 값을 표시하도록)
+            // 단, 유효성 검사를 통해 안전하게 처리
+            try
+            {
+                if (newConfig != null && AssetDatabase.Contains(newConfig))
+                {
+                    config = newConfig;
+                }
+                else if (newConfig == null)
+                {
+                    config = null;
+                }
+                // newConfig가 null이 아니지만 AssetDatabase에 없는 경우는 무시
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to set config: {ex.Message}");
+            }
+        }
 
         if (config != null)
         {
+            // config 값들을 안전하게 캐시하여 반복 접근 방지
+            string cachedRootDir = null;
+            bool cachedIncludeSubdirs = false;
+            int cachedScanDebounce = 0;
+            string cachedObjPatterns = null;
+            float cachedUnitScale = 0f;
+            
+            try
+            {
+                cachedRootDir = config.rootWatchDirectory;
+                cachedIncludeSubdirs = config.includeSubdirectories;
+                cachedScanDebounce = config.scanDebounceMs;
+                cachedObjPatterns = config.objPatterns;
+                cachedUnitScale = config.unitScale;
+            }
+            catch (System.Exception ex)
+            {
+                // config 접근 실패 시 경고하고 계속 진행
+                EditorGUILayout.HelpBox($"Config 접근 오류: {ex.Message}", MessageType.Warning);
+                return;
+            }
+            
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Watch Directory", EditorStyles.boldLabel);
             
             EditorGUILayout.BeginHorizontal();
-            config.rootWatchDirectory = EditorGUILayout.TextField("Path", config.rootWatchDirectory ?? "");
+            EditorGUI.BeginChangeCheck();
+            string rootDir = EditorGUILayout.TextField("Path", cachedRootDir ?? "");
+            bool rootDirChanged = EditorGUI.EndChangeCheck();
+            
             if (GUILayout.Button("Browse", GUILayout.Width(60)))
             {
-                string defaultPath = string.IsNullOrEmpty(config.rootWatchDirectory) ? Application.dataPath : config.rootWatchDirectory;
+                string defaultPath = string.IsNullOrEmpty(cachedRootDir) ? Application.dataPath : cachedRootDir;
                 // UNC 경로인 경우 부모 디렉토리로 변경
                 if (defaultPath.StartsWith(@"\\"))
                 {
@@ -55,21 +106,43 @@ public class ObjDropWatcherWindow : EditorWindow
                 string selectedPath = EditorUtility.OpenFolderPanel("Select Watch Directory", defaultPath, "");
                 if (!string.IsNullOrEmpty(selectedPath))
                 {
-                    config.rootWatchDirectory = selectedPath;
-                    MarkConfigDirty();
+                    rootDir = selectedPath;
+                    rootDirChanged = true;
                 }
             }
             EditorGUILayout.EndHorizontal();
             
+            if (rootDirChanged && rootDir != cachedRootDir)
+            {
+                // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
+                string rootDirToSet = rootDir;
+                EditorApplication.delayCall += () =>
+                {
+                    try
+                    {
+                        if (config != null)
+                        {
+                            config.rootWatchDirectory = rootDirToSet;
+                            MarkConfigDirty();
+                            Repaint();
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogError($"[ObjDropWatcher] Failed to update root directory: {ex.Message}");
+                    }
+                };
+            }
+            
             EditorGUILayout.HelpBox("네트워크 경로(UNC)는 직접 입력하세요.\n예: \\\\server\\share\\folder", MessageType.Info);
             
-            // 경로 유효성 표시
-            if (!string.IsNullOrWhiteSpace(config.rootWatchDirectory))
+            // 경로 유효성 표시 (캐시된 값 사용)
+            if (!string.IsNullOrWhiteSpace(cachedRootDir))
             {
-                bool exists = Directory.Exists(config.rootWatchDirectory);
+                bool exists = Directory.Exists(cachedRootDir);
                 if (exists)
                 {
-                    EditorGUILayout.HelpBox($"✓ 경로 유효: {config.rootWatchDirectory}", MessageType.Info);
+                    EditorGUILayout.HelpBox($"✓ 경로 유효: {cachedRootDir}", MessageType.Info);
                     
                     // 하위 폴더 선택
                     EditorGUILayout.Space();
@@ -77,7 +150,8 @@ public class ObjDropWatcherWindow : EditorWindow
                     
                     if (GUILayout.Button("폴더 목록 새로고침", GUILayout.Height(22)))
                     {
-                        RefreshFolderList();
+                        // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
+                        EditorApplication.delayCall += RefreshFolderList;
                     }
                     
                     if (_availableFolders.Count > 0)
@@ -96,16 +170,24 @@ public class ObjDropWatcherWindow : EditorWindow
                                 GUI.backgroundColor = Color.green;
                             }
                             
+                            string folderToSelect = folder; // 클로저를 위한 로컬 변수
                             if (GUILayout.Button(Path.GetFileName(folder), GUILayout.Height(24)))
                             {
-                                _selectedSubFolder = folder;
+                                // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
+                                EditorApplication.delayCall += () =>
+                                {
+                                    _selectedSubFolder = folderToSelect;
+                                    Repaint();
+                                };
                             }
                             
                             GUI.backgroundColor = originalColor;
                             
+                            string folderToReveal = folder; // 클로저를 위한 로컬 변수
                             if (GUILayout.Button("📁", GUILayout.Width(30), GUILayout.Height(24)))
                             {
-                                Reveal(folder);
+                                // Reveal도 지연 실행 (안전을 위해)
+                                EditorApplication.delayCall += () => Reveal(folderToReveal);
                             }
                             
                             EditorGUILayout.EndHorizontal();
@@ -128,7 +210,7 @@ public class ObjDropWatcherWindow : EditorWindow
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox($"✗ 경로 없음: {config.rootWatchDirectory}\n경로가 존재하지 않습니다.", MessageType.Warning);
+                    EditorGUILayout.HelpBox($"✗ 경로 없음: {cachedRootDir}\n경로가 존재하지 않습니다.", MessageType.Warning);
                 }
             }
             else
@@ -138,14 +220,41 @@ public class ObjDropWatcherWindow : EditorWindow
             
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
-            config.includeSubdirectories = EditorGUILayout.Toggle("Include Subdirectories", config.includeSubdirectories);
-            config.scanDebounceMs = EditorGUILayout.IntField("Scan Debounce (ms)", config.scanDebounceMs);
-            config.objPatterns = EditorGUILayout.TextField("OBJ Patterns", config.objPatterns ?? "*.obj");
-            config.unitScale = EditorGUILayout.FloatField("Unit Scale", config.unitScale);
             
-            if (GUI.changed)
+            EditorGUI.BeginChangeCheck();
+            bool includeSubdirs = EditorGUILayout.Toggle("Include Subdirectories", cachedIncludeSubdirs);
+            int scanDebounce = EditorGUILayout.IntField("Scan Debounce (ms)", cachedScanDebounce);
+            string objPatterns = EditorGUILayout.TextField("OBJ Patterns", cachedObjPatterns ?? "*.obj");
+            float unitScale = EditorGUILayout.FloatField("Unit Scale", cachedUnitScale);
+            bool settingsChanged = EditorGUI.EndChangeCheck();
+            
+            if (settingsChanged)
             {
-                MarkConfigDirty();
+                // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
+                bool includeSubdirsToSet = includeSubdirs;
+                int scanDebounceToSet = scanDebounce;
+                string objPatternsToSet = objPatterns;
+                float unitScaleToSet = unitScale;
+                
+                EditorApplication.delayCall += () =>
+                {
+                    try
+                    {
+                        if (config != null)
+                        {
+                            config.includeSubdirectories = includeSubdirsToSet;
+                            config.scanDebounceMs = scanDebounceToSet;
+                            config.objPatterns = objPatternsToSet;
+                            config.unitScale = unitScaleToSet;
+                            MarkConfigDirty();
+                            Repaint();
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogError($"[ObjDropWatcher] Failed to update settings: {ex.Message}");
+                    }
+                };
             }
         }
         else
@@ -208,30 +317,70 @@ public class ObjDropWatcherWindow : EditorWindow
     {
         _availableFolders.Clear();
         
-        if (config == null || string.IsNullOrWhiteSpace(config.rootWatchDirectory))
+        if (config == null)
+        {
+            ScheduleRepaint();
             return;
+        }
         
-        if (!Directory.Exists(config.rootWatchDirectory))
+        // config 접근을 안전하게 처리
+        string rootDir = null;
+        try
+        {
+            rootDir = config.rootWatchDirectory;
+        }
+        catch (System.Exception)
+        {
+            // config가 유효하지 않은 경우 무시
+            ScheduleRepaint();
             return;
+        }
+        
+        if (string.IsNullOrWhiteSpace(rootDir) || !Directory.Exists(rootDir))
+        {
+            ScheduleRepaint();
+            return;
+        }
         
         try
         {
-            var dirs = Directory.GetDirectories(config.rootWatchDirectory, "*", SearchOption.TopDirectoryOnly);
+            var dirs = Directory.GetDirectories(rootDir, "*", SearchOption.TopDirectoryOnly);
             _availableFolders.AddRange(dirs);
-            Debug.Log($"[ObjDropWatcher] Found {_availableFolders.Count} folders in {config.rootWatchDirectory}");
+            Debug.Log($"[ObjDropWatcher] Found {_availableFolders.Count} folders in {rootDir}");
         }
         catch (Exception ex)
         {
             Debug.LogError($"[ObjDropWatcher] Failed to refresh folder list: {ex.Message}");
         }
+        
+        // GUI 업데이트를 위해 지연된 리페인트 요청 (직접 Repaint 호출 방지)
+        ScheduleRepaint();
+    }
+    
+    void ScheduleRepaint()
+    {
+        // GUI 이벤트 처리 외부에서 리페인트를 안전하게 스케줄링
+        EditorApplication.delayCall += Repaint;
     }
     
     string GetWatchDirectory()
     {
         if (!string.IsNullOrEmpty(_selectedSubFolder))
             return _selectedSubFolder;
+        
         if (config != null)
-            return config.rootWatchDirectory;
+        {
+            try
+            {
+                return config.rootWatchDirectory ?? "";
+            }
+            catch (System.Exception)
+            {
+                // config 접근 실패 시 빈 문자열 반환
+                return "";
+            }
+        }
+        
         return "";
     }
 
@@ -657,18 +806,84 @@ public class ObjDropWatcherWindow : EditorWindow
             return;
 
         // AssetDatabase를 사용하여 더 안전하게 체크
-        if (AssetDatabase.Contains(config))
+        if (!AssetDatabase.Contains(config))
+            return;
+
+        // 객체가 파괴되었는지 체크 (Unity 특수 케이스)
+        if (config.Equals(null))
+            return;
+
+        try
+        {
+            // 객체가 실제로 Unity 에셋인지 확인
+            string assetPath = AssetDatabase.GetAssetPath(config);
+            if (string.IsNullOrEmpty(assetPath))
+                return;
+
+            EditorUtility.SetDirty(config);
+        }
+        catch (System.ArgumentException)
+        {
+            // 잘못된 객체인 경우 무시 (예: DontSaveInEditor 객체)
+        }
+        catch (System.Exception ex)
+        {
+            // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
+            Debug.LogWarning($"[ObjDropWatcher] Failed to mark config dirty: {ex.Message}");
+        }
+    }
+
+    // ISerializationCallbackReceiver 구현: 직렬화 전/후 config 유효성 검사
+    public void OnBeforeSerialize()
+    {
+        // 직렬화 전에 config가 직렬화 가능한지 확인
+        // DontSaveInEditor 플래그가 있는 경우 assertion 오류를 방지하기 위해 null로 설정
+        if (config != null)
         {
             try
             {
-                EditorUtility.SetDirty(config);
+                // Unity 객체가 파괴되었는지 확인
+                if (config.Equals(null))
+                {
+                    _configCache = config;
+                    config = null;
+                    return;
+                }
+                
+                // DontSaveInEditor 플래그 확인
+                // 이 플래그가 있으면 Unity가 직렬화 시 assertion 오류를 발생시킴
+                HideFlags flags = config.hideFlags;
+                if ((flags & HideFlags.DontSaveInEditor) != 0)
+                {
+                    // DontSaveInEditor 플래그가 있으면 직렬화에서 제외
+                    _configCache = config;
+                    config = null;
+                }
             }
-            catch (Exception ex)
+            catch (System.Exception)
             {
-                // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
-                Debug.LogWarning($"[ObjDropWatcher] Failed to mark config dirty: {ex.Message}");
+                // 예외 발생 시 안전을 위해 config를 null로 설정
+                // 이렇게 하면 직렬화 오류를 방지할 수 있음
+                try
+                {
+                    if (config != null)
+                    {
+                        _configCache = config;
+                    }
+                }
+                catch
+                {
+                    // config 접근 자체가 실패한 경우 무시
+                }
+                config = null;
             }
         }
+    }
+
+    public void OnAfterDeserialize()
+    {
+        // 역직렬화 후 추가 검증은 필요시 수행
+        // 현재는 기본 동작에 의존
     }
 
 }
