@@ -3,8 +3,8 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "WatchConfig", menuName = "Configs/WatchConfig")]
 public class WatchConfig : ScriptableObject
 {
-    [Tooltip("감시할 루트 폴더 (UNC 가능: \\\\server\\share\\obj_drop)")]
-    public string rootWatchDirectory;
+    [Tooltip("API 서버 URL (예: http://localhost:8000)")]
+    public string apiServerUrl;
 
     [Tooltip("하위 폴더까지 감시")]
     public bool includeSubdirectories = false;
