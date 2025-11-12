@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
@@ -15,14 +16,16 @@ public class ObjDropWatcherWindow : EditorWindow
     private readonly List<Item> _items = new();
     private string _selectedSubFolder;
     private List<string> _availableFolders = new();
+    private readonly HashSet<string> _processingDirs = new(); // 중복 처리 방지
 
     [Serializable] class Item { public string folder; public string obj; public string label; }
+
 
     [MenuItem("Tools/OBJ Drop Watcher")]
     public static void Open()
     {
         var w = GetWindow<ObjDropWatcherWindow>("OBJ Drop Watcher");
-        w.minSize = new Vector2(520, 340);
+        w.minSize = new Vector2(520, 400);
         w.Show();
     }
 
@@ -53,7 +56,7 @@ public class ObjDropWatcherWindow : EditorWindow
                 if (!string.IsNullOrEmpty(selectedPath))
                 {
                     config.rootWatchDirectory = selectedPath;
-                    EditorUtility.SetDirty(config);
+                    MarkConfigDirty();
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -142,7 +145,7 @@ public class ObjDropWatcherWindow : EditorWindow
             
             if (GUI.changed)
             {
-                EditorUtility.SetDirty(config);
+                MarkConfigDirty();
             }
         }
         else
@@ -170,8 +173,8 @@ public class ObjDropWatcherWindow : EditorWindow
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Detected OBJ files", EditorStyles.boldLabel);
-
-        _scroll = EditorGUILayout.BeginScrollView(_scroll);
+        
+        _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true), GUILayout.MinHeight(150));
         if (_items.Count == 0)
         {
             EditorGUILayout.HelpBox("감지된 항목이 없습니다.\n- Start Watching 후 새 폴더를 만들고 OBJ를 넣어보세요.\n- 또는 Initial Scan으로 기존 폴더를 스캔하세요.", MessageType.Info);
@@ -192,6 +195,13 @@ public class ObjDropWatcherWindow : EditorWindow
             }
         }
         EditorGUILayout.EndScrollView();
+        
+        EditorGUILayout.Space();
+        EditorGUILayout.HelpBox("Transform Export/Import 기능은 별도 툴로 분리되었습니다.\nTools > Object Transform Exporter를 사용하세요.", MessageType.Info);
+        if (GUILayout.Button("Open Transform Exporter", GUILayout.Height(24)))
+        {
+            ObjectTransformExporterWindow.Open();
+        }
     }
 
     void RefreshFolderList()
@@ -255,73 +265,266 @@ public class ObjDropWatcherWindow : EditorWindow
         _watcher = new FileSystemWatcher(watchDir)
         {
             IncludeSubdirectories = config.includeSubdirectories,
-            NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite
+            NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite | NotifyFilters.Size
         };
         _watcher.Created += OnFsEvent;
+        _watcher.Changed += OnFsEvent;
         _watcher.Renamed += OnFsEvent;
         _watcher.EnableRaisingEvents = true;
         _watching = true;
+        Debug.Log($"[ObjDropWatcher] Started watching: {watchDir}");
         ShowNotification(new GUIContent($"Watching: {watchDir}"));
     }
 
     void StopWatching()
     {
-        try
+        if (_watcher != null)
         {
-            if (_watcher != null)
-            {
-                _watcher.EnableRaisingEvents = false;
-                _watcher.Created -= OnFsEvent;
-                _watcher.Renamed -= OnFsEvent;
-                _watcher.Dispose();
-            }
-        } catch { }
-        _watcher = null; _watching = false; RemoveNotification();
+            _watcher.EnableRaisingEvents = false;
+            _watcher.Created -= OnFsEvent;
+            _watcher.Changed -= OnFsEvent;
+            _watcher.Renamed -= OnFsEvent;
+            _watcher.Dispose();
+            _watcher = null;
+        }
+        _watching = false;
+        Debug.Log("[ObjDropWatcher] Stopped watching");
+        RemoveNotification();
     }
 
     void OnFsEvent(object s, FileSystemEventArgs e)
     {
         int delay = Mathf.Max(0, config ? config.scanDebounceMs : 800);
+        Debug.Log($"[ObjDropWatcher] File system event: {e.ChangeType} - {e.FullPath}");
+        
+        // 파일 이벤트인 경우 .obj, .mtl 파일이나 디렉토리만 처리
+        // 파일이 아직 존재하지 않을 수 있으므로 경로 기반으로 판단
+        try
+        {
+            if (!string.IsNullOrEmpty(e.FullPath))
+            {
+                string ext = Path.GetExtension(e.FullPath).ToLower();
+                // 디렉토리 이벤트(ext == "") 또는 .obj/.mtl 파일만 처리
+                if (!string.IsNullOrEmpty(ext) && ext != ".obj" && ext != ".mtl")
+                {
+                    // 다른 파일 확장자는 무시
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 경로 파싱 오류는 무시하고 계속 진행
+            Debug.LogWarning($"[ObjDropWatcher] Error parsing path: {e.FullPath}, {ex.Message}");
+        }
+        
         new Thread(() =>
         {
-            // 1️⃣ 기본 지연 (복사 완료 대기)
-            Thread.Sleep(delay);
-
-            string dir = null;
-            if (Directory.Exists(e.FullPath))
-                dir = e.FullPath;
-            else if (File.Exists(e.FullPath))
-                dir = Path.GetDirectoryName(e.FullPath);
-
-            if (string.IsNullOrEmpty(dir)) return;
-
-            // 2️⃣ 추가 감시 루프: obj+mtl 모두 있는지 확인
-            bool ready = false;
-            for (int i = 0; i < 10; i++) // 최대 10회, 약 10초
+            string dir = null; // 스레드 전체에서 사용할 수 있도록 외부에 선언
+            try
             {
-                var objExists = Directory.GetFiles(dir, "*.obj").Length > 0;
-                var mtlExists = Directory.GetFiles(dir, "*.mtl").Length > 0;
-                if (objExists && mtlExists)
+                // 1️⃣ 기본 지연 (복사 완료 대기)
+                Thread.Sleep(delay);
+                if (Directory.Exists(e.FullPath))
                 {
-                    ready = true;
-                    break;
+                    dir = e.FullPath;
+                    Debug.Log($"[ObjDropWatcher] Event is for directory: {dir}");
                 }
-                Thread.Sleep(1000); // 1초 대기 후 재확인
-            }
+                else if (File.Exists(e.FullPath))
+                {
+                    dir = Path.GetDirectoryName(e.FullPath);
+                    Debug.Log($"[ObjDropWatcher] Event is for file: {e.FullPath}, directory: {dir}");
+                }
+                else
+                {
+                    // 파일/디렉토리가 아직 생성되지 않았을 수 있음 (네트워크 지연)
+                    Debug.LogWarning($"[ObjDropWatcher] Path does not exist yet: {e.FullPath}, waiting...");
+                    // 추가 대기 후 재확인
+                    for (int wait = 0; wait < 5; wait++)
+                    {
+                        Thread.Sleep(500);
+                        if (Directory.Exists(e.FullPath))
+                        {
+                            dir = e.FullPath;
+                            break;
+                        }
+                        else if (File.Exists(e.FullPath))
+                        {
+                            dir = Path.GetDirectoryName(e.FullPath);
+                            break;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(dir))
+                    {
+                        Debug.LogWarning($"[ObjDropWatcher] Path still does not exist after waiting: {e.FullPath}");
+                        return;
+                    }
+                }
 
-            if (!ready) return;
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                {
+                    Debug.LogWarning($"[ObjDropWatcher] Directory does not exist: {dir}");
+                    return;
+                }
 
-            // 3️⃣ 에디터 메인 스레드에서 실행
-            EditorApplication.delayCall += () =>
-            {
+                // 중복 처리 방지 (동시에 여러 이벤트가 발생할 수 있음)
+                lock (_processingDirs)
+                {
+                    if (_processingDirs.Contains(dir))
+                    {
+                        Debug.Log($"[ObjDropWatcher] Directory already being processed: {dir}");
+                        return;
+                    }
+                    _processingDirs.Add(dir);
+                }
+
                 try
                 {
-                    ScanFolder(dir);   // 목록 추가
-                    AutoSpawnIfReady(dir); // 자동 스폰
+                    // 2️⃣ OBJ 파일 검색 및 파일 크기 안정화 대기
+                    // AI 파이프라인은 .obj 파일만 생성할 수 있으므로, .mtl 파일이 없어도 처리
+                    bool ready = false;
+                    string[] objFiles = new string[0];
+                    long lastFileSize = 0;
+                    int stableCount = 0; // 파일 크기가 안정된 횟수
+                    
+                    for (int i = 0; i < 30; i++) // 최대 30회, 약 30초 (네트워크 복사 대기)
+                    {
+                        try
+                        {
+                            objFiles = Directory.GetFiles(dir, "*.obj", SearchOption.TopDirectoryOnly);
+                            var mtlFiles = Directory.GetFiles(dir, "*.mtl", SearchOption.TopDirectoryOnly);
+                            
+                            // OBJ 파일이 하나라도 있으면 처리 가능
+                            if (objFiles.Length > 0)
+                            {
+                                // 가장 큰 OBJ 파일의 크기 확인 (파일 복사 완료 확인)
+                                long maxSize = 0;
+                                foreach (var objFile in objFiles)
+                                {
+                                    try
+                                    {
+                                        var fileInfo = new FileInfo(objFile);
+                                        if (fileInfo.Exists && fileInfo.Length > maxSize)
+                                        {
+                                            maxSize = fileInfo.Length;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.LogWarning($"[ObjDropWatcher] Error checking file size: {objFile}, {ex.Message}");
+                                    }
+                                }
+                                
+                                // 파일 크기가 0보다 크고 안정화되었는지 확인
+                                if (maxSize > 0)
+                                {
+                                    if (maxSize == lastFileSize)
+                                    {
+                                        stableCount++;
+                                        // 파일 크기가 2초간 안정되면 준비 완료로 간주
+                                        if (stableCount >= 2)
+                                        {
+                                            ready = true;
+                                            Debug.Log($"[ObjDropWatcher] OBJ file ready: {objFiles.Length} OBJ files, {mtlFiles.Length} MTL files in {dir}");
+                                            break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        stableCount = 0;
+                                        lastFileSize = maxSize;
+                                    }
+                                }
+                                // 파일 크기가 0이면 아직 복사 중
+                                else if (maxSize == 0)
+                                {
+                                    stableCount = 0;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"[ObjDropWatcher] Error checking directory: {dir}, {ex.Message}");
+                        }
+                        
+                        Thread.Sleep(1000); // 1초 대기 후 재확인
+                    }
+
+                    if (!ready)
+                    {
+                        Debug.LogWarning($"[ObjDropWatcher] Files not ready after waiting: {dir} (found {objFiles.Length} OBJ files)");
+                        // OBJ 파일이 있으면 강제로 처리 (MTL 없어도 됨)
+                        if (objFiles.Length > 0)
+                        {
+                            Debug.Log($"[ObjDropWatcher] Processing anyway with {objFiles.Length} OBJ files (no MTL required)");
+                            ready = true;
+                        }
+                        else
+                        {
+                            // OBJ 파일이 없으면 중복 방지 집합에서 제거하고 종료
+                            lock (_processingDirs)
+                            {
+                                _processingDirs.Remove(dir);
+                            }
+                            return;
+                        }
+                    }
+
+                    // 3️⃣ 에디터 메인 스레드에서 실행
+                    EditorApplication.delayCall += () =>
+                    {
+                        try
+                        {
+                            Debug.Log($"[ObjDropWatcher] Processing directory: {dir}");
+                            ScanFolder(dir);   // 목록 추가
+                            AutoSpawnIfReady(dir); // 자동 스폰
+                        }
+                        catch (Exception ex) 
+                        { 
+                            Debug.LogError($"[ObjDropWatcher] Error processing directory: {dir}, {ex}");
+                            Debug.LogException(ex); 
+                        }
+                        finally
+                        {
+                            // 처리 완료 후 중복 방지 집합에서 제거
+                            lock (_processingDirs)
+                            {
+                                _processingDirs.Remove(dir);
+                            }
+                        }
+                        Repaint();
+                    };
                 }
-                catch (Exception ex) { Debug.LogException(ex); }
-                Repaint();
-            };
+                finally
+                {
+                    // 스레드에서 예외가 발생해도 중복 방지 집합에서 제거 (최대 30초 후)
+                    // dir이 null이 아니고 처리 중인 경우에만 백업 타이머 시작
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        string dirCopy = dir; // 클로저를 위한 복사본
+                        new Thread(() =>
+                        {
+                            Thread.Sleep(30000); // 30초 후 자동 제거
+                            lock (_processingDirs)
+                            {
+                                _processingDirs.Remove(dirCopy);
+                            }
+                        }).Start();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[ObjDropWatcher] Error in OnFsEvent thread: {ex}");
+                // 예외 발생 시에도 중복 방지 집합에서 제거 (dir이 null이 아니고 집합에 있는 경우에만)
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    lock (_processingDirs)
+                    {
+                        _processingDirs.Remove(dir);
+                    }
+                }
+            }
         }).Start();
     }
 
@@ -380,7 +583,8 @@ public class ObjDropWatcherWindow : EditorWindow
             Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
             Selection.activeObject = go;
 
-            go.transform.position = Vector3.up * 0.5f;
+            // RuntimeObjLoader shifts the mesh so the lowest Y becomes 0, so spawn directly on ground.
+            go.transform.position = Vector3.zero;
             go.transform.rotation = Quaternion.identity;
 
             // ----------------------------------------------------
@@ -418,7 +622,7 @@ public class ObjDropWatcherWindow : EditorWindow
             try
             {
                 var go = RuntimeObjLoader.LoadObj(objPath);
-                go.transform.position = Vector3.up * 0.5f;
+                go.transform.position = Vector3.zero;
                 go.transform.rotation = Quaternion.identity;
 
                 float unitScale = config ? config.unitScale : 1000f; // mm→m 기본 1000배
@@ -442,4 +646,29 @@ public class ObjDropWatcherWindow : EditorWindow
         if (string.IsNullOrEmpty(path)) return;
         EditorUtility.RevealInFinder(path);
     }
+
+    void MarkConfigDirty()
+    {
+        if (config == null)
+            return;
+
+        // DontSaveInEditor 플래그가 설정되어 있으면 저장하지 않음
+        if ((config.hideFlags & HideFlags.DontSaveInEditor) != 0)
+            return;
+
+        // AssetDatabase를 사용하여 더 안전하게 체크
+        if (AssetDatabase.Contains(config))
+        {
+            try
+            {
+                EditorUtility.SetDirty(config);
+            }
+            catch (Exception ex)
+            {
+                // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
+                Debug.LogWarning($"[ObjDropWatcher] Failed to mark config dirty: {ex.Message}");
+            }
+        }
+    }
+
 }

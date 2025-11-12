@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile, Form, Depends, HTTPException
+from fastapi import APIRouter, File, UploadFile, Form, Depends, HTTPException, status
 from typing import Optional
 from sqlalchemy.orm import Session
 import logging
@@ -119,9 +119,19 @@ async def root():
 async def upload_file(
     file: UploadFile = File(...),
     group_name: Optional[str] = Form(None),
+    model_type: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     """파일 업로드"""
+    # model_type 검증
+    if model_type is not None:
+        model_type = model_type.strip().lower()
+        if model_type not in ["space", "object"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"model_type은 'space' 또는 'object'만 허용됩니다. 입력된 값: {model_type}"
+            )
+    
     group_id = "1"  # 기본값
     group_name_to_use = None
     
@@ -172,7 +182,7 @@ async def upload_file(
             logger.warning(f"기본 그룹 이름 조회 실패: {str(e)}")
     
     # 서비스 레이어에서 파일 업로드 처리
-    upload_result = await upload_service.upload_file(file, group_id=group_id, group_name=group_name_to_use)
+    upload_result = await upload_service.upload_file(file, group_id=group_id, group_name=group_name_to_use, model_type=model_type)
     
     # 응답에 group_id와 group_name 추가
     try:

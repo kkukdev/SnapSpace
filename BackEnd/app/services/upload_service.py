@@ -3,6 +3,7 @@ import aiofiles
 import logging
 import zipfile
 import shutil
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, AsyncGenerator, List
@@ -33,7 +34,7 @@ class UploadService(BaseService):
         original_file_path: str,
         original_filename: str,
         file_size: int,
-        is_zip: bool = False
+        model_type: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """업로드된 파일에 대한 스캔 정보 생성"""
         try:
@@ -42,6 +43,9 @@ class UploadService(BaseService):
                 group_id_int = int(group_id) if group_id else 1
             except (ValueError, TypeError):
                 group_id_int = 1
+            
+            # model_type 기본값 설정 (없으면 "space")
+            model_type_value = model_type if model_type else "space"
             
             # DB 세션 생성
             db = SessionLocal()
@@ -52,7 +56,7 @@ class UploadService(BaseService):
                     meta_data={
                         "original_filename": original_filename,
                         "file_size": file_size,
-                        "is_zip": is_zip,
+                        "model_type": model_type_value,
                         "uploaded_at": get_current_datetime().isoformat()
                     },
                     status=ScanStatus.UPLOADED,
@@ -197,59 +201,29 @@ class UploadService(BaseService):
             logger.error(f"파일 검색 중 오류 발생: {str(e)}")
         return all_files
 
-    def _get_text_memo_patterns(self) -> List[str]:
-        """텍스트 메모 파일 패턴 목록 (확장 가능)"""
-        return ["memo", "note", "note_memo", "memo_note"]
-    
-    def _get_audio_memo_extensions(self) -> List[str]:
-        """음성 메모 파일 확장자 목록 (확장 가능)"""
-        return [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma"]
-    
-    def find_memo_files(self, directory: Path) -> Dict[str, List[Path]]:
+    def find_memo_file(self, directory: Path) -> Optional[Path]:
         """
-        디렉토리 내 모든 메모 파일 찾기 (텍스트, 음성 등)
+        디렉토리 내 메모 파일 찾기 (단일 파일)
         
         Returns:
-            {
-                "text": [Path, ...],  # 텍스트 메모 파일들
-                "audio": [Path, ...]  # 음성 메모 파일들
-            }
+            Optional[Path]: 찾은 메모 파일 경로, 없으면 None
         """
-        text_memos = []
-        audio_memos = []
-        
         try:
-            text_patterns = self._get_text_memo_patterns()
-            audio_extensions = self._get_audio_memo_extensions()
-            
             for root, dirs, files in os.walk(directory):
                 for file in files:
-                    file_lower = file.lower()
-                    file_path = Path(root) / file
                     file_ext = Path(file).suffix.lower()
-                    
-                    # 텍스트 메모 파일 확인 (memo.txt, note.txt, memo_note.txt 등)
+                    # 텍스트 파일만 확인
                     if file_ext in [".txt"]:
-                        # 파일명에 메모 패턴이 포함되어 있는지 확인
-                        file_stem = Path(file).stem.lower()
-                        if any(pattern in file_stem for pattern in text_patterns):
-                            text_memos.append(file_path)
-                    
-                    # 음성 메모 파일 확인 (memo.mp3, voice.wav 등)
-                    if file_ext in audio_extensions:
+                        file_path = Path(root) / file
                         # 파일명에 메모 관련 키워드가 포함되어 있는지 확인
                         file_stem = Path(file).stem.lower()
-                        memo_keywords = ["memo", "note", "voice", "audio", "record", "recording"]
+                        memo_keywords = ["memo", "note", "note_memo", "memo_note"]
                         if any(keyword in file_stem for keyword in memo_keywords):
-                            audio_memos.append(file_path)
-        
+                            return file_path
         except Exception as e:
             logger.error(f"메모 파일 검색 중 오류 발생: {str(e)}")
         
-        return {
-            "text": text_memos,
-            "audio": audio_memos
-        }
+        return None
 
     async def read_text_memo_file(self, memo_path: Path) -> Optional[str]:
         """텍스트 메모 파일 읽기 (비동기)"""
@@ -270,84 +244,103 @@ class UploadService(BaseService):
             logger.error(f"텍스트 메모 파일 읽기 중 오류 발생: {str(e)}")
             return None
 
-    async def process_text_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
-        """텍스트 메모 파일을 읽고 memos 형식으로 변환"""
-        memo_content = await self.read_text_memo_file(memo_path)
-        if not memo_content:
-            return None
-        
-        return {
-            "type": "text",
-            "content": memo_content,
-            "source": memo_path.name,
-            "file_path": str(memo_path.absolute()),
-            "file_size": memo_path.stat().st_size if memo_path.exists() else 0
-        }
-
-    async def process_audio_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
-        """음성 메모 파일을 처리하고 memos 형식으로 변환 (확장 가능)"""
-        try:
-            file_size = memo_path.stat().st_size if memo_path.exists() else 0
-            file_ext = memo_path.suffix.lower()
-            
-            # 음성 파일의 경우 메타데이터만 저장 (실제 오디오 처리는 추후 구현 가능)
-            return {
-                "type": "audio",
-                "content": None,  # 음성 파일은 내용을 직접 저장하지 않음
-                "source": memo_path.name,
-                "file_path": str(memo_path.absolute()),
-                "file_size": file_size,
-                "file_extension": file_ext,
-                "note": "음성 메모 파일 - 추후 오디오 처리 기능 추가 가능"
-            }
-        except Exception as e:
-            logger.error(f"음성 메모 파일 처리 중 오류 발생: {str(e)}")
-            return None
-
-    async def process_all_memo_files(self, directory: Path) -> List[Dict[str, Any]]:
+    def parse_memo_content(self, content: str) -> Dict[str, str]:
         """
-        디렉토리 내 모든 메모 파일을 찾아서 처리하고 memos 형식으로 변환
+        메모 파일 내용을 파싱하여 key-value 쌍으로 변환
+        
+        형식:
+        [key1]
+        value1
+        
+        [key2]
+        value2
+        
+        같은 key가 여러 번 나오면 value를 연결
         
         Returns:
-            List[Dict[str, Any]]: 처리된 모든 메모 파일의 리스트
+            Dict[str, str]: key-value 쌍 딕셔너리
         """
+        parsed_data = {}
+        
+        # 대괄호 패턴 찾기: [...]
+        pattern = r'\[([^\]]+)\]'
+        matches = list(re.finditer(pattern, content))
+        
+        if not matches:
+            # 대괄호가 없으면 전체 내용을 빈 key로 저장
+            if content.strip():
+                parsed_data[""] = content.strip()
+            return parsed_data
+        
+        # 각 대괄호 구간 처리
+        for i, match in enumerate(matches):
+            key = match.group(1).strip()
+            
+            # 현재 대괄호의 끝 위치
+            start_pos = match.end()
+            
+            # 다음 대괄호의 시작 위치 (마지막이면 파일 끝)
+            if i + 1 < len(matches):
+                end_pos = matches[i + 1].start()
+            else:
+                end_pos = len(content)
+            
+            # value 추출 (대괄호 다음부터 다음 대괄호 전까지)
+            value = content[start_pos:end_pos].strip()
+            
+            # 같은 key가 이미 있으면 기존 value 뒤에 추가
+            if key in parsed_data:
+                # 기존 value와 새 value를 연결 (줄바꿈으로 구분)
+                parsed_data[key] = parsed_data[key] + "\n\n" + value
+            else:
+                parsed_data[key] = value
+        
+        return parsed_data
+
+    async def process_text_memo_file(self, memo_path: Path) -> List[Dict[str, Any]]:
+        """텍스트 메모 파일을 읽고 파싱하여 memos 형식으로 변환"""
+        memo_content = await self.read_text_memo_file(memo_path)
+        if not memo_content:
+            return []
+        
+        # 메모 내용 파싱
+        parsed_data = self.parse_memo_content(memo_content)
+        
+        # 파싱된 데이터를 리스트로 변환 (각 key-value 쌍을 하나의 메모로)
         memos = []
-        memo_files = self.find_memo_files(directory)
-        
-        # 텍스트 메모 파일 처리
-        for text_memo_path in memo_files["text"]:
-            try:
-                memo_data = await self.process_text_memo_file(text_memo_path)
-                if memo_data:
-                    memos.append(memo_data)
-                    logger.info(f"텍스트 메모 파일 처리 완료: {text_memo_path}")
-            except Exception as e:
-                logger.warning(f"텍스트 메모 파일 처리 실패: {text_memo_path}, 오류: {str(e)}")
-        
-        # 음성 메모 파일 처리
-        for audio_memo_path in memo_files["audio"]:
-            try:
-                memo_data = await self.process_audio_memo_file(audio_memo_path)
-                if memo_data:
-                    memos.append(memo_data)
-                    logger.info(f"음성 메모 파일 처리 완료: {audio_memo_path}")
-            except Exception as e:
-                logger.warning(f"음성 메모 파일 처리 실패: {audio_memo_path}, 오류: {str(e)}")
-        
-        if memos:
-            logger.info(f"총 {len(memos)}개의 메모 파일이 처리되었습니다. (텍스트: {len(memo_files['text'])}, 음성: {len(memo_files['audio'])})")
+        for key, value in parsed_data.items():
+            memos.append({
+                "type": "text",
+                "key": key,
+                "content": value,
+                "source": memo_path.name,
+                "file_path": str(memo_path.absolute()),
+                "file_size": memo_path.stat().st_size if memo_path.exists() else 0
+            })
         
         return memos
 
-    # 기존 호환성을 위한 별칭 (deprecated, 추후 제거 가능)
-    async def process_memo_file(self, directory: Path) -> Optional[List[Dict[str, Any]]]:
+    async def process_all_memo_files(self, directory: Path) -> List[Dict[str, Any]]:
         """
-        디렉토리 내 메모 파일을 찾아서 처리 (기존 호환성 유지)
+        디렉토리 내 메모 파일을 찾아서 처리하고 memos 형식으로 변환 (단일 파일)
         
-        Deprecated: process_all_memo_files를 사용하세요.
+        Returns:
+            List[Dict[str, Any]]: 처리된 메모 파일의 리스트
         """
-        memos = await self.process_all_memo_files(directory)
-        return memos if memos else None
+        memo_file = self.find_memo_file(directory)
+        
+        if memo_file:
+            try:
+                memos = await self.process_text_memo_file(memo_file)
+                if memos:
+                    logger.info(f"메모 파일 처리 완료: {memo_file}, {len(memos)}개의 메모 항목")
+                    return memos
+            except Exception as e:
+                logger.warning(f"메모 파일 처리 실패: {memo_file}, 오류: {str(e)}")
+        else:
+            logger.debug(f"메모 파일을 찾을 수 없습니다: {directory}")
+        
+        return []
 
     async def extract_zip_file(self, zip_path: Path, extract_to: Path) -> Path:
         """zip 파일 압축 해제 (내부 폴더가 있으면 그 내부의 파일들만 저장)"""
@@ -554,7 +547,7 @@ class UploadService(BaseService):
                     pass
             raise
 
-    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
+    async def upload_file(self, file: UploadFile, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """파일 업로드 처리 (최적화된 버전)"""
         try:
             # 파일명 검증
@@ -578,7 +571,7 @@ class UploadService(BaseService):
             
             # zip 파일인 경우 별도 처리
             if file_extension == '.zip':
-                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name)
+                return await self._upload_zip_file(file, group_upload_dir, group_id, group_name, model_type)
             
             # 일반 파일 업로드: storage/uploads/{group_name}/{날짜_파일명}/파일명 형태
             folder_name = self.generate_folder_name(file.filename)
@@ -646,7 +639,7 @@ class UploadService(BaseService):
                 original_file_path=str(file_path.absolute()),
                 original_filename=file.filename,
                 file_size=total_size,
-                is_zip=False
+                model_type=model_type
             )
             
             # 스캔 정보를 업로드 결과에 추가
@@ -700,6 +693,7 @@ class UploadService(BaseService):
                         "original_file_path": str(file_path.absolute()),
                         "group_id": group_id_str,
                         "group_name": group_name,  # group_name 추가
+                        "model_type": model_type,  # model_type 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "saved_filename": filename,
@@ -724,7 +718,7 @@ class UploadService(BaseService):
                 detail=f"파일 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
-    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None) -> Dict[str, Any]:
+    async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
         # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
@@ -792,7 +786,7 @@ class UploadService(BaseService):
                 original_file_path=representative_file_path,
                 original_filename=file.filename,
                 file_size=total_size,
-                is_zip=True
+                model_type=model_type
             )
             
             # 결과 딕셔너리 초기화 (메모 파일 처리에서 사용하기 위해 미리 생성)
@@ -865,6 +859,7 @@ class UploadService(BaseService):
                         "original_file_path": str(file_path.absolute()),
                         "group_id": group_id_str,
                         "group_name": group_name,  # group_name 추가
+                        "model_type": model_type,  # model_type 추가
                         "metadata": {
                             "original_filename": file.filename,
                             "extracted_from_zip": True,
