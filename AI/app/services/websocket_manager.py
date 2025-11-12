@@ -166,7 +166,8 @@ class WebSocketManager:
                     file_request.scan_id,
                     file_request.original_file_path,
                     file_request.group_id,
-                    file_request.metadata
+                    file_request.metadata,
+                    file_request.model_type
                 ))
                 
         except Exception as e:

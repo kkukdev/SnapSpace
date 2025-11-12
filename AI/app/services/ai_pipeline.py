@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import logging
 import threading
+import unicodedata
+import hashlib
 from typing import Callable, Optional
 from pathlib import Path
 
@@ -28,6 +30,17 @@ sys.path.insert(0, str(AI_PIPELINE_PATH))
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_filename(name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", name or "")
+    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
+    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in ascii_name)
+    safe = safe.strip("_")
+    if safe:
+        return safe
+    digest = hashlib.sha1((name or "").encode("utf-8")).hexdigest()[:16]
+    return f"file_{digest}"
+
+
 class AIPipeline:
     """AI 파이프라인 통합 클래스"""
     
@@ -38,6 +51,25 @@ class AIPipeline:
         """
         self.progress_callback = progress_callback
         self.polygon_path = AI_PIPELINE_PATH / "Polygon"
+        self.pipeline_configs = {
+            "space": {
+                "optimizer": self.polygon_path / "Space" / "space_optimizer.py",
+                "denoiser": self.polygon_path / "Space" / "space_denoiser.py",
+                "denoiser_suffix": "_auto_flat.obj",
+            },
+            "object": {
+                "optimizer": self.polygon_path / "Object" / "object_optimizer.py",
+                "denoiser": self.polygon_path / "Object" / "object_denoiser.py",
+                "denoiser_suffix": "_denoised.obj",
+            },
+        }
+
+    def _get_pipeline_config(self, model_type: str) -> dict:
+        """파이프라인 타입에 따른 스크립트/출력 설정 반환"""
+        key = (model_type or "space").strip().lower()
+        if key not in self.pipeline_configs:
+            raise ValueError(f"지원하지 않는 model_type 입니다: {model_type}")
+        return self.pipeline_configs[key]
     
     def _update_progress(self, progress: int, message: str):
         """진행률 업데이트"""
@@ -45,7 +77,7 @@ class AIPipeline:
             self.progress_callback(progress, message)
         logger.info(f"[AI Pipeline] {progress}% - {message}")
     
-    def run_mesh_optimizer(self, src_input_path: str, temp_dir: Path, optimized_dir: Path) -> Path:
+    def run_mesh_optimizer(self, src_input_path: str, temp_dir: Path, optimized_dir: Path, model_type: str = "space") -> Path:
         """
         mesh_optimizer.py 실행 (네트워크 성능 최적화: 로컬 임시 디렉토리 사용)
         
@@ -53,11 +85,13 @@ class AIPipeline:
             src_input_path: 업로드된 원본 OBJ 경로 (uploads)
             temp_dir: 임시 디렉토리 (네트워크)
             optimized_dir: 최적화 결과 디렉토리 (네트워크)
+            model_type: 파이프라인 타입 (space/object)
             
         Returns:
             optimized_dir에 저장된 *_cleaned.obj 경로
         """
         self._update_progress(10, "메쉬 최적화 시작...")
+        pipeline_config = self._get_pipeline_config(model_type)
         
         from app.config import settings
         import tempfile
@@ -132,7 +166,7 @@ class AIPipeline:
         
         cmd = [
             sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
-            str(self.polygon_path / "mesh_optimizer.py"),
+            str(pipeline_config["optimizer"]),
             "--input", str(work_input_abs),
             "--temp-dir", str(work_temp_dir_abs),
             "--optimized-dir", str(work_optimized_dir_abs),
@@ -238,17 +272,71 @@ class AIPipeline:
             # 최종 cleaned 경로는 work_optimized_dir 기준 (로컬 또는 네트워크)
             # work_input은 이미 절대 경로로 변환되었으므로 with_suffix 사용
             base_stem = work_input_abs.with_suffix("").name
-            cleaned_local = work_optimized_dir_abs / f"{base_stem}_cleaned.obj"
-            
-            logger.info(f"[Optimizer] 최종 파일 경로 확인 (로컬): {cleaned_local}")
-            
+            expected_filename = f"{base_stem}_cleaned.obj"
+            safe_base = _sanitize_filename(base_stem)
+            sanitized_filename = f"{safe_base}_cleaned.obj"
+
+            candidates = [
+                work_optimized_dir_abs / expected_filename,
+                work_optimized_dir_abs / sanitized_filename,
+            ]
+            candidates.extend(
+                sorted(
+                    work_optimized_dir_abs.glob("*_cleaned.obj"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            )
+
+            cleaned_local = None
+            for candidate in candidates:
+                if candidate.exists():
+                    cleaned_local = candidate
+                    break
+
+            if cleaned_local is None:
+                raise FileNotFoundError(f"*_cleaned.obj 결과를 찾지 못했습니다 (기대: {work_optimized_dir_abs / expected_filename})")
+
+            cleaned_filename = cleaned_local.name
+
+            # 필요하면 원래 파일명으로 추가 복사 시도 (실패해도 치명적이지 않음)
+            if cleaned_filename != expected_filename:
+                target_original = work_optimized_dir_abs / expected_filename
+                if not target_original.exists():
+                    try:
+                        shutil.copy2(cleaned_local, target_original)
+                        logger.info(f"[Optimizer] 원래 파일명으로 보조 복사: {cleaned_local} -> {target_original}")
+                    except Exception as copy_error:
+                        logger.warning(f"[Optimizer] 원래 파일명 복사 실패 (무시): {copy_error}")
+
             # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
             if (is_network_path or is_optimized_dir_network) and local_temp_dir:
                 if not cleaned_local.exists():
-                    raise FileNotFoundError(f"로컬 최적화 결과가 없습니다: {cleaned_local}")
-                
+                    fallback_candidates = [
+                        work_optimized_dir_abs / sanitized_filename,
+                        work_optimized_dir_abs / expected_filename,
+                    ]
+                    fallback_candidates.extend(
+                        sorted(
+                            work_optimized_dir_abs.glob("*_cleaned.obj"),
+                            key=lambda p: p.stat().st_mtime,
+                            reverse=True,
+                        )
+                    )
+                    recovered = None
+                    for candidate in fallback_candidates:
+                        if candidate.exists():
+                            recovered = candidate
+                            break
+                    if recovered is not None:
+                        logger.warning(f"[Optimizer] 예상 경로에 파일이 없어 대체 경로를 사용합니다: {recovered}")
+                        cleaned_local = recovered
+                        cleaned_filename = cleaned_local.name
+                    else:
+                        raise FileNotFoundError(f"로컬 최적화 결과가 없습니다: {cleaned_local}")
+
                 self._update_progress(48, "최종 결과를 네트워크로 복사 중...")
-                cleaned_network = optimized_dir / f"{base_stem}_cleaned.obj"
+                cleaned_network = optimized_dir / cleaned_filename
                 
                 # 네트워크 디렉토리 생성 확인
                 try:
@@ -292,6 +380,8 @@ class AIPipeline:
             else:
                 cleaned = cleaned_local
             
+            logger.info(f"[Optimizer] 최종 파일 경로 확정: {cleaned}")
+            
             if not cleaned.exists():
                 raise FileNotFoundError(f"메쉬 최적화 결과가 없습니다: {cleaned}")
             
@@ -318,18 +408,21 @@ class AIPipeline:
             logger.error(f"[Optimizer] 예상치 못한 오류: {e}", exc_info=True)
             raise RuntimeError(f"메쉬 최적화 실패: {e}")
     
-    def run_mesh_denoiser(self, cleaned_polygon_path: Path, final_dir: Path) -> Path:
+    def run_mesh_denoiser(self, cleaned_polygon_path: Path, final_dir: Path, model_type: str = "space") -> Path:
         """
         mesh_denoiser.py 실행 (auto_flat 모드, 네트워크 성능 최적화: 로컬 임시 디렉토리 사용)
         
         Args:
             cleaned_polygon_path: polygon 단계 산출물 *_cleaned.obj 경로
             final_dir: 최종 산출물 디렉토리 (네트워크)
+            model_type: 파이프라인 타입 (space/object)
             
         Returns:
-            final_dir에 저장된 *_auto_flat.obj 경로
+            final_dir에 저장된 결과 파일 경로
         """
         self._update_progress(50, "메쉬 노이즈 제거 시작...")
+        pipeline_config = self._get_pipeline_config(model_type)
+        expected_suffix = pipeline_config["denoiser_suffix"]
         
         from app.config import settings
         import tempfile
@@ -408,7 +501,7 @@ class AIPipeline:
 
         cmd = [
             sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
-            str(self.polygon_path / "mesh_denoiser.py"),
+            str(pipeline_config["denoiser"]),
             "-i", str(work_input_abs),
             "--output-dir", str(work_output_dir_abs)  # work_output_dir_abs는 이미 output 폴더를 포함
         ]
@@ -513,33 +606,76 @@ class AIPipeline:
             # 최종 파일 경로 (base_stem은 원본 파일명에서 확장자 제거)
             # 기본 모드는 입력 파일과 같은 디렉토리에 저장하므로, 임시 디렉토리에서 찾기
             base_stem = work_input_abs.with_suffix("").name
-            
-            # 기본 모드는 --output-dir을 사용하지 않고 입력 파일과 같은 디렉토리에 저장
-            # 네트워크 경로인 경우 로컬 결과를 네트워크로 복사
+            expected_filename = f"{base_stem}{expected_suffix}"
+            safe_base = _sanitize_filename(base_stem)
+            sanitized_filename = f"{safe_base}{expected_suffix}"
+            final_dir.mkdir(parents=True, exist_ok=True)
+
+            candidates = [
+                work_output_dir_abs / expected_filename,
+                work_output_dir_abs / sanitized_filename,
+            ]
+            candidates.extend(
+                sorted(
+                    work_output_dir_abs.glob(f"*{expected_suffix}"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            )
+
+            final_output_local = None
+            for candidate in candidates:
+                if candidate.exists():
+                    final_output_local = candidate
+                    break
+
+            if final_output_local is None:
+                raise FileNotFoundError(f"메쉬 노이즈 제거 결과를 찾지 못했습니다 (기대: {work_output_dir_abs / expected_filename})")
+
+            output_filename = final_output_local.name
+
+            if output_filename != expected_filename:
+                target_original = work_output_dir_abs / expected_filename
+                if not target_original.exists():
+                    try:
+                        shutil.copy2(final_output_local, target_original)
+                        logger.info(f"[Denoiser] 원래 파일명으로 보조 복사: {final_output_local} -> {target_original}")
+                    except Exception as copy_error:
+                        logger.warning(f"[Denoiser] 원래 파일명 복사 실패 (무시): {copy_error}")
+
             if (is_network_path or is_final_dir_network) and local_temp_dir:
-                # 기본 모드는 local_temp_dir에 직접 저장 (output 폴더가 아님)
-                final_output_local = local_temp_dir / f"output"/ f"{base_stem}_auto_flat.obj"
-                
                 if not final_output_local.exists():
-                    raise FileNotFoundError(f"로컬 노이즈 제거 결과가 없습니다: {final_output_local}")
-                
+                    fallback_candidates = [
+                        work_output_dir_abs / sanitized_filename,
+                        work_output_dir_abs / expected_filename,
+                    ]
+                    fallback_candidates.extend(
+                        sorted(
+                            work_output_dir_abs.glob(f"*{expected_suffix}"),
+                            key=lambda p: p.stat().st_mtime,
+                            reverse=True,
+                        )
+                    )
+                    recovered = None
+                    for candidate in fallback_candidates:
+                        if candidate.exists():
+                            recovered = candidate
+                            break
+                    if recovered is not None:
+                        logger.warning(f"[Denoiser] 예상 경로에 파일이 없어 대체 경로를 사용합니다: {recovered}")
+                        final_output_local = recovered
+                        output_filename = final_output_local.name
+                    else:
+                        raise FileNotFoundError(f"로컬 노이즈 제거 결과가 없습니다: {final_output_local}")
+
                 self._update_progress(78, "최종 결과를 네트워크로 복사 중...")
-                # final_dir이 올바른 경로인지 확인하고 생성
-                try:
-                    final_dir.mkdir(parents=True, exist_ok=True)
-                except Exception as e:
-                    logger.warning(f"최종 디렉토리 생성 실패 (무시): {e}")
-                
-                final_output_network = final_dir / f"{base_stem}_denoised_taubin.obj"
-                
-                # 네트워크 디렉토리 생성 확인 (이미 run_full_pipeline에서 생성했지만 재확인)
+
+                # 네트워크 디렉토리 접근성 점검
                 try:
                     final_dir.mkdir(parents=True, exist_ok=True)
                     logger.info(f"[Denoiser] 네트워크 디렉토리 생성 확인: {final_dir} (존재: {final_dir.exists()})")
-                    # 디렉토리 접근 가능 여부 확인
                     if not final_dir.exists():
                         raise FileNotFoundError(f"디렉토리가 생성되지 않았습니다: {final_dir}")
-                    # 디렉토리에 쓰기 권한 확인
                     test_file = final_dir / ".test_write"
                     try:
                         test_file.touch()
@@ -550,53 +686,47 @@ class AIPipeline:
                 except Exception as e:
                     logger.error(f"[Denoiser] 네트워크 디렉토리 생성 실패: {final_dir}, 오류: {e}")
                     raise
-                
-                # 파일 복사 및 검증
+
+                final_output_network = final_dir / output_filename
+
                 try:
                     shutil.copy2(final_output_local, final_output_network)
                     logger.info(f"최종 결과 복사 완료: {final_output_local} -> {final_output_network}")
-                    
-                    # 복사 후 파일 존재 확인
+
                     if not final_output_network.exists():
                         raise FileNotFoundError(f"파일 복사 후에도 존재하지 않습니다: {final_output_network}")
-                    
-                    # 파일 크기 확인
+
                     local_size = final_output_local.stat().st_size if final_output_local.exists() else 0
                     network_size = final_output_network.stat().st_size if final_output_network.exists() else 0
                     logger.info(f"파일 크기 확인 - 로컬: {local_size} bytes, 네트워크: {network_size} bytes")
-                    
+
                     if network_size == 0:
                         raise FileNotFoundError(f"네트워크 경로에 복사된 파일 크기가 0입니다: {final_output_network}")
-                    
+
                 except Exception as copy_e:
                     logger.error(f"파일 복사 실패: {copy_e}", exc_info=True)
-                    # 복사 실패 시 예외를 재발생시켜 명확한 에러 표시
                     raise RuntimeError(f"네트워크 경로로 파일 복사 실패: {final_output_local} -> {final_output_network}, 오류: {copy_e}")
-                
-                # 로컬 임시 디렉토리 정리 (복사 성공 후에만)
+
                 if final_output_network.exists() and final_output_network != final_output_local:
                     try:
                         shutil.rmtree(local_temp_dir)
                         logger.info(f"로컬 임시 디렉토리 정리 완료: {local_temp_dir}")
                     except Exception as e:
                         logger.warning(f"로컬 임시 디렉토리 정리 실패 (무시): {e}")
-                
+
                 final_output = final_output_network
             else:
-                # 로컬 경로인 경우에도 final_dir 사용
-                final_dir.mkdir(parents=True, exist_ok=True)
-                # 기본 모드는 입력 파일과 같은 디렉토리에 저장
-                final_output_local = work_input_abs.parent / f"{base_stem}_denoised_taubin.obj"
-                final_output = final_dir / f"{base_stem}_denoised_taubin.obj"
-                if final_output_local.exists() and final_output_local != final_output:
-                    shutil.copy2(final_output_local, final_output)
-                    logger.info(f"최종 결과 이동: {final_output_local} -> {final_output}")
-                else:
-                    final_output = final_output_local
-            
+                final_output = final_dir / output_filename
+                source_candidate = work_output_dir_abs / output_filename
+                if not final_output.exists() and source_candidate.exists() and source_candidate != final_output:
+                    shutil.copy2(source_candidate, final_output)
+                    logger.info(f"최종 결과 이동: {source_candidate} -> {final_output}")
+
+            logger.info(f"[Denoiser] 최종 파일 경로 확정: {final_output}")
+
             if not final_output.exists():
                 raise FileNotFoundError(f"메쉬 노이즈 제거 결과가 없습니다: {final_output}")
-            
+
             self._update_progress(80, f"메쉬 노이즈 제거 완료: {final_output}")
             return final_output
 
@@ -620,7 +750,14 @@ class AIPipeline:
             logger.error(f"[Denoiser] 예상치 못한 오류: {e}", exc_info=True)
             raise RuntimeError(f"메쉬 노이즈 제거 실패: {e}")
     
-    def run_full_pipeline(self, uploads_input_path: str, outputs_base_dir: str, group_id: str = "1", folder_name: str = None) -> str:
+    def run_full_pipeline(
+        self,
+        uploads_input_path: str,
+        outputs_base_dir: str,
+        group_id: str = "1",
+        folder_name: str = None,
+        model_type: str = "space",
+    ) -> str:
         """
         전체 AI 파이프라인 실행
         
@@ -629,12 +766,15 @@ class AIPipeline:
             outputs_base_dir: 저장 루트 (storage/outputs)
             group_id: 그룹 ID (기본값: "1")
             folder_name: 폴더명 (기본값: None, 파일명 기반으로 생성)
+            model_type: 파이프라인 타입 (space 또는 object)
             
         Returns:
             최종 출력 파일 경로
         """
         self._update_progress(0, "AI 파이프라인 시작...")
-        
+        config = self._get_pipeline_config(model_type)
+        logger.info(f"[AIPipeline] model_type={model_type} 파이프라인 실행 (optimizer: {config['optimizer'].name}, denoiser: {config['denoiser'].name})")
+
         try:
             # group_id 처리 (빈 문자열이거나 None인 경우 기본값 1 사용)
             if not group_id or group_id.strip() == "":
@@ -760,14 +900,33 @@ class AIPipeline:
             logger.info(f"[AIPipeline] optimized_dir: {optimized_dir} (문자열: {optimized_dir_str if (is_unc_path or is_mounted_network) else str(optimized_dir)})")
             logger.info(f"[AIPipeline] final_dir: {final_dir} (문자열: {final_dir_str if (is_unc_path or is_mounted_network) else str(final_dir)})")
 
-            # 1단계: 메쉬 최적화 → outputs/optimized
-            optimized_path = self.run_mesh_optimizer(uploads_input_path, temp_dir, optimized_dir)
+            model_type_key = (model_type or "space").strip().lower()
 
-            # 2단계: 메쉬 노이즈 제거 → outputs/optimized (final_dir)
-            final_path = self.run_mesh_denoiser(
-                optimized_path,
-                final_dir,
-            )
+            if model_type_key == "object":
+                logger.info("[AIPipeline] object 파이프라인: denoiser → optimizer 순서로 실행")
+                denoised_path = self.run_mesh_denoiser(
+                    uploads_input_path,
+                    optimized_dir,
+                    model_type=model_type,
+                )
+                self._update_progress(65, f"object denoiser 완료: {denoised_path}")
+
+                final_path = self.run_mesh_optimizer(
+                    str(denoised_path),
+                    temp_dir,
+                    final_dir,
+                    model_type=model_type,
+                )
+            else:
+                # 1단계: 메쉬 최적화 → outputs/optimized
+                optimized_path = self.run_mesh_optimizer(uploads_input_path, temp_dir, optimized_dir, model_type=model_type)
+
+                # 2단계: 메쉬 노이즈 제거 → outputs/final
+                final_path = self.run_mesh_denoiser(
+                    optimized_path,
+                    final_dir,
+                    model_type=model_type,
+                )
             
             # 최종 경로 확인 및 검증
             final_path_str = str(final_path)

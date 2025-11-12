@@ -274,7 +274,7 @@ class UploadService(BaseService):
         
         # 각 대괄호 구간 처리
         for i, match in enumerate(matches):
-            key = match.group(1).strip()
+            anchor = match.group(1).strip()
             
             # 현재 대괄호의 끝 위치
             start_pos = match.end()
@@ -289,11 +289,11 @@ class UploadService(BaseService):
             value = content[start_pos:end_pos].strip()
             
             # 같은 key가 이미 있으면 기존 value 뒤에 추가
-            if key in parsed_data:
+            if anchor in parsed_data:
                 # 기존 value와 새 value를 연결 (줄바꿈으로 구분)
-                parsed_data[key] = parsed_data[key] + "\n\n" + value
+                parsed_data[anchor] = parsed_data[anchor] + "\n\n" + value
             else:
-                parsed_data[key] = value
+                parsed_data[anchor] = value
         
         return parsed_data
 
@@ -308,10 +308,10 @@ class UploadService(BaseService):
         
         # 파싱된 데이터를 리스트로 변환 (각 key-value 쌍을 하나의 메모로)
         memos = []
-        for key, value in parsed_data.items():
+        for anchor, value in parsed_data.items():
             memos.append({
                 "type": "text",
-                "key": key,
+                "anchor": anchor,
                 "content": value,
                 "source": memo_path.name,
                 "file_path": str(memo_path.absolute()),
