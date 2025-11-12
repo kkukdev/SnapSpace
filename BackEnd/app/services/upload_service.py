@@ -720,6 +720,13 @@ class UploadService(BaseService):
 
     async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
+
+        # 개발자용
+        if group_name == 'object':
+            model_type = 'object'
+        elif group_name == 'space':
+            model_type = 'space'
+
         # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
         upload_folder = group_upload_dir / folder_name
