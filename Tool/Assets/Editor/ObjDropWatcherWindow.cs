@@ -403,10 +403,10 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         EditorGUILayout.EndScrollView();
         
         EditorGUILayout.Space();
-        EditorGUILayout.HelpBox("Transform Export/Import 기능은 별도 툴로 분리되었습니다.\nTools > Object Transform Exporter를 사용하세요.", MessageType.Info);
-        if (GUILayout.Button("Open Transform Exporter", GUILayout.Height(24)))
+        EditorGUILayout.HelpBox("Transform Export/Import 기능은 별도 툴로 분리되었습니다.\nTools > Object Transform Manager를 사용하세요.", MessageType.Info);
+        if (GUILayout.Button("Open Transform Manager", GUILayout.Height(24)))
         {
-            ObjectTransformExporterWindow.Open();
+            ObjectTransformManagerWindow.Open();
         }
     }
 

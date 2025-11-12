@@ -32,30 +32,44 @@ namespace ObjDropWatcher.ExportImport
         {
             if (obj == null) return null;
 
-            // 1. GameObject 이름에서 확장자 제거하여 파일명 추출
             string objName = obj.name;
+            List<string> candidateFileNames = new List<string>();
+
+            // 1. GameObject 이름에서 파일명 추출
             string fileName = objName;
-            
-            // 확장자가 있으면 제거
             if (fileName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
             {
                 fileName = fileName.Substring(0, fileName.Length - 4);
             }
+            candidateFileNames.Add(fileName);
 
             // 2. MeshFilter의 메시 이름에서도 시도
             if (obj.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
             {
                 string meshName = meshFilter.sharedMesh.name;
-                // 메시 이름이 파일명과 유사하면 사용
-                if (!string.IsNullOrEmpty(meshName) && meshName.Contains(fileName))
+                if (!string.IsNullOrEmpty(meshName))
                 {
-                    fileName = meshName;
-                    if (fileName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                    // 메시 이름에서 .obj 확장자 제거
+                    string meshFileName = meshName;
+                    if (meshFileName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
                     {
-                        fileName = fileName.Substring(0, fileName.Length - 4);
+                        meshFileName = meshFileName.Substring(0, meshFileName.Length - 4);
                     }
+                    
+                    // 메시 이름이 오브젝트 이름과 다르면 후보에 추가
+                    if (!string.Equals(meshFileName, fileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidateFileNames.Add(meshFileName);
+                    }
+                    
+                    // 메시 이름 전체도 후보에 추가 (파일명이 메시 이름과 정확히 일치하는 경우)
+                    candidateFileNames.Add(meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase) 
+                        ? meshName.Substring(0, meshName.Length - 4) 
+                        : meshName);
                 }
             }
+
+            Debug.Log($"[ObjPathFinder] Searching for OBJ file for '{objName}' with candidates: {string.Join(", ", candidateFileNames)}");
 
             // 3. 검색 경로 목록에서 찾기
             foreach (var searchPath in _searchPaths)
@@ -63,20 +77,27 @@ namespace ObjDropWatcher.ExportImport
                 if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
                     continue;
 
+                Debug.Log($"[ObjPathFinder] Searching in path: {searchPath}");
+
                 try
                 {
-                    // 정확한 파일명으로 찾기
-                    string exactPath = Path.Combine(searchPath, fileName + ".obj");
-                    if (File.Exists(exactPath))
+                    foreach (var candidateFileName in candidateFileNames)
                     {
-                        return exactPath;
-                    }
+                        // 정확한 파일명으로 찾기
+                        string exactPath = Path.Combine(searchPath, candidateFileName + ".obj");
+                        if (File.Exists(exactPath))
+                        {
+                            Debug.Log($"[ObjPathFinder] Found OBJ file: {exactPath}");
+                            return exactPath;
+                        }
 
-                    // 하위 디렉토리에서 찾기
-                    var found = Directory.GetFiles(searchPath, fileName + ".obj", SearchOption.AllDirectories);
-                    if (found.Length > 0)
-                    {
-                        return found[0];
+                        // 하위 디렉토리에서 찾기
+                        var found = Directory.GetFiles(searchPath, candidateFileName + ".obj", SearchOption.AllDirectories);
+                        if (found.Length > 0)
+                        {
+                            Debug.Log($"[ObjPathFinder] Found OBJ file in subdirectory: {found[0]}");
+                            return found[0];
+                        }
                     }
 
                     // 대소문자 구분 없이 찾기
@@ -84,9 +105,13 @@ namespace ObjDropWatcher.ExportImport
                     foreach (var file in allFiles)
                     {
                         string fileBaseName = Path.GetFileNameWithoutExtension(file);
-                        if (string.Equals(fileBaseName, fileName, StringComparison.OrdinalIgnoreCase))
+                        foreach (var candidateFileName in candidateFileNames)
                         {
-                            return file;
+                            if (string.Equals(fileBaseName, candidateFileName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Debug.Log($"[ObjPathFinder] Found OBJ file (case-insensitive): {file}");
+                                return file;
+                            }
                         }
                     }
                 }
@@ -100,6 +125,8 @@ namespace ObjDropWatcher.ExportImport
             string[] commonPaths = {
                 Path.Combine(Application.dataPath, "..", "storage", "uploads"),
                 Path.Combine(Application.dataPath, "..", "storage", "outputs"),
+                Path.Combine(Application.dataPath, "..", "storage", "outputs", "final"),
+                Path.Combine(Application.dataPath, "..", "storage", "outputs", "optimized"),
                 Path.Combine(Application.dataPath, "..", "storage", "temp")
             };
 
@@ -108,20 +135,27 @@ namespace ObjDropWatcher.ExportImport
                 if (!Directory.Exists(commonPath))
                     continue;
 
+                Debug.Log($"[ObjPathFinder] Searching in common path: {commonPath}");
+
                 try
                 {
-                    var found = Directory.GetFiles(commonPath, fileName + ".obj", SearchOption.AllDirectories);
-                    if (found.Length > 0)
+                    foreach (var candidateFileName in candidateFileNames)
                     {
-                        return found[0];
+                        var found = Directory.GetFiles(commonPath, candidateFileName + ".obj", SearchOption.AllDirectories);
+                        if (found.Length > 0)
+                        {
+                            Debug.Log($"[ObjPathFinder] Found OBJ file in common path: {found[0]}");
+                            return found[0];
+                        }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 무시
+                    Debug.LogWarning($"[ObjPathFinder] Error searching in common path {commonPath}: {ex.Message}");
                 }
             }
 
+            Debug.LogWarning($"[ObjPathFinder] Could not find OBJ file for '{objName}'");
             return null;
         }
 
