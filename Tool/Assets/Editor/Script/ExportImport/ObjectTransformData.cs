@@ -27,17 +27,36 @@ namespace ObjDropWatcher.ExportImport
 
         /// <summary>
         /// GameObject에서 실제 OBJ 파일 경로를 찾습니다.
+        /// 루트 GameObject에 경로가 없으면 children에서도 찾습니다.
         /// </summary>
         public static string FindObjPath(GameObject obj)
         {
             if (obj == null) return null;
 
             // 1. ObjPathInfo Component에서 경로 가져오기 (가장 우선순위가 높음)
+            // 먼저 루트 GameObject에서 찾기
             string pathFromComponent = ObjPathInfo.GetPath(obj);
             if (!string.IsNullOrEmpty(pathFromComponent) && System.IO.File.Exists(pathFromComponent))
             {
-                Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component: {pathFromComponent}");
+                Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component (root): {pathFromComponent}");
                 return pathFromComponent;
+            }
+
+            // 루트에 경로가 없으면 children에서 찾기
+            if (obj.transform.childCount > 0)
+            {
+                foreach (Transform child in obj.transform)
+                {
+                    if (child != null && child.gameObject != null)
+                    {
+                        string childPath = ObjPathInfo.GetPath(child.gameObject);
+                        if (!string.IsNullOrEmpty(childPath) && System.IO.File.Exists(childPath))
+                        {
+                            Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component (child '{child.name}'): {childPath}");
+                            return childPath;
+                        }
+                    }
+                }
             }
 
             string objName = obj.name;
@@ -51,7 +70,7 @@ namespace ObjDropWatcher.ExportImport
             }
             candidateFileNames.Add(fileName);
 
-            // 2. MeshFilter의 메시 이름에서도 시도
+            // 2. MeshFilter의 메시 이름에서도 시도 (루트에서)
             if (obj.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
             {
                 string meshName = meshFilter.sharedMesh.name;
@@ -74,6 +93,35 @@ namespace ObjDropWatcher.ExportImport
                     candidateFileNames.Add(meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase) 
                         ? meshName.Substring(0, meshName.Length - 4) 
                         : meshName);
+                }
+            }
+            
+            // 3. children의 MeshFilter에서도 메시 이름 추출
+            if (obj.transform.childCount > 0)
+            {
+                foreach (Transform child in obj.transform)
+                {
+                    if (child != null && child.gameObject != null)
+                    {
+                        if (child.gameObject.TryGetComponent<MeshFilter>(out var childMeshFilter) && 
+                            childMeshFilter.sharedMesh != null)
+                        {
+                            string childMeshName = childMeshFilter.sharedMesh.name;
+                            if (!string.IsNullOrEmpty(childMeshName))
+                            {
+                                string childMeshFileName = childMeshName;
+                                if (childMeshFileName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    childMeshFileName = childMeshFileName.Substring(0, childMeshFileName.Length - 4);
+                                }
+                                
+                                if (!candidateFileNames.Contains(childMeshFileName, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    candidateFileNames.Add(childMeshFileName);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -292,11 +340,12 @@ namespace ObjDropWatcher.ExportImport
     public class ComponentData
     {
         public string componentType; // 컴포넌트 타입 이름
-        public List<PropertyPair> properties = new List<PropertyPair>(); // 속성명 -> JSON 값
+        // 깊이 제한을 피하기 위해 리스트 대신 단일 문자열로 저장 (형식: "key1:value1|key2:value2|...")
+        public string properties = ""; // 속성명:값 쌍들을 파이프(|)로 구분, 각 쌍은 콜론(:)으로 구분
 
         public ComponentData() 
         {
-            properties = new List<PropertyPair>();
+            properties = "";
         }
 
         public ComponentData(Component component) : this()
@@ -323,7 +372,8 @@ namespace ObjDropWatcher.ExportImport
         void SaveFields(Component component, Type type)
         {
             var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
-                .Where(IsSerializableField);
+                .Where(IsSerializableField)
+                .Where(f => !typeof(UnityEngine.Object).IsAssignableFrom(f.FieldType)); // Unity Object 타입 제외
 
             foreach (var field in fields)
             {
@@ -332,10 +382,19 @@ namespace ObjDropWatcher.ExportImport
                     object value = field.GetValue(component);
                     if (value != null)
                     {
+                        // Unity Object 타입은 건너뛰기
+                        if (typeof(UnityEngine.Object).IsAssignableFrom(value.GetType()))
+                            continue;
+                            
                         string jsonValue = SerializeValue(value);
                         if (jsonValue != null)
                         {
-                            properties.Add(new PropertyPair($"field_{field.Name}", jsonValue));
+                            // 깊이 제한을 피하기 위해 단일 문자열에 추가 (형식: "key:value")
+                            if (!string.IsNullOrEmpty(properties))
+                                properties += "|";
+                            // 값에 특수문자가 포함될 수 있으므로 Base64 인코딩 또는 이스케이프 처리
+                            string escapedValue = jsonValue.Replace(":", "::").Replace("|", "||");
+                            properties += $"field_{field.Name}:{escapedValue}";
                         }
                     }
                 }
@@ -353,7 +412,8 @@ namespace ObjDropWatcher.ExportImport
         {
             var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0)
-                .Where(p => !IsIgnoredProperty(p.Name));
+                .Where(p => !IsIgnoredProperty(p.Name))
+                .Where(p => IsSerializablePropertyType(p.PropertyType)); // 직렬화 가능한 타입만
 
             foreach (var prop in props)
             {
@@ -362,10 +422,19 @@ namespace ObjDropWatcher.ExportImport
                     object value = prop.GetValue(component);
                     if (value != null)
                     {
+                        // Unity Object 타입은 건너뛰기
+                        if (typeof(UnityEngine.Object).IsAssignableFrom(value.GetType()))
+                            continue;
+                            
                         string jsonValue = SerializeValue(value);
                         if (jsonValue != null)
                         {
-                            properties.Add(new PropertyPair($"property_{prop.Name}", jsonValue));
+                            // 깊이 제한을 피하기 위해 단일 문자열에 추가 (형식: "key:value")
+                            if (!string.IsNullOrEmpty(properties))
+                                properties += "|";
+                            // 값에 특수문자가 포함될 수 있으므로 이스케이프 처리
+                            string escapedValue = jsonValue.Replace(":", "::").Replace("|", "||");
+                            properties += $"property_{prop.Name}:{escapedValue}";
                         }
                     }
                 }
@@ -374,6 +443,49 @@ namespace ObjDropWatcher.ExportImport
                     Debug.LogWarning($"[ComponentData] Failed to save property {prop.Name}: {ex.Message}");
                 }
             }
+        }
+        
+        /// <summary>
+        /// 속성 타입이 직렬화 가능한지 확인합니다.
+        /// </summary>
+        bool IsSerializablePropertyType(Type propertyType)
+        {
+            // Unity Object 타입은 제외
+            if (typeof(UnityEngine.Object).IsAssignableFrom(propertyType))
+            {
+                return false;
+            }
+            
+            // 기본 타입만 허용
+            if (propertyType.IsPrimitive || propertyType == typeof(string) || propertyType == typeof(decimal))
+            {
+                return true;
+            }
+            
+            // Unity 기본 타입만 허용
+            if (propertyType == typeof(Vector2) || propertyType == typeof(Vector3) || propertyType == typeof(Vector4) ||
+                propertyType == typeof(Quaternion) || propertyType == typeof(Color) || propertyType == typeof(Rect) ||
+                propertyType == typeof(Bounds) || propertyType.IsEnum)
+            {
+                return true;
+            }
+            
+            // 배열이나 리스트는 단순 타입만 허용
+            if (propertyType.IsArray)
+            {
+                Type elementType = propertyType.GetElementType();
+                if (elementType != null && 
+                    (elementType.IsPrimitive || elementType == typeof(string) ||
+                     elementType == typeof(Vector2) || elementType == typeof(Vector3) ||
+                     elementType == typeof(Vector4) || elementType == typeof(Quaternion) ||
+                     elementType == typeof(Color)))
+                {
+                    return true;
+                }
+            }
+            
+            // 그 외 복잡한 타입은 저장하지 않음
+            return false;
         }
 
         /// <summary>
@@ -390,23 +502,42 @@ namespace ObjDropWatcher.ExportImport
             // Unity 직렬화 가능한 타입인지 확인
             Type fieldType = field.FieldType;
             
-            // 기본 Unity 타입들
-            if (fieldType == typeof(int) || fieldType == typeof(float) || fieldType == typeof(bool) ||
-                fieldType == typeof(string) || fieldType == typeof(Vector2) || fieldType == typeof(Vector3) ||
-                fieldType == typeof(Vector4) || fieldType == typeof(Quaternion) || fieldType == typeof(Color) ||
-                fieldType.IsEnum || fieldType.IsPrimitive)
-            {
-                return true;
-            }
-
-            // UnityEngine.Object 타입은 참조이므로 저장하지 않음 (나중에 처리)
+            // UnityEngine.Object 타입은 참조이므로 저장하지 않음
             if (typeof(UnityEngine.Object).IsAssignableFrom(fieldType))
             {
                 return false;
             }
-
-            // SerializeField 속성이 있으면 저장
-            return field.IsPublic || field.GetCustomAttributes(typeof(SerializeField), true).Length > 0;
+            
+            // 기본 타입만 허용 (직렬화 깊이 제한 방지)
+            if (fieldType.IsPrimitive || fieldType == typeof(string) || fieldType == typeof(decimal))
+            {
+                return field.IsPublic || field.GetCustomAttributes(typeof(SerializeField), true).Length > 0;
+            }
+            
+            // Unity 기본 타입만 허용
+            if (fieldType == typeof(Vector2) || fieldType == typeof(Vector3) || fieldType == typeof(Vector4) ||
+                fieldType == typeof(Quaternion) || fieldType == typeof(Color) || fieldType == typeof(Rect) ||
+                fieldType == typeof(Bounds) || fieldType.IsEnum)
+            {
+                return field.IsPublic || field.GetCustomAttributes(typeof(SerializeField), true).Length > 0;
+            }
+            
+            // 배열이나 리스트는 단순 타입만 허용
+            if (fieldType.IsArray)
+            {
+                Type elementType = fieldType.GetElementType();
+                if (elementType != null && 
+                    (elementType.IsPrimitive || elementType == typeof(string) ||
+                     elementType == typeof(Vector2) || elementType == typeof(Vector3) ||
+                     elementType == typeof(Vector4) || elementType == typeof(Quaternion) ||
+                     elementType == typeof(Color)))
+                {
+                    return field.IsPublic || field.GetCustomAttributes(typeof(SerializeField), true).Length > 0;
+                }
+            }
+            
+            // 그 외 복잡한 타입은 저장하지 않음 (직렬화 깊이 제한 방지)
+            return false;
         }
 
         string SerializeValue(object value)
@@ -415,24 +546,103 @@ namespace ObjDropWatcher.ExportImport
 
             try
             {
+                Type valueType = value.GetType();
+                
+                // Unity Object 타입은 직렬화하지 않음 (참조이므로)
+                if (typeof(UnityEngine.Object).IsAssignableFrom(valueType))
+                {
+                    return null;
+                }
+                
                 // 기본 타입들은 직접 문자열로 변환
-                if (value is int || value is float || value is bool || value is string || value is Enum)
+                if (value is int || value is float || value is double || value is bool || value is string || value is Enum)
                     return value.ToString();
 
-                // Unity 타입들은 JSON으로 직렬화
+                // Unity 기본 타입들은 JSON으로 직렬화
                 if (value is Vector2 || value is Vector3 || value is Vector4 || 
-                    value is Quaternion || value is Color)
-                    return JsonUtility.ToJson(value);
-
-                // 배열이나 리스트 처리
-                if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                    value is Quaternion || value is Color || value is Rect || value is Bounds)
                 {
-                    var list = enumerable.Cast<object>().ToList();
-                    return JsonUtility.ToJson(list.ToArray());
+                    try
+                    {
+                        return JsonUtility.ToJson(value);
+                    }
+                    catch
+                    {
+                        return null;
+                    }
                 }
 
-                // 그 외는 JSON으로 시도
-                return JsonUtility.ToJson(value);
+                // 배열이나 리스트 처리 (단순 타입만)
+                if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                {
+                    // 배열/리스트의 요소 타입 확인
+                    Type elementType = null;
+                    if (valueType.IsArray)
+                    {
+                        elementType = valueType.GetElementType();
+                    }
+                    else if (valueType.IsGenericType)
+                    {
+                        elementType = valueType.GetGenericArguments()[0];
+                    }
+                    
+                    // Unity Object나 복잡한 타입이 포함된 배열은 건너뛰기
+                    if (elementType != null && typeof(UnityEngine.Object).IsAssignableFrom(elementType))
+                    {
+                        return null;
+                    }
+                    
+                    // 단순 타입 배열만 직렬화 (깊이 제한 방지를 위해 직접 문자열로 변환)
+                    if (elementType != null && 
+                        (elementType.IsPrimitive || elementType == typeof(string) || 
+                         elementType == typeof(Vector2) || elementType == typeof(Vector3) || 
+                         elementType == typeof(Vector4) || elementType == typeof(Quaternion) || 
+                         elementType == typeof(Color)))
+                    {
+                        try
+                        {
+                            // 깊이 제한을 피하기 위해 직접 문자열 배열로 변환
+                            var list = new List<string>();
+                            foreach (var item in enumerable)
+                            {
+                                if (item == null) continue;
+                                
+                                // 기본 타입은 직접 문자열로 변환
+                                if (item is int || item is float || item is double || item is bool || item is string || item is Enum)
+                                {
+                                    list.Add(item.ToString());
+                                }
+                                // Unity 기본 타입은 JSON으로 직렬화 (단일 레벨만)
+                                else if (item is Vector2 || item is Vector3 || item is Vector4 || 
+                                         item is Quaternion || item is Color)
+                                {
+                                    try
+                                    {
+                                        list.Add(JsonUtility.ToJson(item));
+                                    }
+                                    catch
+                                    {
+                                        // 직렬화 실패 시 건너뛰기
+                                    }
+                                }
+                            }
+                            
+                            // 배열을 JSON 배열 형태의 문자열로 변환
+                            return "[" + string.Join(",", list) + "]";
+                        }
+                        catch
+                        {
+                            return null;
+                        }
+                    }
+                    
+                    // 복잡한 타입 배열은 건너뛰기
+                    return null;
+                }
+
+                // 복잡한 객체는 직렬화하지 않음 (깊이 제한 방지)
+                // Unity의 JsonUtility는 깊은 중첩 구조나 순환 참조를 처리하지 못함
+                return null;
             }
             catch
             {
@@ -448,22 +658,37 @@ namespace ObjDropWatcher.ExportImport
             string typeName = type.AssemblyQualifiedName ?? type.FullName;
             if (typeName != componentType && type.FullName != componentType) return;
 
-            foreach (var kvp in properties)
+            // properties 문자열을 파싱하여 키-값 쌍 복원
+            if (string.IsNullOrEmpty(properties))
+                return;
+                
+            string[] pairs = properties.Split('|');
+            foreach (string pair in pairs)
             {
+                if (string.IsNullOrEmpty(pair))
+                    continue;
+                    
+                int colonIndex = pair.IndexOf(':');
+                if (colonIndex < 0)
+                    continue;
+                    
+                string key = pair.Substring(0, colonIndex);
+                string value = pair.Substring(colonIndex + 1).Replace("||", "|").Replace("::", ":");
+                
                 try
                 {
-                    if (kvp.key.StartsWith("field_"))
+                    if (key.StartsWith("field_"))
                     {
-                        RestoreField(component, type, kvp.key.Substring(6), kvp.value);
+                        RestoreField(component, type, key.Substring(6), value);
                     }
-                    else if (kvp.key.StartsWith("property_"))
+                    else if (key.StartsWith("property_"))
                     {
-                        RestoreProperty(component, type, kvp.key.Substring(9), kvp.value);
+                        RestoreProperty(component, type, key.Substring(9), value);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[ComponentData] Failed to restore {kvp.key}: {ex.Message}");
+                    Debug.LogWarning($"[ComponentData] Failed to restore {key}: {ex.Message}");
                 }
             }
         }
@@ -532,23 +757,40 @@ namespace ObjDropWatcher.ExportImport
     public class ObjectTransformData
     {
         public string objectName;
-        public Vector3 position;
-        public Vector3 rotation; // Euler angles
-        public Vector3 scale;
+        // 깊이 제한을 피하기 위해 구조체 대신 단순 float 필드로 분리
+        public float positionX, positionY, positionZ;
+        public float rotationX, rotationY, rotationZ; // Euler angles
+        public float scaleX, scaleY, scaleZ;
         public string objFilePath; // 원본 OBJ 파일 경로 (선택적)
         public ObjectType objectType = ObjectType.Unknown; // 오브젝트 타입
         public string primitiveType; // Unity 기본 오브젝트 타입 (Plane, Cube, Sphere 등)
         public List<ComponentData> components = new List<ComponentData>(); // 모든 컴포넌트 정보
         public List<ObjectTransformData> children = new List<ObjectTransformData>(); // 자식 오브젝트들
 
+        // 편의 메서드 (직렬화되지 않음)
+        public Vector3 GetPosition() => new Vector3(positionX, positionY, positionZ);
+        public void SetPosition(Vector3 pos) { positionX = pos.x; positionY = pos.y; positionZ = pos.z; }
+        
+        public Vector3 GetRotation() => new Vector3(rotationX, rotationY, rotationZ);
+        public void SetRotation(Vector3 rot) { rotationX = rot.x; rotationY = rot.y; rotationZ = rot.z; }
+        
+        public Vector3 GetScale() => new Vector3(scaleX, scaleY, scaleZ);
+        public void SetScale(Vector3 scl) { scaleX = scl.x; scaleY = scl.y; scaleZ = scl.z; }
+
         public ObjectTransformData() { }
 
         public ObjectTransformData(GameObject obj, string objPath = null, bool includeChildren = true)
         {
             objectName = obj.name;
-            position = obj.transform.localPosition;
-            rotation = obj.transform.localEulerAngles;
-            scale = obj.transform.localScale;
+            positionX = obj.transform.localPosition.x;
+            positionY = obj.transform.localPosition.y;
+            positionZ = obj.transform.localPosition.z;
+            rotationX = obj.transform.localEulerAngles.x;
+            rotationY = obj.transform.localEulerAngles.y;
+            rotationZ = obj.transform.localEulerAngles.z;
+            scaleX = obj.transform.localScale.x;
+            scaleY = obj.transform.localScale.y;
+            scaleZ = obj.transform.localScale.z;
             objFilePath = objPath;
             
             // 오브젝트 타입 감지
@@ -574,7 +816,7 @@ namespace ObjDropWatcher.ExportImport
                 try
                 {
                     var compData = new ComponentData(component);
-                    if (compData.properties.Count > 0 || !string.IsNullOrEmpty(compData.componentType))
+                    if (!string.IsNullOrEmpty(compData.properties) || !string.IsNullOrEmpty(compData.componentType))
                     {
                         components.Add(compData);
                     }
@@ -891,6 +1133,17 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         void RestoreChildren(GameObject parent)
         {
+            RestoreChildrenToParent(parent);
+        }
+
+        /// <summary>
+        /// 자식 오브젝트들을 부모 GameObject에 복원합니다. (public 메서드)
+        /// </summary>
+        public void RestoreChildrenToParent(GameObject parent)
+        {
+            if (parent == null || children == null || children.Count == 0)
+                return;
+
             foreach (var childData in children)
             {
                 try
@@ -1261,9 +1514,15 @@ namespace ObjDropWatcher.ExportImport
             var serializable = new SerializableObjectTransformData
             {
                 objectName = objectName,
-                position = new SerializableVector3(position.x, position.y, position.z),
-                rotation = new SerializableVector3(rotation.x, rotation.y, rotation.z),
-                scale = new SerializableVector3(scale.x, scale.y, scale.z),
+                positionX = positionX,
+                positionY = positionY,
+                positionZ = positionZ,
+                rotationX = rotationX,
+                rotationY = rotationY,
+                rotationZ = rotationZ,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                scaleZ = scaleZ,
                 objFilePath = objFilePath,
                 objectType = (int)objectType,
                 primitiveType = primitiveType ?? ""
@@ -1296,9 +1555,15 @@ namespace ObjDropWatcher.ExportImport
             var objData = new ObjectTransformData
             {
                 objectName = data.objectName,
-                position = data.position,
-                rotation = data.rotation,
-                scale = data.scale,
+                positionX = data.positionX,
+                positionY = data.positionY,
+                positionZ = data.positionZ,
+                rotationX = data.rotationX,
+                rotationY = data.rotationY,
+                rotationZ = data.rotationZ,
+                scaleX = data.scaleX,
+                scaleY = data.scaleY,
+                scaleZ = data.scaleZ,
                 objFilePath = data.objFilePath,
                 objectType = (ObjectType)data.objectType,
                 primitiveType = data.primitiveType ?? ""
@@ -1331,7 +1596,8 @@ namespace ObjDropWatcher.ExportImport
     public class SerializableComponentData
     {
         public string componentType;
-        public List<PropertyPair> properties = new List<PropertyPair>();
+        // 깊이 제한을 피하기 위해 리스트 대신 단일 문자열로 저장
+        public string properties = "";
     }
 
     /// <summary>
@@ -1341,9 +1607,10 @@ namespace ObjDropWatcher.ExportImport
     public class SerializableObjectTransformData
     {
         public string objectName;
-        public SerializableVector3 position;
-        public SerializableVector3 rotation;
-        public SerializableVector3 scale;
+        // 깊이 제한을 피하기 위해 구조체 대신 단순 float 필드로 분리
+        public float positionX, positionY, positionZ;
+        public float rotationX, rotationY, rotationZ;
+        public float scaleX, scaleY, scaleZ;
         public string objFilePath;
         public int objectType; // ObjectType enum을 int로 저장
         public string primitiveType;

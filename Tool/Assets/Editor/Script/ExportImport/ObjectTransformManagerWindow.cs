@@ -188,14 +188,12 @@ public class ObjectTransformManagerWindow : EditorWindow
                 {
                     item.objPath = foundPath;
                     foundCount++;
-                    Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
                 }
             }
         }
         
         if (foundCount > 0)
         {
-            Debug.Log($"[OBJ Manager] Found paths for {foundCount} managed object(s)");
             Repaint();
         }
     }
@@ -252,7 +250,8 @@ public class ObjectTransformManagerWindow : EditorWindow
             {
                 EditorGUILayout.LabelField($"오브젝트: {item.gameObject.name}", EditorStyles.boldLabel);
                 EditorGUILayout.LabelField($"경로: {item.objPath ?? "(경로 없음)"}", EditorStyles.miniLabel);
-                EditorGUILayout.LabelField($"위치: ({item.position.x:F2}, {item.position.y:F2}, {item.position.z:F2})", EditorStyles.miniLabel);
+                var itemPos = item.GetPosition();
+                EditorGUILayout.LabelField($"위치: ({itemPos.x:F2}, {itemPos.y:F2}, {itemPos.z:F2})", EditorStyles.miniLabel);
             }
             else
             {
@@ -290,7 +289,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                     {
                         item.objPath = foundPath;
                         item.UpdateTransform();
-                        Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
                         Repaint();
                     }
                     else
@@ -306,7 +304,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         {
                             item.objPath = newPath;
                             item.UpdateTransform();
-                            Debug.Log($"[OBJ Manager] Updated path for '{item.objectName}': {newPath}");
                             Repaint();
                         }
                     }
@@ -329,7 +326,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
                         {
                             item.objPath = foundPath;
-                            Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
                             Repaint();
                         }
                         else
@@ -340,7 +336,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                             if (!string.IsNullOrEmpty(newPath) && File.Exists(newPath))
                             {
                                 item.objPath = newPath;
-                                Debug.Log($"[OBJ Manager] Updated path for '{item.objectName}': {newPath}");
                                 Repaint();
                             }
                         }
@@ -351,7 +346,6 @@ public class ObjectTransformManagerWindow : EditorWindow
             if (GUILayout.Button("삭제", GUILayout.Height(22)))
             {
                 _managedObjects.RemoveAt(i);
-                Debug.Log($"[OBJ Manager] Removed '{item.objectName}' from managed list");
             }
             
             EditorGUILayout.EndVertical();
@@ -468,7 +462,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                     if (!string.IsNullOrEmpty(objPath) && File.Exists(objPath))
                     {
                         existing.objPath = objPath;
-                        Debug.Log($"[OBJ Manager] Found path for existing object '{obj.name}': {objPath}");
                     }
                 }
                 updatedCount++;
@@ -497,18 +490,12 @@ public class ObjectTransformManagerWindow : EditorWindow
                 
                 _managedObjects.Add(new ManagedObjItem(obj, objPath));
                 addedCount++;
-                Debug.Log($"[OBJ Manager] Auto-detected OBJ: '{obj.name}' (path: {objPath ?? "not found - can be set manually"})");
             }
         }
         
         if (addedCount > 0 || updatedCount > 0)
         {
-            Debug.Log($"[OBJ Manager] Auto-detection complete: {addedCount} added, {updatedCount} updated (total: {_managedObjects.Count})");
             Repaint();
-        }
-        else
-        {
-            Debug.Log($"[OBJ Manager] Auto-detection complete: No new OBJ objects found in scene (total: {_managedObjects.Count})");
         }
     }
 
@@ -536,15 +523,31 @@ public class ObjectTransformManagerWindow : EditorWindow
         // OBJ 파일 로드
         try
         {
-            var go = RuntimeObjLoader.LoadObj(objPath);
+            // preserveOriginalCoordinates: true로 설정하여 원본 좌표 유지
+            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
             if (go != null)
             {
-                // MeshRenderer와 Material 확인 및 강제 설정
-                var meshRenderer = go.GetComponent<MeshRenderer>();
-                var meshFilter = go.GetComponent<MeshFilter>();
+                // 경로 정보 저장 (루트와 children 모두)
+                ObjPathInfo.SetPath(go, objPath);
                 
-                if (meshRenderer != null)
+                // 모든 children에도 경로 저장
+                Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
+                foreach (Transform child in allChildren)
                 {
+                    if (child != null && child != go.transform && child.gameObject != null)
+                    {
+                        ObjPathInfo.SetPath(child.gameObject, objPath);
+                    }
+                }
+                
+                // MeshRenderer와 Material 확인 및 강제 설정
+                // 루트와 children 모두 처리
+                MeshRenderer[] allMeshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
+                
+                foreach (var meshRenderer in allMeshRenderers)
+                {
+                    if (meshRenderer == null) continue;
+                    
                     // Material이 제대로 할당되었는지 확인
                     if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
                     {
@@ -552,7 +555,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                         var defaultMat = new Material(Shader.Find("Standard"));
                         defaultMat.color = Color.white;
                         meshRenderer.sharedMaterial = defaultMat;
-                        Debug.Log($"[OBJ Manager] Created default material for '{go.name}'");
+                        Debug.Log($"[OBJ Manager] Created default material for '{meshRenderer.gameObject.name}'");
                     }
                     else
                     {
@@ -598,7 +601,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                         if (materialFixed)
                         {
                             meshRenderer.sharedMaterials = materials;
-                            Debug.Log($"[OBJ Manager] Fixed materials for '{go.name}'");
+                            Debug.Log($"[OBJ Manager] Fixed materials for '{meshRenderer.gameObject.name}'");
                         }
                     }
                     
@@ -610,11 +613,16 @@ public class ObjectTransformManagerWindow : EditorWindow
                     #endif
                 }
                 
-                if (meshFilter != null && meshFilter.sharedMesh != null)
+                // MeshFilter도 처리 (루트와 children 모두)
+                MeshFilter[] allMeshFilters = go.GetComponentsInChildren<MeshFilter>(true);
+                foreach (var meshFilter in allMeshFilters)
                 {
-                    #if UNITY_EDITOR
-                    EditorUtility.SetDirty(meshFilter);
-                    #endif
+                    if (meshFilter != null && meshFilter.sharedMesh != null)
+                    {
+                        #if UNITY_EDITOR
+                        EditorUtility.SetDirty(meshFilter);
+                        #endif
+                    }
                 }
                 
                 // GameObject 활성화 확인
@@ -631,11 +639,25 @@ public class ObjectTransformManagerWindow : EditorWindow
                 SceneView.RepaintAll();
                 #endif
                 
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                try
+                {
+                    var memos = MemoUtils.FindAndParseMemoFile(objPath);
+                    if (memos != null && memos.Length > 0)
+                    {
+                        float unitScale = MemoUtils.GetUnitScale();
+                        MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                    }
+                }
+                catch (Exception memoEx)
+                {
+                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for OBJ '{go.name}': {memoEx.Message}");
+                }
+                
                 _managedObjects.Add(new ManagedObjItem(go, objPath));
                 Undo.RegisterCreatedObjectUndo(go, "Load OBJ");
                 Selection.activeGameObject = go;
                 EditorGUIUtility.PingObject(go);
-                Debug.Log($"[OBJ Manager] Added OBJ from path: {objPath}");
                 _manualPath = ""; // 입력 필드 초기화
                 Repaint();
             }
@@ -657,21 +679,37 @@ public class ObjectTransformManagerWindow : EditorWindow
         
         try
         {
-            var go = RuntimeObjLoader.LoadObj(objPath);
+            // preserveOriginalCoordinates: true로 설정하여 원본 좌표 유지
+            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
             if (go != null)
             {
                 // Transform 정보 복원
-                go.transform.position = item.position;
-                go.transform.eulerAngles = item.rotation;
-                go.transform.localScale = item.scale;
+                go.transform.position = item.GetPosition();
+                go.transform.eulerAngles = item.GetRotation();
+                go.transform.localScale = item.GetScale();
                 go.name = item.objectName;
                 
-                // MeshRenderer와 Material 확인 및 강제 설정
-                var meshRenderer = go.GetComponent<MeshRenderer>();
-                var meshFilter = go.GetComponent<MeshFilter>();
+                // 경로 정보 저장 (루트와 children 모두)
+                ObjPathInfo.SetPath(go, objPath);
                 
-                if (meshRenderer != null)
+                // 모든 children에도 경로 저장
+                Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
+                foreach (Transform child in allChildren)
                 {
+                    if (child != null && child != go.transform && child.gameObject != null)
+                    {
+                        ObjPathInfo.SetPath(child.gameObject, objPath);
+                    }
+                }
+                
+                // MeshRenderer와 Material 확인 및 강제 설정
+                // 루트와 children 모두 처리
+                MeshRenderer[] allMeshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
+                
+                foreach (var meshRenderer in allMeshRenderers)
+                {
+                    if (meshRenderer == null) continue;
+                    
                     // Material이 제대로 할당되었는지 확인
                     if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
                     {
@@ -679,7 +717,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                         var defaultMat = new Material(Shader.Find("Standard"));
                         defaultMat.color = Color.white;
                         meshRenderer.sharedMaterial = defaultMat;
-                        Debug.Log($"[OBJ Manager] Created default material for '{go.name}'");
+                        Debug.Log($"[OBJ Manager] Created default material for '{meshRenderer.gameObject.name}'");
                     }
                     else
                     {
@@ -725,7 +763,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         if (materialFixed)
                         {
                             meshRenderer.sharedMaterials = materials;
-                            Debug.Log($"[OBJ Manager] Fixed materials for '{go.name}'");
                         }
                     }
                     
@@ -737,11 +774,16 @@ public class ObjectTransformManagerWindow : EditorWindow
                     #endif
                 }
                 
-                if (meshFilter != null && meshFilter.sharedMesh != null)
+                // MeshFilter도 처리 (루트와 children 모두)
+                MeshFilter[] allMeshFilters = go.GetComponentsInChildren<MeshFilter>(true);
+                foreach (var meshFilter in allMeshFilters)
                 {
-                    #if UNITY_EDITOR
-                    EditorUtility.SetDirty(meshFilter);
-                    #endif
+                    if (meshFilter != null && meshFilter.sharedMesh != null)
+                    {
+                        #if UNITY_EDITOR
+                        EditorUtility.SetDirty(meshFilter);
+                        #endif
+                    }
                 }
                 
                 // GameObject 활성화 확인
@@ -758,11 +800,25 @@ public class ObjectTransformManagerWindow : EditorWindow
                 SceneView.RepaintAll();
                 #endif
                 
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                try
+                {
+                    var memos = MemoUtils.FindAndParseMemoFile(objPath);
+                    if (memos != null && memos.Length > 0)
+                    {
+                        float unitScale = MemoUtils.GetUnitScale();
+                        MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                    }
+                }
+                catch (Exception memoEx)
+                {
+                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for loaded OBJ '{go.name}': {memoEx.Message}");
+                }
+                
                 item.gameObject = go;
                 Undo.RegisterCreatedObjectUndo(go, "Load OBJ from Manager");
                 Selection.activeGameObject = go;
                 EditorGUIUtility.PingObject(go);
-                Debug.Log($"[OBJ Manager] Loaded OBJ from path: {objPath}");
                 Repaint();
             }
         }
@@ -776,41 +832,97 @@ public class ObjectTransformManagerWindow : EditorWindow
     /// <summary>
     /// GameObject가 OBJ 파일인지 확인합니다.
     /// ObjDropWatcherWindow와 독립적으로 동작합니다.
+    /// 루트 GameObject에 MeshFilter가 없어도 children에 MeshFilter가 있으면 OBJ 파일로 인식합니다.
     /// </summary>
     bool IsObjFile(GameObject obj)
     {
         if (obj == null) return false;
 
-        // MeshFilter가 있어야 함
-        if (!obj.TryGetComponent<MeshFilter>(out var meshFilter) || meshFilter.sharedMesh == null)
-            return false;
-
-        string meshName = meshFilter.sharedMesh.name;
-        string objName = obj.name;
-
-        // Unity 기본 메시인지 확인 (제외)
-        string[] primitiveNames = { "Plane", "Cube", "Sphere", "Capsule", "Cylinder", "Quad" };
-        if (!string.IsNullOrEmpty(meshName) && 
-            primitiveNames.Any(name => string.Equals(meshName, name, StringComparison.OrdinalIgnoreCase)))
+        // 1. 먼저 루트 GameObject 자체에 MeshFilter가 있는지 확인
+        if (obj.TryGetComponent<MeshFilter>(out var meshFilter) && meshFilter.sharedMesh != null)
         {
-            return false; // Unity primitive는 OBJ 파일이 아님
+            string meshName = meshFilter.sharedMesh.name;
+            string objName = obj.name;
+
+            // Unity 기본 메시인지 확인 (제외)
+            string[] primitiveNames = { "Plane", "Cube", "Sphere", "Capsule", "Cylinder", "Quad" };
+            if (!string.IsNullOrEmpty(meshName) && 
+                primitiveNames.Any(name => string.Equals(meshName, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false; // Unity primitive는 OBJ 파일이 아님
+            }
+
+            // MeshRenderer가 있어야 함 (렌더링 가능한 오브젝트)
+            if (!obj.TryGetComponent<MeshRenderer>(out var meshRenderer))
+                return false;
+
+            // 메시 이름이나 오브젝트 이름이 .obj로 끝나는 경우
+            if (!string.IsNullOrEmpty(meshName) && meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (!string.IsNullOrEmpty(objName) && objName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // MeshFilter가 있고 Unity primitive가 아닌 경우, OBJ 파일로 간주
+            return true;
         }
 
-        // MeshRenderer가 있어야 함 (렌더링 가능한 오브젝트)
-        if (!obj.TryGetComponent<MeshRenderer>(out var meshRenderer))
-            return false;
+        // 2. 루트에 MeshFilter가 없으면 children을 확인
+        // RuntimeObjLoader가 children을 생성하는 경우를 처리
+        if (obj.transform.childCount > 0)
+        {
+            // children 중 하나라도 MeshFilter가 있으면 OBJ 파일로 인식
+            foreach (Transform child in obj.transform)
+            {
+                if (child != null && child.gameObject != null)
+                {
+                    if (child.gameObject.TryGetComponent<MeshFilter>(out var childMeshFilter) && 
+                        childMeshFilter.sharedMesh != null)
+                    {
+                        string childMeshName = childMeshFilter.sharedMesh.name;
+                        
+                        // Unity 기본 메시인지 확인 (제외)
+                        string[] primitiveNames = { "Plane", "Cube", "Sphere", "Capsule", "Cylinder", "Quad" };
+                        if (!string.IsNullOrEmpty(childMeshName) && 
+                            primitiveNames.Any(name => string.Equals(childMeshName, name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue; // Unity primitive는 건너뛰기
+                        }
 
-        // 메시 이름이나 오브젝트 이름이 .obj로 끝나는 경우
-        if (!string.IsNullOrEmpty(meshName) && meshName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
+                        // MeshRenderer가 있어야 함
+                        if (child.gameObject.TryGetComponent<MeshRenderer>(out var childMeshRenderer))
+                        {
+                            // children에 MeshFilter와 MeshRenderer가 있으면 OBJ 파일로 인식
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. ObjPathInfo 컴포넌트가 있으면 OBJ 파일로 인식 (경로 정보가 저장된 경우)
+        if (obj.TryGetComponent<ObjPathInfo>(out var pathInfo) && !string.IsNullOrEmpty(pathInfo.ObjFilePath))
+        {
             return true;
+        }
 
-        if (!string.IsNullOrEmpty(objName) && objName.EndsWith(".obj", StringComparison.OrdinalIgnoreCase))
-            return true;
+        // 4. children 중 하나라도 ObjPathInfo가 있으면 OBJ 파일로 인식
+        if (obj.transform.childCount > 0)
+        {
+            foreach (Transform child in obj.transform)
+            {
+                if (child != null && child.gameObject != null)
+                {
+                    if (child.gameObject.TryGetComponent<ObjPathInfo>(out var childPathInfo) && 
+                        !string.IsNullOrEmpty(childPathInfo.ObjFilePath))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
 
-        // MeshFilter가 있고 Unity primitive가 아닌 경우, OBJ 파일로 간주
-        // 경로를 찾지 못해도 OBJ로 인식 (경로는 나중에 수정 가능)
-        // RuntimeObjLoader로 로드된 오브젝트는 보통 이 조건을 만족
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -858,11 +970,6 @@ public class ObjectTransformManagerWindow : EditorWindow
         }
         
         ObjPathFinder.SetSearchPaths(searchPaths);
-        
-        if (searchPaths.Count > 0)
-        {
-            Debug.Log($"[OBJ Manager] Set {searchPaths.Count} search paths for OBJ file lookup");
-        }
     }
 
     void ExportObjects(ExportFormat format)
@@ -950,7 +1057,6 @@ public class ObjectTransformManagerWindow : EditorWindow
         
         string json = JsonUtility.ToJson(collection, true);
         File.WriteAllText(filePath, json);
-        Debug.Log($"[OBJ Manager] Exported {objects.Count} objects (with children) to JSON: {filePath}");
     }
 
     void ImportObjects(ExportFormat format)
@@ -1014,21 +1120,33 @@ public class ObjectTransformManagerWindow : EditorWindow
                     {
                         try
                         {
-                            var go = RuntimeObjLoader.LoadObj(objPath);
+                            // 1. 먼저 OBJ 파일 로드 (Transform은 나중에 적용)
+                            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
                             if (go != null)
                             {
-                                // Transform 정보 적용 (로컬 좌표계 사용)
-                                go.transform.position = data.position;
-                                go.transform.eulerAngles = data.rotation;
-                                go.transform.localScale = data.scale;
                                 go.name = data.objectName;
                                 
-                                // MeshRenderer와 Material 확인 및 강제 설정
-                                var meshRenderer = go.GetComponent<MeshRenderer>();
-                                var meshFilter = go.GetComponent<MeshFilter>();
+                                // 경로 정보 저장 (루트와 children 모두)
+                                ObjPathInfo.SetPath(go, objPath);
                                 
-                                if (meshRenderer != null)
+                                // 모든 children에도 경로 저장
+                                Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
+                                foreach (Transform child in allChildren)
                                 {
+                                    if (child != null && child != go.transform && child.gameObject != null)
+                                    {
+                                        ObjPathInfo.SetPath(child.gameObject, objPath);
+                                    }
+                                }
+                                
+                                // MeshRenderer와 Material 확인 및 강제 설정
+                                // 루트와 children 모두 처리
+                                MeshRenderer[] allMeshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
+                                
+                                foreach (var meshRenderer in allMeshRenderers)
+                                {
+                                    if (meshRenderer == null) continue;
+                                    
                                     // Material이 제대로 할당되었는지 확인
                                     if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
                                     {
@@ -1036,7 +1154,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                                         var defaultMat = new Material(Shader.Find("Standard"));
                                         defaultMat.color = Color.white;
                                         meshRenderer.sharedMaterial = defaultMat;
-                                        Debug.Log($"[OBJ Manager] Created default material for '{go.name}'");
                                     }
                                     else
                                     {
@@ -1087,7 +1204,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                                         {
                                             // Material 배열을 다시 할당하여 변경사항 적용
                                             meshRenderer.sharedMaterials = materials;
-                                            Debug.Log($"[OBJ Manager] Fixed materials for '{go.name}' (renderQueue -> Geometry, Surface -> Opaque)");
                                         }
                                     }
                                     
@@ -1099,11 +1215,16 @@ public class ObjectTransformManagerWindow : EditorWindow
                                     #endif
                                 }
                                 
-                                if (meshFilter != null && meshFilter.sharedMesh != null)
+                                // MeshFilter도 처리 (루트와 children 모두)
+                                MeshFilter[] allMeshFilters = go.GetComponentsInChildren<MeshFilter>(true);
+                                foreach (var meshFilter in allMeshFilters)
                                 {
-                                    #if UNITY_EDITOR
-                                    EditorUtility.SetDirty(meshFilter);
-                                    #endif
+                                    if (meshFilter != null && meshFilter.sharedMesh != null)
+                                    {
+                                        #if UNITY_EDITOR
+                                        EditorUtility.SetDirty(meshFilter);
+                                        #endif
+                                    }
                                 }
                                 
                                 // GameObject 활성화 확인
@@ -1131,12 +1252,253 @@ public class ObjectTransformManagerWindow : EditorWindow
                                 }
                                 #endif
                                 
+                                // 2. memo.txt에서 메모 읽기 및 스폰 (기본 anchor 위치)
+                                MemoUtils.MemoData[] memos = null;
+                                try
+                                {
+                                    memos = MemoUtils.FindAndParseMemoFile(objPath);
+                                }
+                                catch (Exception memoEx)
+                                {
+                                    Debug.LogWarning($"[OBJ Manager] Failed to parse memo file for '{go.name}': {memoEx.Message}");
+                                }
+                                
+                                // memo.txt의 메모를 먼저 스폰
+                                int spawnedMemoCount = 0;
+                                if (memos != null && memos.Length > 0)
+                                {
+                                    float unitScale = MemoUtils.GetUnitScale();
+                                    MemoUtils.SpawnMemosAsChildren(go, memos, null, unitScale);
+                                    spawnedMemoCount = memos.Length;
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Spawned {spawnedMemoCount} memo(s) from memo.txt for '{go.name}'");
+                                }
+                                else
+                                {
+                                    Debug.Log($"[OBJ Manager] [DEBUG] No memos found in memo.txt for '{go.name}'");
+                                }
+                                
+                                // 3. JSON의 Transform 정보를 OBJ와 메모에 적용
+                                // OBJ의 Transform 적용
+                                go.transform.position = data.GetPosition();
+                                go.transform.eulerAngles = data.GetRotation();
+                                go.transform.localScale = data.GetScale();
+                                
+                                // JSON의 children에서 메모 Transform 정보 추출
+                                Dictionary<string, (Vector3 position, Quaternion rotation, Vector3 scale)> memoTransforms = new Dictionary<string, (Vector3, Quaternion, Vector3)>();
+                                
+                                if (data.children != null && data.children.Count > 0)
+                                {
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Processing {data.children.Count} children from JSON");
+                                    
+                                    foreach (var childData in data.children)
+                                    {
+                                        // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
+                                        bool isMemoChild = false;
+                                        try
+                                        {
+                                            if (childData.components != null)
+                                            {
+                                                foreach (var compData in childData.components)
+                                                {
+                                                    if (compData.componentType != null && 
+                                                        (compData.componentType.Contains("TextMesh") || 
+                                                         compData.componentType.Contains("UnityEngine.TextMesh")))
+                                                    {
+                                                        isMemoChild = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            // 무시
+                                        }
+                                        
+                                        if (isMemoChild)
+                                        {
+                                            // localPosition을 anchor로 역변환
+                                            Vector3 localPos = childData.position;
+                                            Debug.Log($"[OBJ Manager] [DEBUG] Memo child found: '{childData.objectName}', original position={localPos}");
+                                            
+                                            // Z축 변환 고려
+                                            localPos.z = -localPos.z;
+                                            string anchor = MemoUtils.Vector3ToAnchor(localPos);
+                                            
+                                            // Transform 정보 저장
+                                            memoTransforms[anchor] = (childData.position, Quaternion.Euler(childData.rotation), childData.scale);
+                                            Debug.Log($"[OBJ Manager] [DEBUG] Extracted memo Transform - anchor: '{anchor}', position: {childData.position}, rotation: {childData.rotation}, scale: {childData.scale}");
+                                        }
+                                    }
+                                    
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Extracted {memoTransforms.Count} memo Transform(s) from JSON");
+                                }
+                                else
+                                {
+                                    Debug.Log($"[OBJ Manager] [DEBUG] No children in JSON data");
+                                }
+                                
+                                // 4. 스폰된 메모들에 JSON의 Transform 정보 적용
+                                int appliedTransformCount = 0;
+                                
+                                if (memos != null && memos.Length > 0 && memoTransforms.Count > 0)
+                                {
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Starting Transform application - spawned memos: {spawnedMemoCount}, JSON transforms: {memoTransforms.Count}");
+                                    
+                                    // 스폰된 메모 children 찾기
+                                    List<Transform> spawnedMemoChildren = new List<Transform>();
+                                    foreach (Transform child in go.transform)
+                                    {
+                                        if (child == null || child.gameObject == null)
+                                            continue;
+                                        
+                                        if (child.gameObject.TryGetComponent<TextMesh>(out var textMesh))
+                                        {
+                                            spawnedMemoChildren.Add(child);
+                                        }
+                                    }
+                                    
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Found {spawnedMemoChildren.Count} TextMesh children in scene");
+                                    
+                                    foreach (Transform child in spawnedMemoChildren)
+                                    {
+                                        // 현재 메모의 localPosition을 anchor로 변환
+                                        Vector3 localPos = child.transform.localPosition;
+                                        Debug.Log($"[OBJ Manager] [DEBUG] Processing memo '{child.name}' - current localPosition: {localPos}");
+                                        
+                                        Vector3 posBeforeZFlip = localPos;
+                                        localPos.z = -localPos.z;
+                                        string anchor = MemoUtils.Vector3ToAnchor(localPos);
+                                        
+                                        Debug.Log($"[OBJ Manager] [DEBUG] Memo '{child.name}' - anchor after Z-flip: '{anchor}' (before Z-flip: {MemoUtils.Vector3ToAnchor(posBeforeZFlip)})");
+                                        
+                                        // JSON에서 해당 anchor의 Transform 정보 찾기
+                                        if (memoTransforms.TryGetValue(anchor, out var transformInfo))
+                                        {
+                                            // Transform 정보 적용
+                                            child.transform.localPosition = transformInfo.position;
+                                            child.transform.localEulerAngles = transformInfo.rotation.eulerAngles;
+                                            child.transform.localScale = transformInfo.scale;
+                                            
+                                            appliedTransformCount++;
+                                            Debug.Log($"[OBJ Manager] [DEBUG] ✓ Applied JSON Transform to memo '{child.name}' - anchor: '{anchor}', position: {transformInfo.position}, rotation: {transformInfo.rotation.eulerAngles}, scale: {transformInfo.scale}");
+                                        }
+                                        else
+                                        {
+                                            Debug.Log($"[OBJ Manager] [DEBUG] ✗ No exact match for anchor '{anchor}' in JSON transforms");
+                                            
+                                            // 정확한 매칭 실패 시 거리 기반으로 가장 가까운 Transform 찾기
+                                            float minDistance = float.MaxValue;
+                                            string closestAnchor = null;
+                                            
+                                            foreach (var kvp in memoTransforms)
+                                            {
+                                                Vector3 exportAnchorPos = MemoUtils.ParseAnchor(kvp.Key);
+                                                exportAnchorPos.z = -exportAnchorPos.z;
+                                                
+                                                float distance = Vector3.Distance(localPos, exportAnchorPos);
+                                                if (distance < minDistance)
+                                                {
+                                                    minDistance = distance;
+                                                    closestAnchor = kvp.Key;
+                                                }
+                                            }
+                                            
+                                            Debug.Log($"[OBJ Manager] [DEBUG] Closest anchor: '{closestAnchor}', distance: {minDistance:F6}");
+                                            
+                                            // 거리가 매우 가까우면 (0.01 이하) 매칭
+                                            if (closestAnchor != null && minDistance < 0.01f)
+                                            {
+                                                var transformInfo2 = memoTransforms[closestAnchor];
+                                                child.transform.localPosition = transformInfo2.position;
+                                                child.transform.localEulerAngles = transformInfo2.rotation.eulerAngles;
+                                                child.transform.localScale = transformInfo2.scale;
+                                                
+                                                appliedTransformCount++;
+                                                Debug.Log($"[OBJ Manager] [DEBUG] ✓ Applied JSON Transform by distance - anchor: '{anchor}' matched with '{closestAnchor}', distance: {minDistance:F6}");
+                                            }
+                                            else
+                                            {
+                                                Debug.LogWarning($"[OBJ Manager] [DEBUG] ✗ Failed to match memo '{child.name}' - closest distance: {minDistance:F6} (threshold: 0.01)");
+                                            }
+                                        }
+                                    }
+                                    
+                                    Debug.Log($"[OBJ Manager] [DEBUG] Applied Transform to {appliedTransformCount} out of {spawnedMemoChildren.Count} memo(s)");
+                                }
+                                else
+                                {
+                                    if (memos == null || memos.Length == 0)
+                                    {
+                                        Debug.Log($"[OBJ Manager] [DEBUG] No memos from memo.txt - skipping Transform application");
+                                    }
+                                    if (memoTransforms.Count == 0)
+                                    {
+                                        Debug.Log($"[OBJ Manager] [DEBUG] No memo transforms in JSON - skipping Transform application");
+                                    }
+                                }
+                                
+                                // 5. 메모가 아닌 다른 children 복원 (JSON에서)
+                                if (data.children != null && data.children.Count > 0)
+                                {
+                                    int nonMemoChildrenCount = 0;
+                                    foreach (var childData in data.children)
+                                    {
+                                        // 메모 children인지 확인
+                                        bool isMemoChild = false;
+                                        try
+                                        {
+                                            if (childData.components != null)
+                                            {
+                                                foreach (var compData in childData.components)
+                                                {
+                                                    if (compData.componentType != null && 
+                                                        (compData.componentType.Contains("TextMesh") || 
+                                                         compData.componentType.Contains("UnityEngine.TextMesh")))
+                                                    {
+                                                        isMemoChild = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            // 무시
+                                        }
+                                        
+                                        if (!isMemoChild)
+                                        {
+                                            // 메모가 아닌 children은 복원
+                                            try
+                                            {
+                                                GameObject child = childData.CreateGameObject();
+                                                if (child != null)
+                                                {
+                                                    childData.ApplyToGameObject(child);
+                                                    child.transform.SetParent(go.transform, false);
+                                                    nonMemoChildrenCount++;
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Debug.LogWarning($"[OBJ Manager] Failed to restore non-memo child {childData.objectName}: {ex.Message}");
+                                            }
+                                        }
+                                    }
+                                    
+                                }
+                                
                                 // 관리 목록에 추가
                                 _managedObjects.Add(new ManagedObjItem(go, objPath));
                                 Undo.RegisterCreatedObjectUndo(go, "Import OBJ");
                                 
-                                Debug.Log($"[OBJ Manager] Imported OBJ: '{go.name}' at position {data.position}, rotation {data.rotation}, scale {data.scale}");
                                 successCount++;
+                            }
+                            else
+                            {
+                                Debug.LogError($"[OBJ Manager] LoadObj returned null for: {objPath}");
+                                failCount++;
                             }
                         }
                         catch (Exception ex)
@@ -1164,4 +1526,5 @@ public class ObjectTransformManagerWindow : EditorWindow
         };
     }
 }
+
 

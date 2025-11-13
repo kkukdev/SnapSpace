@@ -27,7 +27,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public string originalPath;  // 원본 파일 경로
         public string retouchedPath;  // 리터치된 파일 경로
         public int scanId;            // 스캔 ID
-        public MemoData[] memos;      // 메모 데이터
+        public MemoUtils.MemoData[] memos;      // 메모 데이터
     }
     
     [Serializable]
@@ -58,16 +58,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public int limit;
     }
 
-    [Serializable]
-    class MemoData
-    {
-        public string type;
-        public string anchor;
-        public string content;
-        public string source;
-        public string file_path;
-        public int file_size;
-    }
+    // MemoData는 이제 MemoUtils.MemoData를 사용
 
     [Serializable]
     class ScanData
@@ -117,9 +108,64 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     {
         EditorGUILayout.Space();
         
-        EditorGUI.BeginChangeCheck();
-        var newConfig = (WatchConfig)EditorGUILayout.ObjectField("WatchConfig", config, typeof(WatchConfig), false);
-        bool configChanged = EditorGUI.EndChangeCheck();
+        // DontSaveInEditor 플래그가 있는 config는 ObjectField에서 문제를 일으킬 수 있으므로
+        // 안전하게 처리
+        WatchConfig safeConfig = null;
+        bool hasDontSaveFlag = false;
+        
+        if (config != null)
+        {
+            try
+            {
+                // Unity 객체가 파괴되었는지 확인
+                if (!config.Equals(null))
+                {
+                    // DontSaveInEditor 플래그 확인
+                    HideFlags flags = config.hideFlags;
+                    hasDontSaveFlag = (flags & HideFlags.DontSaveInEditor) != 0;
+                    
+                    if (!hasDontSaveFlag)
+                    {
+                        // 플래그가 없으면 안전하게 사용 가능
+                        safeConfig = config;
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // config 접근 실패 시 무시
+                safeConfig = null;
+            }
+        }
+        
+        WatchConfig newConfig = null;
+        bool configChanged = false;
+        
+        if (hasDontSaveFlag && config != null)
+        {
+            // DontSaveInEditor 플래그가 있으면 ObjectField 대신 텍스트로만 표시
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("WatchConfig", GUILayout.Width(EditorGUIUtility.labelWidth));
+            EditorGUILayout.LabelField(config.name, EditorStyles.label);
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.HelpBox("현재 WatchConfig는 DontSaveInEditor 플래그가 설정되어 있어 ObjectField에서 표시할 수 없습니다.", MessageType.Info);
+        }
+        else
+        {
+            // 안전한 경우에만 ObjectField 사용
+            try
+            {
+                EditorGUI.BeginChangeCheck();
+                newConfig = (WatchConfig)EditorGUILayout.ObjectField("WatchConfig", safeConfig, typeof(WatchConfig), false);
+                configChanged = EditorGUI.EndChangeCheck();
+            }
+            catch (System.Exception ex)
+            {
+                // ObjectField 사용 중 오류 발생 시 안전하게 처리
+                Debug.LogWarning($"[ObjDropWatcher] ObjectField error: {ex.Message}");
+                EditorGUILayout.HelpBox($"WatchConfig 표시 중 오류가 발생했습니다: {ex.Message}", MessageType.Warning);
+            }
+        }
         
         if (configChanged)
         {
@@ -153,6 +199,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             try
             {
+                // DontSaveInEditor 플래그가 있어도 값 읽기는 가능
                 cachedApiUrl = config.apiServerUrl;
                 cachedScanDebounce = config.scanDebounceMs;
                 cachedObjPatterns = config.objPatterns;
@@ -863,7 +910,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             }
                             
                             // memos는 항상 original path의 파일에서 직접 읽어옴
-                            MemoData[] memos = new MemoData[0];
+                            MemoUtils.MemoData[] memos = new MemoUtils.MemoData[0];
                             
                             // original path의 디렉토리에서 memo.txt 파일 찾기
                             string memoFolderPath = null;
@@ -903,7 +950,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 {
                                     try
                                     {
-                                        memos = ParseMemoFile(memoFilePath);
+                                        memos = MemoUtils.ParseMemoFile(memoFilePath);
                                         if (memos != null && memos.Length > 0)
                                         {
                                             Debug.Log($"[ObjDropWatcher] Loaded {memos.Length} memo(s) from file: {memoFilePath}");
@@ -999,165 +1046,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         EditorApplication.delayCall += Repaint;
     }
 
-    /// <summary>
-    /// memo.txt 파일을 읽어서 파싱합니다.
-    /// 파일 형식: [anchor]content 형태
-    /// 예: [x:0.80,y:1.43,z:0.13]이용하
-    /// </summary>
-    MemoData[] ParseMemoFile(string filePath)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-                return new MemoData[0];
-
-            // 파일 읽기 (UTF-8 또는 CP949 인코딩 시도)
-            string content = null;
-            try
-            {
-                content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
-            }
-            catch (Exception)
-            {
-                try
-                {
-                    content = File.ReadAllText(filePath, System.Text.Encoding.GetEncoding(949)); // CP949
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning($"[ObjDropWatcher] Failed to read memo file with UTF-8 and CP949: {ex.Message}");
-                    return new MemoData[0];
-                }
-            }
-
-            if (string.IsNullOrEmpty(content))
-                return new MemoData[0];
-
-            content = content.Trim();
-            if (string.IsNullOrEmpty(content))
-                return new MemoData[0];
-
-            // 백엔드와 동일한 파싱 로직: 대괄호 패턴 찾기 [anchor]content
-            List<MemoData> memos = new List<MemoData>();
-            System.Text.RegularExpressions.Regex pattern = new System.Text.RegularExpressions.Regex(@"\[([^\]]+)\]");
-            var matches = pattern.Matches(content);
-
-            if (matches.Count == 0)
-            {
-                // 대괄호가 없으면 전체 내용을 빈 anchor로 저장
-                if (!string.IsNullOrEmpty(content.Trim()))
-                {
-                    memos.Add(new MemoData
-                    {
-                        type = "text",
-                        anchor = "",
-                        content = content.Trim(),
-                        source = Path.GetFileName(filePath),
-                        file_path = filePath,
-                        file_size = (int)new FileInfo(filePath).Length
-                    });
-                }
-            }
-            else
-            {
-                // 각 대괄호 구간 처리
-                for (int i = 0; i < matches.Count; i++)
-                {
-                    var match = matches[i];
-                    string anchor = match.Groups[1].Value.Trim();
-
-                    // 현재 대괄호의 끝 위치
-                    int startPos = match.Index + match.Length;
-
-                    // 다음 대괄호의 시작 위치 (마지막이면 파일 끝)
-                    int endPos = (i + 1 < matches.Count) 
-                        ? matches[i + 1].Index 
-                        : content.Length;
-
-                    // value 추출 (대괄호 다음부터 다음 대괄호 전까지)
-                    string value = content.Substring(startPos, endPos - startPos).Trim();
-
-                    // 같은 anchor가 이미 있으면 기존 content 뒤에 추가
-                    var existingMemo = memos.FirstOrDefault(m => m.anchor == anchor);
-                    if (existingMemo != null)
-                    {
-                        existingMemo.content += "\n\n" + value;
-                    }
-                    else
-                    {
-                        memos.Add(new MemoData
-                        {
-                            type = "text",
-                            anchor = anchor,
-                            content = value,
-                            source = Path.GetFileName(filePath),
-                            file_path = filePath,
-                            file_size = (int)new FileInfo(filePath).Length
-                        });
-                    }
-                }
-            }
-
-            return memos.ToArray();
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"[ObjDropWatcher] Failed to parse memo file {filePath}: {ex.Message}");
-            return new MemoData[0];
-        }
-    }
-
-    /// <summary>
-    /// anchor 문자열을 Vector3로 파싱합니다.
-    /// 예: "x:0.80,y:1.43,z:0.13" -> Vector3(0.80f, 1.43f, 0.13f)
-    /// </summary>
-    Vector3 ParseAnchor(string anchor)
-    {
-        if (string.IsNullOrEmpty(anchor))
-            return Vector3.zero;
-
-        Vector3 result = Vector3.zero;
-        
-        try
-        {
-            // "x:0.80,y:1.43,z:0.13" 형식 파싱
-            string[] parts = anchor.Split(',');
-            foreach (string part in parts)
-            {
-                string trimmed = part.Trim();
-                if (trimmed.StartsWith("x:", StringComparison.OrdinalIgnoreCase))
-                {
-                    string value = trimmed.Substring(2).Trim();
-                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x))
-                    {
-                        result.x = x;
-                    }
-                }
-                else if (trimmed.StartsWith("y:", StringComparison.OrdinalIgnoreCase))
-                {
-                    string value = trimmed.Substring(2).Trim();
-                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y))
-                    {
-                        result.y = y;
-                    }
-                }
-                else if (trimmed.StartsWith("z:", StringComparison.OrdinalIgnoreCase))
-                {
-                    string value = trimmed.Substring(2).Trim();
-                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z))
-                    {
-                        result.z = z;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogWarning($"[ObjDropWatcher] Failed to parse anchor '{anchor}': {ex.Message}");
-        }
-        
-        return result;
-    }
+    // ParseMemoFile과 ParseAnchor는 이제 MemoUtils를 사용
 
     /// <summary>
     /// objPatterns 설정에 따라 폴더에서 메시 파일을 찾습니다.
@@ -1292,7 +1181,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return apiPath;
     }
 
-    void Spawn(string meshPath, MemoData[] memos = null)
+    void Spawn(string meshPath, MemoUtils.MemoData[] memos = null)
     {
         try
         {
@@ -1497,7 +1386,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // memos가 있으면 GameObject의 자식으로 텍스트 표시
             if (memos != null && memos.Length > 0)
             {
-                SpawnMemosAsChildren(go, memos, unitScale);
+                MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
             }
         }
         catch (Exception ex)
@@ -1633,57 +1522,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         }
     }
 
-    /// <summary>
-    /// memos를 메시 GameObject의 자식으로 생성합니다.
-    /// 메모의 좌표는 메시의 로컬 좌표계를 사용합니다.
-    /// </summary>
-    void SpawnMemosAsChildren(GameObject parentObj, MemoData[] memos, float unitScale)
-    {
-        if (memos == null || memos.Length == 0 || parentObj == null)
-            return;
-
-        int memoCount = 0;
-        foreach (var memo in memos)
-        {
-            if (memo == null)
-                continue;
-            
-            // type이 "text"인 경우만 표시
-            if (memo.type != "text")
-                continue;
-            
-            // anchor 좌표 파싱 (OBJ 파일의 원본 좌표, 예: mm 단위)
-            Vector3 anchorPosition = ParseAnchor(memo.anchor);
-            
-            // RuntimeObjLoader는 OBJ 파일의 버텍스를 로드할 때 Z축을 뒤집습니다 (오른손→왼손 좌표계 변환)
-            // 메모의 anchor 좌표도 같은 변환을 적용해야 OBJ 메시와 일치합니다.
-            // OBJ 파일: (x, y, z) → RuntimeObjLoader: (x, y, -z)
-            anchorPosition.z = -anchorPosition.z;
-            
-            // 메모는 메시 GameObject의 자식이므로 로컬 좌표계를 사용합니다.
-            // 메시 GameObject에 unitScale (예: 1000)이 적용되어 있으므로,
-            // 메모의 로컬 좌표는 파일의 원본 좌표(변환 후)를 그대로 사용하면 됩니다.
-            // 메시 GameObject의 스케일이 자동으로 적용되어 올바른 위치에 표시됩니다.
-            // 
-            // 예시 (OBJ 파일의 경우):
-            // - OBJ 파일 원본 좌표: (0.80mm, 1.43mm, 0.13mm)
-            // - Z축 변환 후: (0.80mm, 1.43mm, -0.13mm)  <- RuntimeObjLoader와 동일한 변환
-            // - 메모 로컬 좌표: (0.80, 1.43, -0.13)
-            // - 메시 GameObject 스케일: (1000, 1000, 1000)
-            // - 결과: 메모가 메시와 같은 위치에 표시됨 (메시의 스케일이 자동 적용)
-            // 
-            // 주의: unitScale을 곱하지 않음 (메모가 메시의 자식이므로 메시의 스케일을 상속받음)
-            
-            // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
-            Create3DTextAsChild(parentObj, memo.content, anchorPosition);
-            memoCount++;
-        }
-        
-        if (memoCount > 0)
-        {
-            Debug.Log($"[ObjDropWatcher] Spawned {memoCount} text memo(s) as children of mesh object");
-        }
-    }
+    // SpawnMemosAsChildren은 이제 MemoUtils.SpawnMemosAsChildren을 사용
 
     /// <summary>
     /// GameObject와 그 모든 자식에서 메시 버텍스의 Y 좌표 최솟값을 찾습니다.
@@ -1752,42 +1591,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return minY;
     }
 
-    /// <summary>
-    /// 메시 GameObject의 자식으로 3D 텍스트를 생성합니다.
-    /// 위치는 부모 객체의 로컬 좌표계를 사용합니다.
-    /// </summary>
-    void Create3DTextAsChild(GameObject parentObj, string text, Vector3 localPosition)
-    {
-        try
-        {
-            // TextMesh를 사용하여 3D 텍스트 생성
-            GameObject textObject = new GameObject($"Memo_{text.Substring(0, Math.Min(text.Length, 10))}");
-            Undo.RegisterCreatedObjectUndo(textObject, "Create 3D Text Memo");
-            
-            // 부모 객체의 자식으로 설정
-            textObject.transform.SetParent(parentObj.transform, false);
-            
-            // 로컬 위치 설정 (부모 객체의 로컬 좌표계)
-            textObject.transform.localPosition = localPosition;
-            textObject.transform.localRotation = Quaternion.identity;
-            textObject.transform.localScale = Vector3.one; // 부모의 스케일을 상속받음
-            
-            // TextMesh 컴포넌트 추가
-            TextMesh textMesh = textObject.AddComponent<TextMesh>();
-            textMesh.text = text;
-            textMesh.fontSize = 20;
-            textMesh.characterSize = 0.1f; // 텍스트 크기 (부모 스케일과 함께 적용됨)
-            textMesh.anchor = TextAnchor.MiddleCenter;
-            textMesh.alignment = TextAlignment.Center;
-            textMesh.color = Color.yellow; // 노란색으로 표시
-            
-            Debug.Log($"[ObjDropWatcher] Created 3D text memo as child at local position {localPosition}: {text}");
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"[ObjDropWatcher] Failed to create 3D text memo as child: {ex.Message}");
-        }
-    }
+    // Create3DTextAsChild는 이제 MemoUtils.Create3DTextAsChild를 사용
 
 
     void MarkConfigDirty()

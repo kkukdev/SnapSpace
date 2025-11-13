@@ -32,6 +32,16 @@ public static class RuntimeObjLoader
     static readonly Dictionary<string, Texture2D> _texCache = new();
 
     // -------------------------
+    // Internal data structures for object/group handling
+    // -------------------------
+    class ObjectGroup
+    {
+        public string name;
+        public List<Face> faces = new();
+        public string currentMtl;
+    }
+
+    // -------------------------
     // Public entry
     // -------------------------
     public static GameObject LoadObj(string objPath, bool preserveOriginalCoordinates = false)
@@ -45,7 +55,10 @@ public static class RuntimeObjLoader
         var V = new List<Vector3>();
         var VT = new List<Vector2>();
         var VN = new List<Vector3>();
-        var faces = new List<Face>();
+        
+        // 객체/그룹별로 faces를 분리하여 저장
+        var objectGroups = new List<ObjectGroup>();
+        ObjectGroup currentGroup = null;
 
         var mtlLibPaths = new List<string>();
         string currentMtl = null;
@@ -75,8 +88,20 @@ public static class RuntimeObjLoader
                 }
                 case "usemtl":
                     currentMtl = tail.Trim().Trim('"');
+                    if (currentGroup != null) currentGroup.currentMtl = currentMtl;
                     Debug.Log($"[OBJ] usemtl: '{currentMtl}'");
                     break;
+
+                case "o":  // object 명령어
+                case "g":  // group 명령어
+                {
+                    // 새로운 객체/그룹 시작
+                    string groupName = string.IsNullOrEmpty(tail) ? "default" : tail.Trim();
+                    currentGroup = new ObjectGroup { name = groupName, currentMtl = currentMtl };
+                    objectGroups.Add(currentGroup);
+                    Debug.Log($"[OBJ] {(head == "o" ? "Object" : "Group")}: '{groupName}'");
+                    break;
+                }
 
                 case "v":
                 {
@@ -103,7 +128,14 @@ public static class RuntimeObjLoader
                 }
                 case "f":
                 {
-                    var f = new Face { mat = currentMtl };
+                    // 현재 그룹이 없으면 기본 그룹 생성
+                    if (currentGroup == null)
+                    {
+                        currentGroup = new ObjectGroup { name = "default", currentMtl = currentMtl };
+                        objectGroups.Add(currentGroup);
+                    }
+                    
+                    var f = new Face { mat = currentGroup.currentMtl ?? currentMtl };
                     var tokens = tail.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var tok in tokens)
                     {
@@ -115,18 +147,35 @@ public static class RuntimeObjLoader
                         if (fields.Length >= 3 && !string.IsNullOrEmpty(fields[2])) vn = ParseIndex(fields[2], VN.Count);
                         f.poly.Add(new Idx { v = v, vt = vt, vn = vn });
                     }
-                    if (f.poly.Count >= 3) faces.Add(f);
+                    if (f.poly.Count >= 3) currentGroup.faces.Add(f);
                     break;
                 }
             }
         }
+        
+        // 객체/그룹이 없으면 모든 faces를 기본 그룹으로 처리 (하위 호환성)
+        // 주의: currentGroup이 null이면 faces가 파싱되지 않았을 수 있음
+        // 하지만 파싱 중에 currentGroup이 null이면 자동으로 생성되므로, 
+        // objectGroups가 비어있다는 것은 faces도 없다는 의미일 수 있음
+        if (objectGroups.Count == 0)
+        {
+            Debug.LogWarning("[OBJ] No 'o' or 'g' commands found, and no faces were parsed. This might indicate an empty or invalid OBJ file.");
+        }
 
-        var facesWithMat = faces.FindAll(f => !string.IsNullOrEmpty(f.mat));
-        Debug.Log($"[OBJ] Total faces: {faces.Count}, mtllib count: {mtlLibPaths.Count}, faces with usemtl: {facesWithMat.Count}");
+        // 전체 faces 수집 (로깅용)
+        var allFaces = new List<Face>();
+        foreach (var group in objectGroups)
+        {
+            allFaces.AddRange(group.faces);
+        }
+        
+        var facesWithMat = allFaces.FindAll(f => !string.IsNullOrEmpty(f.mat));
+        int totalFaces = allFaces.Count;
+        Debug.Log($"[OBJ] Total object groups: {objectGroups.Count}, total faces: {totalFaces}, mtllib count: {mtlLibPaths.Count}, faces with usemtl: {facesWithMat.Count}");
         
         // usemtl 사용된 메터리얼 이름 목록
         var usedMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in faces)
+        foreach (var f in allFaces)
         {
             if (!string.IsNullOrEmpty(f.mat))
                 usedMaterials.Add(f.mat);
@@ -147,15 +196,19 @@ public static class RuntimeObjLoader
         }
 
         // -------- Fallback material when no 'usemtl' --------
-        bool anyUseMtl = faces.Exists(f => !string.IsNullOrEmpty(f.mat));
+        bool anyUseMtl = allFaces.Exists(f => !string.IsNullOrEmpty(f.mat));
         if (!anyUseMtl && mtlDict.Count > 0)
         {
             string fallback = PickFallbackMaterialName(mtlDict);
-            foreach (var f in faces) f.mat = fallback;
+            foreach (var group in objectGroups)
+            {
+                foreach (var f in group.faces) f.mat = fallback;
+            }
             Debug.Log($"[OBJ] No usemtl → applied fallback material '{fallback}' to all faces.");
         }
 
         // -------- Build Mesh (submeshes by material) --------
+        // 모든 그룹의 faces를 하나의 메시로 통합 (기존 동작 유지)
         var outVerts = new List<Vector3>();
         var outUVs = new List<Vector2>();
         var outNorms = new List<Vector3>();
@@ -174,31 +227,35 @@ public static class RuntimeObjLoader
             }
         }
 
-        foreach (var face in faces)
+        // 모든 그룹의 faces를 하나로 통합
+        foreach (var group in objectGroups)
         {
-            EnsureMat(face.mat);
-            var tris = submeshTris[string.IsNullOrEmpty(face.mat) ? "_default" : face.mat];
-
-            // fan-triangulation: (0, i, i+1)
-            // Z축 뒤집기로 인해 와인딩 순서 반전 필요
-            for (int i = 1; i < face.poly.Count - 1; i++)
+            foreach (var face in group.faces)
             {
-                // 순서 반전: [0, i+1, i]
-                var tri = new[] { face.poly[0], face.poly[i + 1], face.poly[i] };
-                foreach (var idx in tri)
+                EnsureMat(face.mat);
+                var tris = submeshTris[string.IsNullOrEmpty(face.mat) ? "_default" : face.mat];
+
+                // fan-triangulation: (0, i, i+1)
+                // Z축 뒤집기로 인해 와인딩 순서 반전 필요
+                for (int i = 1; i < face.poly.Count - 1; i++)
                 {
-                    int ni = outVerts.Count;
-                    outVerts.Add(V[idx.v]);
+                    // 순서 반전: [0, i+1, i]
+                    var tri = new[] { face.poly[0], face.poly[i + 1], face.poly[i] };
+                    foreach (var idx in tri)
+                    {
+                        int ni = outVerts.Count;
+                        outVerts.Add(V[idx.v]);
 
-                    // UV 안전 처리
-                    if (idx.vt >= 0 && idx.vt < VT.Count) outUVs.Add(VT[idx.vt]);
-                    else outUVs.Add(Vector2.zero);
+                        // UV 안전 처리
+                        if (idx.vt >= 0 && idx.vt < VT.Count) outUVs.Add(VT[idx.vt]);
+                        else outUVs.Add(Vector2.zero);
 
-                    // Normal 안전 처리
-                    if (idx.vn >= 0 && idx.vn < VN.Count) outNorms.Add(VN[idx.vn]);
-                    else outNorms.Add(Vector3.zero);
+                        // Normal 안전 처리
+                        if (idx.vn >= 0 && idx.vn < VN.Count) outNorms.Add(VN[idx.vn]);
+                        else outNorms.Add(Vector3.zero);
 
-                    tris.Add(ni);
+                        tris.Add(ni);
+                    }
                 }
             }
         }

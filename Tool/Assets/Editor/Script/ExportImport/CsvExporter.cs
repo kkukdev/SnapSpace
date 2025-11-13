@@ -49,10 +49,6 @@ namespace ObjDropWatcher.ExportImport
                         continue;
                     }
                     
-                    var pos = data.position;
-                    var rot = data.rotation;
-                    var scale = data.scale;
-                    
                     // CSV 이스케이프 처리
                     string name = EscapeCsvField(data.objectName);
                     string path = EscapeCsvField(data.objFilePath ?? "");
@@ -60,15 +56,15 @@ namespace ObjDropWatcher.ExportImport
                     string primitive = EscapeCsvField(data.primitiveType ?? "");
                     
                     sb.AppendLine($"{name}," +
-                        $"{pos.x.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{pos.y.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{pos.z.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{rot.x.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{rot.y.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{rot.z.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{scale.x.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{scale.y.ToString(CultureInfo.InvariantCulture)}," +
-                        $"{scale.z.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.positionX.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.positionY.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.positionZ.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.rotationX.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.rotationY.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.rotationZ.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.scaleX.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.scaleY.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{data.scaleZ.ToString(CultureInfo.InvariantCulture)}," +
                         $"{path}," +
                         $"{objType}," +
                         $"{primitive}");
