@@ -13,6 +13,8 @@ WEBSOCKET_MAX_RECONNECT_ATTEMPTS=(웹소켓 최대 연결 횟수)
 NETWORK_STORAGE_BASE=(공유폴더 주소)
 UPLOADS_DIRECTORY=(uploads 폴더 주소)
 OUTPUTS_DIRECTORY=(outputs 폴더 주소)
+
+LOCAL_TEMP_DIR='./temp'
 MAX_CONCURRENT_TASKS=(파이프라인 동시 동작 최대 횟수)
 MAX_RETRY_ATTEMPTS=(파이프라인 재시도 동작 횟수)
 PROCESSING_TIMEOUT=(파이프라인 타임아웃 시간)
@@ -22,6 +24,9 @@ LOG_FILE=logs/ai_server.log
 
 HOST=(AI 서버 호스트 IP주소)
 PORT=(AI 서버 포트 번호)
+
+BLENDER_EXECUTABLE=(Blender.exe 실행 파일 위치)
+KEEP_TEXTURE_TEMP_ARTIFACTS=(파이프라인 작동 중에 temp 파일 보존 여부 true/false)
 ```
 
 ### 가상 환경 설정
