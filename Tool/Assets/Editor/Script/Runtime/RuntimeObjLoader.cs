@@ -34,7 +34,7 @@ public static class RuntimeObjLoader
     // -------------------------
     // Public entry
     // -------------------------
-    public static GameObject LoadObj(string objPath)
+    public static GameObject LoadObj(string objPath, bool preserveOriginalCoordinates = false)
     {
         if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
             throw new FileNotFoundException("OBJ not found", objPath);
@@ -204,7 +204,8 @@ public static class RuntimeObjLoader
         }
 
         // -------- Pivot Adjustment (align lowest Y to 0) --------
-        if (outVerts.Count > 0)
+        // preserveOriginalCoordinates가 true이면 원본 좌표 시스템을 유지 (pivot adjustment 비활성화)
+        if (!preserveOriginalCoordinates && outVerts.Count > 0)
         {
             float minY = float.PositiveInfinity;
             for (int i = 0; i < outVerts.Count; i++)
@@ -218,6 +219,10 @@ public static class RuntimeObjLoader
 
                 Debug.Log($"[Pivot] Shifted vertices by {offset} to align lowest Y ({minY}) with 0.");
             }
+        }
+        else if (preserveOriginalCoordinates)
+        {
+            Debug.Log($"[Pivot] Preserving original OBJ coordinates (pivot adjustment disabled).");
         }
 
         var go = new GameObject(Path.GetFileNameWithoutExtension(objPath));

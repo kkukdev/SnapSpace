@@ -26,6 +26,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public string originalPath;  // 원본 파일 경로
         public string retouchedPath;  // 리터치된 파일 경로
         public int scanId;            // 스캔 ID
+        public MemoData[] memos;      // 메모 데이터
     }
     
     [Serializable]
@@ -57,6 +58,17 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     }
 
     [Serializable]
+    class MemoData
+    {
+        public string type;
+        public string anchor;
+        public string content;
+        public string source;
+        public string file_path;
+        public int file_size;
+    }
+
+    [Serializable]
     class ScanData
     {
         public int scan_id;
@@ -66,6 +78,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public string retouched_file_path;
         public string created_at;
         public string updated_at;
+        // memos는 파일에서 직접 읽어오므로 API 응답에서는 제외
     }
 
     [Serializable]
@@ -357,7 +370,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (File.Exists(it.originalPath))
                         {
-                            Spawn(it.originalPath);
+                            Spawn(it.originalPath, it.memos);
                         }
                         else
                         {
@@ -376,7 +389,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (File.Exists(it.retouchedPath))
                         {
-                            Spawn(it.retouchedPath);
+                            Spawn(it.retouchedPath, it.memos);
                         }
                         else
                         {
@@ -384,6 +397,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         }
                     }
                     EditorGUILayout.EndHorizontal();
+                }
+                
+                // Memos 정보 표시
+                if (it.memos != null && it.memos.Length > 0)
+                {
+                    int textMemosCount = it.memos.Count(m => m != null && m.type == "text");
+                    if (textMemosCount > 0)
+                    {
+                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. OBJ를 Import하면 3D 공간에 표시됩니다.", MessageType.Info);
+                    }
                 }
                 
                 // 둘 다 없는 경우 (이론적으로는 발생하지 않아야 함)
@@ -444,6 +467,15 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         // API URL 정규화 (끝에 슬래시 제거)
         apiUrl = apiUrl.TrimEnd('/');
         
+        // HTTP URL인 경우 Unity의 보안 설정 확인
+        bool isHttp = apiUrl.StartsWith("http://", System.StringComparison.OrdinalIgnoreCase);
+        if (isHttp)
+        {
+            // Unity 2021.2 이상에서는 HTTP 연결이 기본적으로 차단됨
+            // 개발 환경에서는 HTTP를 허용하도록 설정 필요
+            // 또는 CertificateHandler를 설정하여 HTTP 연결 허용 (보안 위험, 개발용)
+        }
+        
         // WatchConfig에서 엔드포인트 경로 가져오기
         string groupsEndpointPath = config.groupsEndpoint ?? "/api/v1/groups/";
         if (!groupsEndpointPath.StartsWith("/"))
@@ -456,12 +488,64 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         ScheduleRepaint();
         
         // UnityWebRequest를 사용하여 비동기 요청
-        _pendingRequest = UnityWebRequest.Get(groupsEndpoint);
-        _pendingRequest.SetRequestHeader("Content-Type", "application/json");
-        _pendingRequest.SendWebRequest();
-        
-        // EditorApplication.update를 사용하여 요청 완료 대기
-        EditorApplication.update += CheckPendingRequest;
+        try
+        {
+            _pendingRequest = UnityWebRequest.Get(groupsEndpoint);
+            _pendingRequest.SetRequestHeader("Content-Type", "application/json");
+            
+            // HTTP 연결 허용을 위한 CertificateHandler 설정 (개발 환경용)
+            if (isHttp)
+            {
+                // HTTP 연결을 허용하기 위해 CertificateHandler 설정
+                // 보안 위험이 있으므로 개발 환경에서만 사용
+                _pendingRequest.certificateHandler = new BypassCertificateHandler();
+            }
+            
+            _pendingRequest.SendWebRequest();
+            
+            // EditorApplication.update를 사용하여 요청 완료 대기
+            EditorApplication.update += CheckPendingRequest;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Unity 2021.2 이상에서 HTTP 연결이 차단된 경우
+            if (ex.Message.Contains("Insecure connection not allowed") || ex.Message.Contains("insecure"))
+            {
+                _isLoadingGroups = false;
+                _pendingRequest?.Dispose();
+                _pendingRequest = null;
+                
+                string errorMessage = $"HTTP 연결이 차단되었습니다.\n\n" +
+                                    $"Unity Editor에서 HTTP 연결을 허용하려면:\n" +
+                                    $"Edit > Project Settings > Player > Other Settings > " +
+                                    $"Allow downloads over HTTP 옵션을 활성화하세요.\n\n" +
+                                    $"또는 HTTPS를 사용하는 것이 권장됩니다.\n\n" +
+                                    $"서버 URL: {apiUrl}";
+                
+                EditorUtility.DisplayDialog("HTTP 연결 차단", errorMessage, "OK");
+                Debug.LogError($"[ObjDropWatcher] HTTP connection blocked: {ex.Message}");
+            }
+            else
+            {
+                _isLoadingGroups = false;
+                _pendingRequest?.Dispose();
+                _pendingRequest = null;
+                
+                EditorUtility.DisplayDialog("요청 오류", $"요청 전송 실패: {ex.Message}", "OK");
+                Debug.LogError($"[ObjDropWatcher] Request failed: {ex.Message}");
+            }
+            ScheduleRepaint();
+        }
+        catch (Exception ex)
+        {
+            _isLoadingGroups = false;
+            _pendingRequest?.Dispose();
+            _pendingRequest = null;
+            
+            EditorUtility.DisplayDialog("요청 오류", $"예기치 않은 오류가 발생했습니다: {ex.Message}", "OK");
+            Debug.LogError($"[ObjDropWatcher] Unexpected error: {ex.Message}\nStack trace: {ex.StackTrace}");
+            ScheduleRepaint();
+        }
     }
     
     void RefreshGroupScans(int groupId)
@@ -503,6 +587,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         // API URL 정규화 (끝에 슬래시 제거)
         apiUrl = apiUrl.TrimEnd('/');
         
+        // HTTP URL인 경우 Unity의 보안 설정 확인
+        bool isHttp = apiUrl.StartsWith("http://", System.StringComparison.OrdinalIgnoreCase);
+        
         // WatchConfig에서 엔드포인트 경로 가져오기
         string groupScansEndpointPath = config.groupScansEndpoint ?? "/api/v1/groups/{group_id}/scans";
         if (!groupScansEndpointPath.StartsWith("/"))
@@ -516,12 +603,64 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         ScheduleRepaint();
         
         // UnityWebRequest를 사용하여 비동기 요청
-        _pendingRequest = UnityWebRequest.Get(groupScansEndpoint);
-        _pendingRequest.SetRequestHeader("Content-Type", "application/json");
-        _pendingRequest.SendWebRequest();
-        
-        // EditorApplication.update를 사용하여 요청 완료 대기
-        EditorApplication.update += CheckPendingScansRequest;
+        try
+        {
+            _pendingRequest = UnityWebRequest.Get(groupScansEndpoint);
+            _pendingRequest.SetRequestHeader("Content-Type", "application/json");
+            
+            // HTTP 연결 허용을 위한 CertificateHandler 설정 (개발 환경용)
+            if (isHttp)
+            {
+                // HTTP 연결을 허용하기 위해 CertificateHandler 설정
+                // 보안 위험이 있으므로 개발 환경에서만 사용
+                _pendingRequest.certificateHandler = new BypassCertificateHandler();
+            }
+            
+            _pendingRequest.SendWebRequest();
+            
+            // EditorApplication.update를 사용하여 요청 완료 대기
+            EditorApplication.update += CheckPendingScansRequest;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Unity 2021.2 이상에서 HTTP 연결이 차단된 경우
+            if (ex.Message.Contains("Insecure connection not allowed") || ex.Message.Contains("insecure"))
+            {
+                _isLoadingScans = false;
+                _pendingRequest?.Dispose();
+                _pendingRequest = null;
+                
+                string errorMessage = $"HTTP 연결이 차단되었습니다.\n\n" +
+                                    $"Unity Editor에서 HTTP 연결을 허용하려면:\n" +
+                                    $"Edit > Project Settings > Player > Other Settings > " +
+                                    $"Allow downloads over HTTP 옵션을 활성화하세요.\n\n" +
+                                    $"또는 HTTPS를 사용하는 것이 권장됩니다.\n\n" +
+                                    $"서버 URL: {apiUrl}";
+                
+                EditorUtility.DisplayDialog("HTTP 연결 차단", errorMessage, "OK");
+                Debug.LogError($"[ObjDropWatcher] HTTP connection blocked: {ex.Message}");
+            }
+            else
+            {
+                _isLoadingScans = false;
+                _pendingRequest?.Dispose();
+                _pendingRequest = null;
+                
+                EditorUtility.DisplayDialog("요청 오류", $"요청 전송 실패: {ex.Message}", "OK");
+                Debug.LogError($"[ObjDropWatcher] Request failed: {ex.Message}");
+            }
+            ScheduleRepaint();
+        }
+        catch (Exception ex)
+        {
+            _isLoadingScans = false;
+            _pendingRequest?.Dispose();
+            _pendingRequest = null;
+            
+            EditorUtility.DisplayDialog("요청 오류", $"예기치 않은 오류가 발생했습니다: {ex.Message}", "OK");
+            Debug.LogError($"[ObjDropWatcher] Unexpected error: {ex.Message}\nStack trace: {ex.StackTrace}");
+            ScheduleRepaint();
+        }
     }
     
     void CheckPendingRequest()
@@ -567,7 +706,53 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             else
             {
                 Debug.LogError($"[ObjDropWatcher] API request failed: {_pendingRequest.error}");
-                EditorUtility.DisplayDialog("요청 실패", $"API 요청 실패: {_pendingRequest.error}", "OK");
+                
+                // 서버 응답이 없는 경우 (서버가 꺼져있거나 연결할 수 없는 경우)
+                string errorMessage = _pendingRequest.error;
+                string dialogTitle = "요청 실패";
+                string dialogMessage = $"API 요청 실패: {errorMessage}";
+                
+                // ConnectionError인 경우 서버가 꺼져있을 가능성을 알림
+                if (_pendingRequest.result == UnityWebRequest.Result.ConnectionError)
+                {
+                    dialogTitle = "서버 연결 실패";
+                    string apiUrl = "";
+                    try
+                    {
+                        if (config != null)
+                        {
+                            apiUrl = config.apiServerUrl ?? "";
+                        }
+                    }
+                    catch (System.Exception)
+                    {
+                        // config 접근 실패 시 무시
+                    }
+                    
+                    if (!string.IsNullOrEmpty(apiUrl))
+                    {
+                        dialogMessage = $"API 서버에 연결할 수 없습니다.\n\n" +
+                                      $"서버 URL: {apiUrl}\n" +
+                                      $"오류: {errorMessage}\n\n" +
+                                      $"서버가 실행 중인지 확인하세요.";
+                    }
+                    else
+                    {
+                        dialogMessage = $"API 서버에 연결할 수 없습니다.\n\n" +
+                                      $"오류: {errorMessage}\n\n" +
+                                      $"서버가 실행 중인지 확인하세요.";
+                    }
+                }
+                else if (_pendingRequest.result == UnityWebRequest.Result.ProtocolError)
+                {
+                    dialogTitle = "API 오류";
+                    long responseCode = _pendingRequest.responseCode;
+                    dialogMessage = $"API 서버에서 오류가 발생했습니다.\n\n" +
+                                  $"HTTP 상태 코드: {responseCode}\n" +
+                                  $"오류: {errorMessage}";
+                }
+                
+                EditorUtility.DisplayDialog(dialogTitle, dialogMessage, "OK");
             }
             
             _pendingRequest.Dispose();
@@ -593,6 +778,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     string jsonResponse = _pendingRequest.downloadHandler.text;
                     Debug.Log($"[ObjDropWatcher] Scans API Response: {jsonResponse}");
                     
+                    // 기본 응답 구조 파싱 (memos는 파일에서 직접 읽어옴)
                     GroupScansResponse response = JsonUtility.FromJson<GroupScansResponse>(jsonResponse);
                     
                     if (response != null && response.success && response.data != null)
@@ -601,91 +787,173 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         
                         foreach (var scan in response.data)
                         {
-                            // original_file_path와 retouched_file_path는 폴더 경로를 반환함
-                            // 폴더 안에서 .obj 파일을 찾아야 함
+                            // original_file_path와 retouched_file_path는 파일 경로 또는 폴더 경로일 수 있음
+                            // 파일 경로인 경우 그대로 사용, 폴더 경로인 경우 폴더 안에서 .obj 파일을 찾음
                             string originalPath = null;
                             string retouchedPath = null;
                             
-                            // 원본 폴더 경로 처리
+                            // 원본 파일 경로 처리
                             if (!string.IsNullOrEmpty(scan.original_file_path))
                             {
                                 // /project_root/ 부분을 실제 projectRoot 경로로 치환
-                                string folderPath = ReplaceProjectRootInPath(scan.original_file_path);
+                                string convertedPath = ReplaceProjectRootInPath(scan.original_file_path);
                                 
-                                // 폴더가 존재하는지 확인
-                                if (Directory.Exists(folderPath))
+                                // 파일인지 폴더인지 확인
+                                if (File.Exists(convertedPath))
                                 {
-                                    // 폴더 안에서 .obj 파일 찾기
-                                    string[] objFiles = Directory.GetFiles(folderPath, "*.obj", SearchOption.TopDirectoryOnly);
+                                    // 파일 경로인 경우
+                                    originalPath = convertedPath;
+                                    Debug.Log($"[ObjDropWatcher] Found original file: {originalPath}");
+                                }
+                                else if (Directory.Exists(convertedPath))
+                                {
+                                    // 폴더 경로인 경우 (폴더 안에서 .obj 파일 찾기)
+                                    string[] objFiles = Directory.GetFiles(convertedPath, "*.obj", SearchOption.TopDirectoryOnly);
                                     if (objFiles.Length > 0)
                                     {
                                         // 첫 번째 .obj 파일 사용
                                         originalPath = objFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in original folder: {folderPath}");
+                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in original folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in original folder: {folderPath}");
+                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in original folder: {convertedPath}");
                                     }
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[ObjDropWatcher] Original folder does not exist: {folderPath}");
+                                    Debug.LogWarning($"[ObjDropWatcher] Original path does not exist: {convertedPath}");
                                 }
                             }
                             
-                            // 리터치된 폴더 경로 처리
+                            // 리터치된 파일 경로 처리
                             if (!string.IsNullOrEmpty(scan.retouched_file_path))
                             {
                                 // /project_root/ 부분을 실제 projectRoot 경로로 치환
-                                string folderPath = ReplaceProjectRootInPath(scan.retouched_file_path);
+                                string convertedPath = ReplaceProjectRootInPath(scan.retouched_file_path);
                                 
-                                // 폴더가 존재하는지 확인
-                                if (Directory.Exists(folderPath))
+                                // 파일인지 폴더인지 확인
+                                if (File.Exists(convertedPath))
                                 {
-                                    // 폴더 안에서 .obj 파일 찾기
-                                    string[] objFiles = Directory.GetFiles(folderPath, "*.obj", SearchOption.TopDirectoryOnly);
+                                    // 파일 경로인 경우
+                                    retouchedPath = convertedPath;
+                                    Debug.Log($"[ObjDropWatcher] Found retouched file: {retouchedPath}");
+                                }
+                                else if (Directory.Exists(convertedPath))
+                                {
+                                    // 폴더 경로인 경우 (폴더 안에서 .obj 파일 찾기)
+                                    string[] objFiles = Directory.GetFiles(convertedPath, "*.obj", SearchOption.TopDirectoryOnly);
                                     if (objFiles.Length > 0)
                                     {
                                         // 첫 번째 .obj 파일 사용
                                         retouchedPath = objFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in retouched folder: {folderPath}");
+                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in retouched folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in retouched folder: {folderPath}");
+                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in retouched folder: {convertedPath}");
                                     }
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[ObjDropWatcher] Retouched folder does not exist: {folderPath}");
+                                    Debug.LogWarning($"[ObjDropWatcher] Retouched path does not exist: {convertedPath}");
                                 }
                             }
                             
+                            // memos는 항상 original path의 파일에서 직접 읽어옴
+                            MemoData[] memos = new MemoData[0];
+                            
+                            // original path의 디렉토리에서 memo.txt 파일 찾기
+                            string memoFolderPath = null;
+                            
+                            // 1. originalPath가 있으면 그 디렉토리 사용
+                            if (!string.IsNullOrEmpty(originalPath))
+                            {
+                                if (File.Exists(originalPath))
+                                {
+                                    memoFolderPath = Path.GetDirectoryName(originalPath);
+                                }
+                                else if (Directory.Exists(originalPath))
+                                {
+                                    memoFolderPath = originalPath;
+                                }
+                            }
+                            
+                            // 2. originalPath가 없으면 API 응답의 original_file_path에서 디렉토리 추출
+                            if (string.IsNullOrEmpty(memoFolderPath) && !string.IsNullOrEmpty(scan.original_file_path))
+                            {
+                                string convertedPath = ReplaceProjectRootInPath(scan.original_file_path);
+                                if (File.Exists(convertedPath))
+                                {
+                                    memoFolderPath = Path.GetDirectoryName(convertedPath);
+                                }
+                                else if (Directory.Exists(convertedPath))
+                                {
+                                    memoFolderPath = convertedPath;
+                                }
+                            }
+                            
+                            // memo.txt 파일 찾기 및 파싱
+                            if (!string.IsNullOrEmpty(memoFolderPath) && Directory.Exists(memoFolderPath))
+                            {
+                                string memoFilePath = Path.Combine(memoFolderPath, "memo.txt");
+                                if (File.Exists(memoFilePath))
+                                {
+                                    try
+                                    {
+                                        memos = ParseMemoFile(memoFilePath);
+                                        if (memos != null && memos.Length > 0)
+                                        {
+                                            Debug.Log($"[ObjDropWatcher] Loaded {memos.Length} memo(s) from file: {memoFilePath}");
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.LogWarning($"[ObjDropWatcher] Failed to parse memo file {memoFilePath}: {ex.Message}");
+                                    }
+                                }
+                                else
+                                {
+                                    Debug.Log($"[ObjDropWatcher] memo.txt not found in folder: {memoFolderPath}");
+                                }
+                            }
+                            else if (string.IsNullOrEmpty(scan.original_file_path))
+                            {
+                                Debug.Log($"[ObjDropWatcher] No original_file_path available, skipping memo.txt search");
+                            }
+                            
                             // original 또는 retouched 중 하나라도 있으면 Item 추가
-                            if (!string.IsNullOrEmpty(originalPath) || !string.IsNullOrEmpty(retouchedPath))
+                            // 또는 memos만 있어도 추가 (OBJ 파일이 없어도 메모는 표시 가능)
+                            if (!string.IsNullOrEmpty(originalPath) || !string.IsNullOrEmpty(retouchedPath) || memos.Length > 0)
                             {
                                 // 기본 경로 결정 (retouched가 있으면 retouched, 없으면 original)
                                 string basePath = !string.IsNullOrEmpty(retouchedPath) ? retouchedPath : originalPath;
-                                string folder = Path.GetDirectoryName(basePath);
+                                string folder = !string.IsNullOrEmpty(basePath) ? Path.GetDirectoryName(basePath) : "";
                                 string label = $"Scan {scan.scan_id} (Status: {scan.status})";
                                 
                                 _items.Add(new Item 
                                 { 
                                     folder = folder, 
-                                    obj = basePath,  // 호환성을 위해 유지
+                                    obj = basePath ?? "",  // 호환성을 위해 유지
                                     label = label,
-                                    originalPath = originalPath,
-                                    retouchedPath = retouchedPath,
-                                    scanId = scan.scan_id
+                                    originalPath = originalPath ?? "",
+                                    retouchedPath = retouchedPath ?? "",
+                                    scanId = scan.scan_id,
+                                    memos = memos
                                 });
+                                
+                                if (memos.Length > 0)
+                                {
+                                    Debug.Log($"[ObjDropWatcher] Scan {scan.scan_id} has {memos.Length} memo(s)");
+                                }
                             }
                         }
                         
                         int originalCount = _items.Count(it => !string.IsNullOrEmpty(it.originalPath));
                         int retouchedCount = _items.Count(it => !string.IsNullOrEmpty(it.retouchedPath));
+                        int memosCount = _items.Sum(it => it.memos != null ? it.memos.Length : 0);
                         
-                        Debug.Log($"[ObjDropWatcher] Successfully fetched {_items.Count} items from {response.data.Length} scans (Original: {originalCount}, Retouched: {retouchedCount})");
+                        Debug.Log($"[ObjDropWatcher] Successfully fetched {_items.Count} items from {response.data.Length} scans (Original: {originalCount}, Retouched: {retouchedCount}, Memos: {memosCount})");
                         
                         if (_items.Count == 0)
                         {
@@ -695,7 +963,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         else
                         {
                             EditorUtility.DisplayDialog("스캔 조회 완료", 
-                                $"조회된 스캔: {response.data.Length}개\n항목: {_items.Count}개\n\nOriginal 파일: {originalCount}개\nRetouched 파일: {retouchedCount}개", "OK");
+                                $"조회된 스캔: {response.data.Length}개\n항목: {_items.Count}개\n\nOriginal 파일: {originalCount}개\nRetouched 파일: {retouchedCount}개\n메모: {memosCount}개", "OK");
                         }
                     }
                     else
@@ -727,6 +995,166 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     {
         // GUI 이벤트 처리 외부에서 리페인트를 안전하게 스케줄링
         EditorApplication.delayCall += Repaint;
+    }
+
+    /// <summary>
+    /// memo.txt 파일을 읽어서 파싱합니다.
+    /// 파일 형식: [anchor]content 형태
+    /// 예: [x:0.80,y:1.43,z:0.13]이용하
+    /// </summary>
+    MemoData[] ParseMemoFile(string filePath)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                return new MemoData[0];
+
+            // 파일 읽기 (UTF-8 또는 CP949 인코딩 시도)
+            string content = null;
+            try
+            {
+                content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+            }
+            catch (Exception)
+            {
+                try
+                {
+                    content = File.ReadAllText(filePath, System.Text.Encoding.GetEncoding(949)); // CP949
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[ObjDropWatcher] Failed to read memo file with UTF-8 and CP949: {ex.Message}");
+                    return new MemoData[0];
+                }
+            }
+
+            if (string.IsNullOrEmpty(content))
+                return new MemoData[0];
+
+            content = content.Trim();
+            if (string.IsNullOrEmpty(content))
+                return new MemoData[0];
+
+            // 백엔드와 동일한 파싱 로직: 대괄호 패턴 찾기 [anchor]content
+            List<MemoData> memos = new List<MemoData>();
+            System.Text.RegularExpressions.Regex pattern = new System.Text.RegularExpressions.Regex(@"\[([^\]]+)\]");
+            var matches = pattern.Matches(content);
+
+            if (matches.Count == 0)
+            {
+                // 대괄호가 없으면 전체 내용을 빈 anchor로 저장
+                if (!string.IsNullOrEmpty(content.Trim()))
+                {
+                    memos.Add(new MemoData
+                    {
+                        type = "text",
+                        anchor = "",
+                        content = content.Trim(),
+                        source = Path.GetFileName(filePath),
+                        file_path = filePath,
+                        file_size = (int)new FileInfo(filePath).Length
+                    });
+                }
+            }
+            else
+            {
+                // 각 대괄호 구간 처리
+                for (int i = 0; i < matches.Count; i++)
+                {
+                    var match = matches[i];
+                    string anchor = match.Groups[1].Value.Trim();
+
+                    // 현재 대괄호의 끝 위치
+                    int startPos = match.Index + match.Length;
+
+                    // 다음 대괄호의 시작 위치 (마지막이면 파일 끝)
+                    int endPos = (i + 1 < matches.Count) 
+                        ? matches[i + 1].Index 
+                        : content.Length;
+
+                    // value 추출 (대괄호 다음부터 다음 대괄호 전까지)
+                    string value = content.Substring(startPos, endPos - startPos).Trim();
+
+                    // 같은 anchor가 이미 있으면 기존 content 뒤에 추가
+                    var existingMemo = memos.FirstOrDefault(m => m.anchor == anchor);
+                    if (existingMemo != null)
+                    {
+                        existingMemo.content += "\n\n" + value;
+                    }
+                    else
+                    {
+                        memos.Add(new MemoData
+                        {
+                            type = "text",
+                            anchor = anchor,
+                            content = value,
+                            source = Path.GetFileName(filePath),
+                            file_path = filePath,
+                            file_size = (int)new FileInfo(filePath).Length
+                        });
+                    }
+                }
+            }
+
+            return memos.ToArray();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ObjDropWatcher] Failed to parse memo file {filePath}: {ex.Message}");
+            return new MemoData[0];
+        }
+    }
+
+    /// <summary>
+    /// anchor 문자열을 Vector3로 파싱합니다.
+    /// 예: "x:0.80,y:1.43,z:0.13" -> Vector3(0.80f, 1.43f, 0.13f)
+    /// </summary>
+    Vector3 ParseAnchor(string anchor)
+    {
+        if (string.IsNullOrEmpty(anchor))
+            return Vector3.zero;
+
+        Vector3 result = Vector3.zero;
+        
+        try
+        {
+            // "x:0.80,y:1.43,z:0.13" 형식 파싱
+            string[] parts = anchor.Split(',');
+            foreach (string part in parts)
+            {
+                string trimmed = part.Trim();
+                if (trimmed.StartsWith("x:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string value = trimmed.Substring(2).Trim();
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x))
+                    {
+                        result.x = x;
+                    }
+                }
+                else if (trimmed.StartsWith("y:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string value = trimmed.Substring(2).Trim();
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y))
+                    {
+                        result.y = y;
+                    }
+                }
+                else if (trimmed.StartsWith("z:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string value = trimmed.Substring(2).Trim();
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z))
+                    {
+                        result.z = z;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[ObjDropWatcher] Failed to parse anchor '{anchor}': {ex.Message}");
+        }
+        
+        return result;
     }
 
     /// <summary>
@@ -808,27 +1236,128 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return apiPath;
     }
 
-    void Spawn(string objPath)
+    void Spawn(string objPath, MemoData[] memos = null)
     {
         try
         {
-            var go = RuntimeObjLoader.LoadObj(objPath);
+            // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+            // 이렇게 하면 RuntimeObjLoader가 메시를 이동시키지 않고 원본 좌표를 그대로 유지합니다.
+            // OBJ 파일에서 촬영 시작 지점(0,0,0)이 Unity의 원점과 일치합니다.
+            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
             Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
             Selection.activeObject = go;
 
-            // RuntimeObjLoader shifts the mesh so the lowest Y becomes 0, so spawn directly on ground.
+            // OBJ 파일의 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
+            // 이렇게 하면 OBJ 파일의 촬영 시작 지점(0,0,0)이 Unity 원점과 일치합니다.
             go.transform.position = Vector3.zero;
             go.transform.rotation = Quaternion.identity;
 
             // 단위 보정: config의 unitScale 사용 (기본값 1000f = mm → m 변환)
+            // 주의: OBJ 파일의 좌표가 mm 단위라면, Unity의 m 단위로 변환하기 위해 스케일 적용
+            // 예: OBJ 좌표 (1000mm, 2000mm, 3000mm) → Unity 스케일 1000 적용 → (1m, 2m, 3m)
             float unitScale = config != null ? config.unitScale : 1000f;
             go.transform.localScale = Vector3.one * unitScale;
 
-            Debug.Log($"[Spawned with scale x{unitScale}] {objPath}");
+            Debug.Log($"[Spawned with scale x{unitScale}, preserving original coordinates] {objPath}");
+            
+            // memos가 있으면 OBJ GameObject의 자식으로 텍스트 표시
+            if (memos != null && memos.Length > 0)
+            {
+                SpawnMemosAsChildren(go, memos, unitScale);
+            }
         }
         catch (Exception ex)
         {
             Debug.LogError($"Spawn 실패: {objPath}\n{ex}");
+        }
+    }
+
+    /// <summary>
+    /// memos를 OBJ GameObject의 자식으로 생성합니다.
+    /// 메모의 좌표는 OBJ의 로컬 좌표계를 사용합니다.
+    /// </summary>
+    void SpawnMemosAsChildren(GameObject parentObj, MemoData[] memos, float unitScale)
+    {
+        if (memos == null || memos.Length == 0 || parentObj == null)
+            return;
+
+        int memoCount = 0;
+        foreach (var memo in memos)
+        {
+            if (memo == null)
+                continue;
+            
+            // type이 "text"인 경우만 표시
+            if (memo.type != "text")
+                continue;
+            
+            // anchor 좌표 파싱 (OBJ 파일의 원본 좌표, 예: mm 단위)
+            Vector3 anchorPosition = ParseAnchor(memo.anchor);
+            
+            // RuntimeObjLoader는 OBJ 파일의 버텍스를 로드할 때 Z축을 뒤집습니다 (오른손→왼손 좌표계 변환)
+            // 메모의 anchor 좌표도 같은 변환을 적용해야 OBJ 메시와 일치합니다.
+            // OBJ 파일: (x, y, z) → RuntimeObjLoader: (x, y, -z)
+            anchorPosition.z = -anchorPosition.z;
+            
+            // 메모는 OBJ GameObject의 자식이므로 로컬 좌표계를 사용합니다.
+            // OBJ GameObject에 unitScale (예: 1000)이 적용되어 있으므로,
+            // 메모의 로컬 좌표는 OBJ 파일의 원본 좌표(변환 후)를 그대로 사용하면 됩니다.
+            // OBJ GameObject의 스케일이 자동으로 적용되어 올바른 위치에 표시됩니다.
+            // 
+            // 예시:
+            // - OBJ 파일 원본 좌표: (0.80mm, 1.43mm, 0.13mm)
+            // - Z축 변환 후: (0.80mm, 1.43mm, -0.13mm)  <- RuntimeObjLoader와 동일한 변환
+            // - 메모 로컬 좌표: (0.80, 1.43, -0.13)
+            // - OBJ GameObject 스케일: (1000, 1000, 1000)
+            // - 결과: 메모가 OBJ 메시와 같은 위치에 표시됨 (OBJ의 스케일이 자동 적용)
+            // 
+            // 주의: unitScale을 곱하지 않음 (메모가 OBJ의 자식이므로 OBJ의 스케일을 상속받음)
+            
+            // OBJ GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
+            Create3DTextAsChild(parentObj, memo.content, anchorPosition);
+            memoCount++;
+        }
+        
+        if (memoCount > 0)
+        {
+            Debug.Log($"[ObjDropWatcher] Spawned {memoCount} text memo(s) as children of OBJ object");
+        }
+    }
+
+    /// <summary>
+    /// OBJ GameObject의 자식으로 3D 텍스트를 생성합니다.
+    /// 위치는 부모 객체의 로컬 좌표계를 사용합니다.
+    /// </summary>
+    void Create3DTextAsChild(GameObject parentObj, string text, Vector3 localPosition)
+    {
+        try
+        {
+            // TextMesh를 사용하여 3D 텍스트 생성
+            GameObject textObject = new GameObject($"Memo_{text.Substring(0, Math.Min(text.Length, 10))}");
+            Undo.RegisterCreatedObjectUndo(textObject, "Create 3D Text Memo");
+            
+            // 부모 객체의 자식으로 설정
+            textObject.transform.SetParent(parentObj.transform, false);
+            
+            // 로컬 위치 설정 (부모 객체의 로컬 좌표계)
+            textObject.transform.localPosition = localPosition;
+            textObject.transform.localRotation = Quaternion.identity;
+            textObject.transform.localScale = Vector3.one; // 부모의 스케일을 상속받음
+            
+            // TextMesh 컴포넌트 추가
+            TextMesh textMesh = textObject.AddComponent<TextMesh>();
+            textMesh.text = text;
+            textMesh.fontSize = 20;
+            textMesh.characterSize = 0.1f; // 텍스트 크기 (부모 스케일과 함께 적용됨)
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = Color.yellow; // 노란색으로 표시
+            
+            Debug.Log($"[ObjDropWatcher] Created 3D text memo as child at local position {localPosition}: {text}");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ObjDropWatcher] Failed to create 3D text memo as child: {ex.Message}");
         }
     }
 
@@ -910,4 +1439,19 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         // 현재는 기본 동작에 의존
     }
 
+}
+
+/// <summary>
+/// HTTP 연결을 허용하기 위한 CertificateHandler
+/// Unity 2021.2 이상에서 HTTP 연결을 허용하기 위해 사용
+/// 보안 위험이 있으므로 개발 환경에서만 사용해야 함
+/// </summary>
+public class BypassCertificateHandler : CertificateHandler
+{
+    protected override bool ValidateCertificate(byte[] certificateData)
+    {
+        // 개발 환경에서 모든 인증서를 허용
+        // 프로덕션 환경에서는 사용하지 않아야 함
+        return true;
+    }
 }

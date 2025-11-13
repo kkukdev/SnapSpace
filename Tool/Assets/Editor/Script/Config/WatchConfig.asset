@@ -12,11 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2e6dbb9b11e1026488dfa42a3f6eb7c0, type: 3}
   m_Name: WatchConfig
   m_EditorClassIdentifier: 
-  apiServerUrl: http://localhost:8000/
+  apiServerUrl: http://70.12.246.48:8000/
   groupsEndpoint: /api/v1/groups/
   groupScansEndpoint: /api/v1/groups/{group_id}/scans
   projectRoot: C:\Users\SSAFY\Desktop\dev_dydgk\S13P31S102
-  includeSubdirectories: 1
   scanDebounceMs: 800
   objPatterns: '*.obj'
   unitScale: 100
