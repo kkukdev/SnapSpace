@@ -15,9 +15,6 @@ public class WatchConfig : ScriptableObject
     [Tooltip("프로젝트 루트 경로 (비어있으면 Unity 프로젝트 루트 자동 사용)")]
     public string projectRoot = "";
 
-    [Tooltip("하위 폴더까지 감시")]
-    public bool includeSubdirectories = false;
-
     [Tooltip("복사/해제 지연 대비 (ms)")]
     public int scanDebounceMs = 800;
 

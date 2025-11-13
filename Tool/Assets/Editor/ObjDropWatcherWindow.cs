@@ -133,7 +133,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         {
             // config 값들을 안전하게 캐시하여 반복 접근 방지
             string cachedApiUrl = null;
-            bool cachedIncludeSubdirs = false;
             int cachedScanDebounce = 0;
             string cachedObjPatterns = null;
             float cachedUnitScale = 0f;
@@ -141,7 +140,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             try
             {
                 cachedApiUrl = config.apiServerUrl;
-                cachedIncludeSubdirs = config.includeSubdirectories;
                 cachedScanDebounce = config.scanDebounceMs;
                 cachedObjPatterns = config.objPatterns;
                 cachedUnitScale = config.unitScale;
@@ -297,7 +295,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
             
             EditorGUI.BeginChangeCheck();
-            bool includeSubdirs = EditorGUILayout.Toggle("Include Subdirectories", cachedIncludeSubdirs);
             int scanDebounce = EditorGUILayout.IntField("Scan Debounce (ms)", cachedScanDebounce);
             string objPatterns = EditorGUILayout.TextField("OBJ Patterns", cachedObjPatterns ?? "*.obj");
             float unitScale = EditorGUILayout.FloatField("Unit Scale", cachedUnitScale);
@@ -306,7 +303,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             if (settingsChanged)
             {
                 // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
-                bool includeSubdirsToSet = includeSubdirs;
                 int scanDebounceToSet = scanDebounce;
                 string objPatternsToSet = objPatterns;
                 float unitScaleToSet = unitScale;
@@ -317,7 +313,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (config != null)
                         {
-                            config.includeSubdirectories = includeSubdirsToSet;
                             config.scanDebounceMs = scanDebounceToSet;
                             config.objPatterns = objPatternsToSet;
                             config.unitScale = unitScaleToSet;
