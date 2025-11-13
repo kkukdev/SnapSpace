@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     max_retry_attempts: int = 3
     processing_timeout: int = 3600
     blender_executable: Optional[str] = None
+    keep_texture_temp_artifacts: bool = False
     
     @property
     def storage_base_path(self) -> str:

@@ -28,6 +28,7 @@ from app.services.pipeline import (
     SubprocessTimeoutError,
     execute_subprocess,
     ensure_utf8_copy,
+    sanitize_material_assets,
     resolve_pipeline_paths,
     sanitize_filename,
 )
@@ -50,11 +51,13 @@ class AIPipeline:
                 "optimizer": self.polygon_path / "Space" / "space_optimizer.py",
                 "denoiser": self.polygon_path / "Space" / "space_denoiser.py",
                 "denoiser_suffix": "_auto_flat.obj",
+                "denoiser_extra_args": [],
             },
             "object": {
                 "optimizer": self.polygon_path / "Object" / "object_optimizer.py",
                 "denoiser": self.polygon_path / "Object" / "object_denoiser.py",
-                "denoiser_suffix": "_denoised.obj",
+                "denoiser_suffix": "_auto_flat.obj",
+                "denoiser_extra_args": ["--mode", "auto_flat"],
             },
         }
 
@@ -407,12 +410,26 @@ class AIPipeline:
         work_input_abs = work_input.resolve() if hasattr(work_input, 'resolve') else Path(work_input).resolve()
         work_output_dir_abs = work_output_dir.resolve() if hasattr(work_output_dir, 'resolve') else Path(work_output_dir).resolve()
 
+        model_type_key = (model_type or "space").strip().lower()
         cmd = [
-            sys.executable,  # 현재 Python 인터프리터 사용 (가상 환경 보장)
+            sys.executable,
             str(pipeline_config["denoiser"]),
-            "-i", str(work_input_abs),
-            "--output-dir", str(work_output_dir_abs)  # work_output_dir_abs는 이미 output 폴더를 포함
         ]
+
+        if model_type_key == "object":
+            cmd.extend([
+                "--input", str(work_input_abs),
+                "--output-dir", str(work_output_dir_abs),
+            ])
+            extra_args = pipeline_config.get("denoiser_extra_args") or []
+            cmd.extend(str(arg) for arg in extra_args)
+        else:
+            cmd.extend([
+                "-i", str(work_input_abs),
+                "--output-dir", str(work_output_dir_abs),
+            ])
+            extra_args = pipeline_config.get("denoiser_extra_args") or []
+            cmd.extend(str(arg) for arg in extra_args)
 
         try:
             execute_subprocess(
@@ -622,6 +639,15 @@ class AIPipeline:
         hi_path = hi_input_path if isinstance(hi_input_path, Path) else Path(hi_input_path)
         lo_path = lo_input_path if isinstance(lo_input_path, Path) else Path(lo_input_path)
         
+        original_hi_path = Path(hi_path)
+        local_hi_candidate = local_sanitized_dir / original_hi_path.name
+        try:
+            shutil.copy2(original_hi_path, local_hi_candidate)
+            hi_path = local_hi_candidate
+        except Exception as copy_exc:
+            logger.warning(f"[Texture] 하이 메쉬 복사 실패 (원본 사용): {copy_exc}")
+            hi_path = original_hi_path
+
         try:
             hi_path = ensure_utf8_copy(
                 hi_path,
@@ -631,8 +657,20 @@ class AIPipeline:
             )
         except Exception as exc:
             logger.warning(f"[Texture] 하이 메쉬 UTF-8 변환 실패 (원본 사용): {exc}")
+            hi_path = local_hi_candidate if local_hi_candidate.exists() else original_hi_path
+
+        try:
+            hi_path = sanitize_material_assets(
+                hi_path,
+                original_hi_path.parent,
+                local_sanitized_dir,
+                logger=logger,
+                prefix="[Texture]",
+            )
+        except Exception as exc:
+            logger.warning(f"[Texture] MTL/텍스처 정리 실패 (원본 사용): {exc}")
         
-        hi_str = str(hi_path)
+        hi_str = str(hi_path.resolve())
         lo_str = str(lo_path)
         local_out_dir_str = str(local_out_dir.resolve())
         local_out_path = local_out_dir / texture_output_path.name
@@ -652,6 +690,8 @@ class AIPipeline:
         ]
         
         self._update_progress(84, "텍스처 파이프라인 실행 중...")
+
+        keep_temp_artifacts = bool(getattr(settings, "keep_texture_temp_artifacts", False))
 
         try:
             execute_subprocess(
@@ -684,10 +724,13 @@ class AIPipeline:
             logger.error(f"[Texture] 결과 복사 실패: {copy_exc}", exc_info=True)
             raise RuntimeError(f"텍스처 결과 복사 실패: {copy_exc}")
         finally:
-            try:
-                shutil.rmtree(local_temp_dir, ignore_errors=True)
-            except Exception as cleanup_exc:
-                logger.warning(f"[Texture] 로컬 임시 디렉토리 정리 실패: {cleanup_exc}")
+            if keep_temp_artifacts:
+                logger.info(f"[Texture] 설정에 따라 로컬 산출물 보존: {local_temp_dir}")
+            else:
+                try:
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                except Exception as cleanup_exc:
+                    logger.warning(f"[Texture] 로컬 임시 디렉토리 정리 실패: {cleanup_exc}")
 
         self._update_progress(96, f"텍스처 파이프라인 완료: {texture_output_path}")
         return texture_output_path

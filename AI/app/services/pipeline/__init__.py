@@ -4,7 +4,12 @@ from .pipeline_subprocess import (
     SubprocessTimeoutError,
     execute_subprocess,
 )
-from .pipeline_utils import ensure_directories, ensure_utf8_copy, sanitize_filename
+from .pipeline_utils import (
+    ensure_directories,
+    ensure_utf8_copy,
+    sanitize_filename,
+    sanitize_material_assets,
+)
 
 __all__ = [
     "PipelineContext",
@@ -15,6 +20,7 @@ __all__ = [
     "SubprocessTimeoutError",
     "ensure_directories",
     "ensure_utf8_copy",
+    "sanitize_material_assets",
     "sanitize_filename",
 ]
 
