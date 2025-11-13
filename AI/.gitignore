@@ -1,4 +1,51 @@
 datasets/
 logs/
-temp/
 ai.env
+ai_pipeline\Texture\outputs
+ai_pipeline\Texture\datasets\obj
+ai_pipeline\outputs
+
+# -------------------------------------------------
+# 📦 데이터/결과물 (커밋 불필요)
+# -------------------------------------------------
+datasets/
+logs/
+ai_pipeline/outputs/
+ai_pipeline/Texture/outputs/
+ai_pipeline/Texture/datasets/obj/
+
+# -------------------------------------------------
+# 🧠 환경 설정 및 가상환경
+# -------------------------------------------------
+ai.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# -------------------------------------------------
+# 💾 캐시 / 임시 파일
+# -------------------------------------------------
+*.log
+*.tmp
+*.bak
+*.DS_Store
+
+# -------------------------------------------------
+# 🧩 Blender / GLB / Bake 결과물
+# -------------------------------------------------
+*.glb
+*.gltf
+*.blend1
+*.blend@
+*.png
+*.jpg
+*.exr
+
+# -------------------------------------------------
+# 🧪 모델 캐시 (Stable Diffusion, HuggingFace 등)
+# -------------------------------------------------
+.cache/
+huggingface/
+models/
+temp/

@@ -40,8 +40,14 @@ import argparse
 import os
 import time
 import numpy as np
+
 import unicodedata
 import hashlib
+
+# 전역 출력 경로 (main에서 설정)
+TEMP_DIR = None
+OPTIMIZED_DIR = None
+
 # 전역 출력 경로 (main에서 설정)
 TEMP_DIR = None
 OPTIMIZED_DIR = None
