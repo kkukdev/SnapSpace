@@ -11,11 +11,7 @@ AI 파이프라인 통합 서비스
 import os
 import sys
 import shutil
-import subprocess
 import logging
-import threading
-import unicodedata
-import hashlib
 from typing import Callable, Optional
 from pathlib import Path
 
@@ -27,18 +23,16 @@ os.environ["PYOPENGL_PLATFORM"] = "egl"
 AI_PIPELINE_PATH = Path(__file__).parent.parent.parent / "ai_pipeline"
 sys.path.insert(0, str(AI_PIPELINE_PATH))
 
+from app.services.pipeline import (
+    SubprocessError,
+    SubprocessTimeoutError,
+    execute_subprocess,
+    ensure_utf8_copy,
+    resolve_pipeline_paths,
+    sanitize_filename,
+)
+
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_filename(name: str) -> str:
-    normalized = unicodedata.normalize("NFKD", name or "")
-    ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
-    safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in ascii_name)
-    safe = safe.strip("_")
-    if safe:
-        return safe
-    digest = hashlib.sha1((name or "").encode("utf-8")).hexdigest()[:16]
-    return f"file_{digest}"
 
 
 class AIPipeline:
@@ -173,107 +167,38 @@ class AIPipeline:
         ]
 
         try:
-            logger.info(f"[optimizer] cwd={self.polygon_path} cmd={' '.join(cmd)}")
-            
-            # Python unbuffered 모드 및 UTF-8 인코딩 설정
-            env = os.environ.copy()
-            env['PYTHONUNBUFFERED'] = '1'
-            env['PYTHONIOENCODING'] = 'utf-8'  # Windows에서 이모지 출력을 위한 UTF-8 인코딩
-            
-            # 실시간 출력을 위해 Popen 사용
-            process = subprocess.Popen(
+            execute_subprocess(
                 cmd,
                 cwd=str(self.polygon_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # stderr를 stdout에 병합
-                text=True,
-                encoding='utf-8',  # UTF-8 인코딩 명시
-                errors='replace',  # 인코딩 오류 시 대체 문자 사용
-                bufsize=1,  # 라인 버퍼링
-                universal_newlines=True,
-                env=env  # 환경 변수 전달
+                logger=logger,
+                prefix="[Optimizer]",
+                timeout_sec=1800,
             )
-            
-            # 실시간으로 stdout 라인별 로깅 (타임아웃 지원)
-            output_lines = []
-            output_lock = threading.Lock()
-            read_finished = threading.Event()
-            
-            def read_output():
-                """stdout 읽기 스레드"""
-                try:
-                    for line in iter(process.stdout.readline, ''):
-                        line = line.rstrip()
-                        if line:
-                            logger.info(f"[Optimizer] {line}")
-                            with output_lock:
-                                output_lines.append(line)
-                    read_finished.set()
-                except Exception as e:
-                    logger.error(f"[Optimizer] stdout 읽기 오류: {e}")
-                    read_finished.set()
-            
-            # stdout 읽기 스레드 시작
-            reader_thread = threading.Thread(target=read_output, daemon=True)
-            reader_thread.start()
-            
-            # 프로세스 종료 대기 (타임아웃 30분)
-            return_code = None
-            timeout_reached = threading.Event()
-            
-            def wait_with_timeout():
-                """프로세스 종료 대기 (타임아웃 지원)"""
-                nonlocal return_code
-                try:
-                    return_code = process.wait()
-                except Exception as e:
-                    logger.error(f"[Optimizer] 프로세스 대기 오류: {e}")
-                    return_code = -1
-                finally:
-                    timeout_reached.set()
-            
-            # 타임아웃 스레드 시작
-            wait_thread = threading.Thread(target=wait_with_timeout, daemon=True)
-            wait_thread.start()
-            
-            # 타임아웃 체크 (30분 = 1800초)
-            if not timeout_reached.wait(timeout=1800):
-                logger.error(f"[Optimizer] 프로세스 타임아웃 (30분 초과) - 강제 종료")
-                try:
-                    process.kill()  # SIGKILL
-                    process.wait()
-                    return_code = -9  # SIGKILL 시그널 코드
-                except Exception as e:
-                    logger.error(f"[Optimizer] 프로세스 종료 실패: {e}")
-                    return_code = -1
-            else:
-                # 정상 종료 대기 (최대 5초)
-                wait_thread.join(timeout=5)
-            
-            # stdout 읽기 완료 대기 (최대 5초)
-            read_finished.wait(timeout=5)
-            
-            # returncode 로깅
-            logger.info(f"[Optimizer] 프로세스 종료 (returncode: {return_code})")
-            
-            # SIGSEGV 감지 (음수 returncode는 시그널로 종료됨을 의미)
-            if return_code < 0:
-                error_msg = f"프로세스가 시그널로 종료되었습니다 (returncode: {return_code}, SIGSEGV일 가능성)"
-                logger.error(f"[Optimizer] {error_msg}")
-                raise RuntimeError(f"메쉬 최적화 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
-            
-            # 일반적인 에러 코드
-            if return_code != 0:
-                output_text = '\n'.join(output_lines)
-                error_msg = f"프로세스 실패 (exit code: {return_code})"
-                logger.error(f"[Optimizer] {error_msg}")
-                raise subprocess.CalledProcessError(return_code, cmd, output_text)
+        except SubprocessTimeoutError:
+            logger.error("[Optimizer] 타임아웃 (30분 초과)")
+            raise RuntimeError("메쉬 최적화 타임아웃: 30분 초과")
+        except SubprocessError as error:
+            if error.returncode < 0:
+                logger.error(f"[Optimizer] 시그널 종료 감지 (returncode: {error.returncode})")
+                raise RuntimeError("메쉬 최적화 중 크래시 발생 (SIGSEGV 가능성). 파일 손상 또는 메모리 부족일 수 있습니다")
+            if error.output:
+                logger.error(f"[Optimizer] 프로세스 출력:\n{error.output}")
+            raise RuntimeError(f"메쉬 최적화 실패: exit code {error.returncode}")
+        except Exception as exc:
+            error_str = str(exc)
+            if "SIGSEGV" in error_str or "died with" in error_str or "Signal" in error_str:
+                logger.error("[Optimizer] 세그멘테이션 폴트 발생 (SIGSEGV)")
+                logger.error("[Optimizer] 보통 손상된 OBJ, 메모리 부족, PyMeshLab/Open3D 문제로 발생합니다")
+                raise RuntimeError("메쉬 최적화 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
+            logger.error(f"[Optimizer] 예상치 못한 오류: {exc}", exc_info=True)
+            raise RuntimeError(f"메쉬 최적화 실패: {exc}")
 
+        try:
             # 최종 cleaned 경로는 work_optimized_dir 기준 (로컬 또는 네트워크)
             # work_input은 이미 절대 경로로 변환되었으므로 with_suffix 사용
             base_stem = work_input_abs.with_suffix("").name
             expected_filename = f"{base_stem}_cleaned.obj"
-            safe_base = _sanitize_filename(base_stem)
+            safe_base = sanitize_filename(base_stem)
             sanitized_filename = f"{safe_base}_cleaned.obj"
 
             candidates = [
@@ -387,26 +312,9 @@ class AIPipeline:
             
             self._update_progress(50, f"메쉬 최적화 완료: {cleaned}")
             return cleaned
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[Optimizer] 프로세스 오류 (exit code: {e.returncode})")
-            if hasattr(e, 'stdout') and e.stdout:
-                logger.error(f"[Optimizer] stdout: {e.stdout}")
-            if hasattr(e, 'stderr') and e.stderr:
-                logger.error(f"[Optimizer] stderr: {e.stderr}")
-            raise RuntimeError(f"메쉬 최적화 실패: {e}")
-        except subprocess.TimeoutExpired as e:
-            logger.error(f"[Optimizer] 타임아웃 (30분 초과)")
-            raise RuntimeError("메쉬 최적화 타임아웃: 30분 초과")
-        except Exception as e:
-            # SIGSEGV 등 모든 예외 처리
-            error_str = str(e)
-            if "SIGSEGV" in error_str or "died with" in error_str or "Signal" in error_str:
-                logger.error(f"[Optimizer] 세그멘테이션 폴트 발생 (SIGSEGV)")
-                logger.error(f"[Optimizer] 이는 보통 손상된 OBJ 파일, 메모리 부족, 또는 PyMeshLab/Open3D 라이브러리 문제로 발생합니다")
-                raise RuntimeError(f"메쉬 최적화 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
-            logger.error(f"[Optimizer] 예상치 못한 오류: {e}", exc_info=True)
-            raise RuntimeError(f"메쉬 최적화 실패: {e}")
+        except Exception as exc:
+            logger.error(f"[Optimizer] 결과 처리 중 오류: {exc}", exc_info=True)
+            raise
     
     def run_mesh_denoiser(self, cleaned_polygon_path: Path, final_dir: Path, model_type: str = "space") -> Path:
         """
@@ -507,107 +415,38 @@ class AIPipeline:
         ]
 
         try:
-            logger.info(f"[denoiser] cwd={self.polygon_path} cmd={' '.join(cmd)}")
-            
-            # Python unbuffered 모드 및 UTF-8 인코딩 설정
-            env = os.environ.copy()
-            env['PYTHONUNBUFFERED'] = '1'
-            env['PYTHONIOENCODING'] = 'utf-8'  # Windows에서 이모지 출력을 위한 UTF-8 인코딩
-            
-            # 실시간 출력을 위해 Popen 사용
-            process = subprocess.Popen(
+            execute_subprocess(
                 cmd,
                 cwd=str(self.polygon_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # stderr를 stdout에 병합
-                text=True,
-                encoding='utf-8',  # UTF-8 인코딩 명시
-                errors='replace',  # 인코딩 오류 시 대체 문자 사용
-                bufsize=1,  # 라인 버퍼링
-                universal_newlines=True,
-                env=env  # 환경 변수 전달
+                logger=logger,
+                prefix="[Denoiser]",
+                timeout_sec=1800,
             )
-            
-            # 실시간으로 stdout 라인별 로깅 (타임아웃 지원)
-            output_lines = []
-            output_lock = threading.Lock()
-            read_finished = threading.Event()
-            
-            def read_output():
-                """stdout 읽기 스레드"""
-                try:
-                    for line in iter(process.stdout.readline, ''):
-                        line = line.rstrip()
-                        if line:
-                            logger.info(f"[Denoiser] {line}")
-                            with output_lock:
-                                output_lines.append(line)
-                    read_finished.set()
-                except Exception as e:
-                    logger.error(f"[Denoiser] stdout 읽기 오류: {e}")
-                    read_finished.set()
-            
-            # stdout 읽기 스레드 시작
-            reader_thread = threading.Thread(target=read_output, daemon=True)
-            reader_thread.start()
-            
-            # 프로세스 종료 대기 (타임아웃 30분)
-            return_code = None
-            timeout_reached = threading.Event()
-            
-            def wait_with_timeout():
-                """프로세스 종료 대기 (타임아웃 지원)"""
-                nonlocal return_code
-                try:
-                    return_code = process.wait()
-                except Exception as e:
-                    logger.error(f"[Denoiser] 프로세스 대기 오류: {e}")
-                    return_code = -1
-                finally:
-                    timeout_reached.set()
-            
-            # 타임아웃 스레드 시작
-            wait_thread = threading.Thread(target=wait_with_timeout, daemon=True)
-            wait_thread.start()
-            
-            # 타임아웃 체크 (30분 = 1800초)
-            if not timeout_reached.wait(timeout=1800):
-                logger.error(f"[Denoiser] 프로세스 타임아웃 (30분 초과) - 강제 종료")
-                try:
-                    process.kill()  # SIGKILL
-                    process.wait()
-                    return_code = -9  # SIGKILL 시그널 코드
-                except Exception as e:
-                    logger.error(f"[Denoiser] 프로세스 종료 실패: {e}")
-                    return_code = -1
-            else:
-                # 정상 종료 대기 (최대 5초)
-                wait_thread.join(timeout=5)
-            
-            # stdout 읽기 완료 대기 (최대 5초)
-            read_finished.wait(timeout=5)
-            
-            # returncode 로깅
-            logger.info(f"[Denoiser] 프로세스 종료 (returncode: {return_code})")
-            
-            # SIGSEGV 감지 (음수 returncode는 시그널로 종료됨을 의미)
-            if return_code < 0:
-                error_msg = f"프로세스가 시그널로 종료되었습니다 (returncode: {return_code}, SIGSEGV일 가능성)"
-                logger.error(f"[Denoiser] {error_msg}")
-                raise RuntimeError(f"메쉬 노이즈 제거 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
-            
-            # 일반적인 에러 코드
-            if return_code != 0:
-                output_text = '\n'.join(output_lines)
-                error_msg = f"프로세스 실패 (exit code: {return_code})"
-                logger.error(f"[Denoiser] {error_msg}")
-                raise subprocess.CalledProcessError(return_code, cmd, output_text)
+        except SubprocessTimeoutError:
+            logger.error("[Denoiser] 타임아웃 (30분 초과)")
+            raise RuntimeError("메쉬 노이즈 제거 타임아웃: 30분 초과")
+        except SubprocessError as error:
+            if error.returncode < 0:
+                logger.error(f"[Denoiser] 시그널 종료 감지 (returncode: {error.returncode})")
+                raise RuntimeError("메쉬 노이즈 제거 중 크래시 발생 (SIGSEGV 가능성). 파일 손상 또는 메모리 부족일 수 있습니다")
+            if error.output:
+                logger.error(f"[Denoiser] 프로세스 출력:\n{error.output}")
+            raise RuntimeError(f"메쉬 노이즈 제거 실패: exit code {error.returncode}")
+        except Exception as exc:
+            error_str = str(exc)
+            if "SIGSEGV" in error_str or "died with" in error_str or "Signal" in error_str:
+                logger.error("[Denoiser] 세그멘테이션 폴트 발생 (SIGSEGV)")
+                logger.error("[Denoiser] 손상된 OBJ, 메모리 부족, PyMeshLab/Open3D 문제 가능성")
+                raise RuntimeError("메쉬 노이즈 제거 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
+            logger.error(f"[Denoiser] 예상치 못한 오류: {exc}", exc_info=True)
+            raise RuntimeError(f"메쉬 노이즈 제거 실패: {exc}")
 
+        try:
             # 최종 파일 경로 (base_stem은 원본 파일명에서 확장자 제거)
             # 기본 모드는 입력 파일과 같은 디렉토리에 저장하므로, 임시 디렉토리에서 찾기
             base_stem = work_input_abs.with_suffix("").name
             expected_filename = f"{base_stem}{expected_suffix}"
-            safe_base = _sanitize_filename(base_stem)
+            safe_base = sanitize_filename(base_stem)
             sanitized_filename = f"{safe_base}{expected_suffix}"
             final_dir.mkdir(parents=True, exist_ok=True)
 
@@ -729,26 +568,129 @@ class AIPipeline:
 
             self._update_progress(80, f"메쉬 노이즈 제거 완료: {final_output}")
             return final_output
+        except Exception as exc:
+            logger.error(f"[Denoiser] 결과 처리 중 오류: {exc}", exc_info=True)
+            raise
+    
+    def run_texture_pipeline(
+        self,
+        hi_input_path: Path,
+        lo_input_path: Path,
+        texture_dir: Path,
+        texture_output_path: Path,
+    ) -> Path:
+        """
+        texture_pipeline.py 실행 (하이/로우 모델 기반 텍스처 보정)
+        
+        Args:
+            hi_input_path: 원본 고해상도 OBJ/GLB 경로 (--hi)
+            lo_input_path: 메쉬 보정 완료 OBJ/GLB 경로 (--lo)
+            texture_dir: 텍스처 파이프라인 산출물 디렉토리 (--outdir)
+            texture_output_path: 텍스처 파이프라인 최종 결과 GLB 경로 (--out)
+        
+        Returns:
+            texture_output_path에 저장된 결과 파일 경로
+        """
+        self._update_progress(82, "텍스처 파이프라인 준비 중...")
+        from app.config import settings
+        
+        pipeline_script = AI_PIPELINE_PATH / "Texture" / "texture_pipeline.py"
+        if not pipeline_script.exists():
+            raise FileNotFoundError(f"texture_pipeline.py를 찾을 수 없습니다: {pipeline_script}")
+        
+        blender_exec = settings.blender_executable
+        if not blender_exec:
+            raise RuntimeError("BLENDER_EXECUTABLE 설정이 필요합니다 (ai.env 확인)")
+        blender_exec = blender_exec.strip().strip('"')
+        
+        local_temp_base = Path(settings.local_temp_dir) if settings.local_temp_dir else None
+        if local_temp_base:
+            local_temp_base = local_temp_base.resolve()
+        else:
+            import tempfile
+            local_temp_base = Path(tempfile.gettempdir()) / "ai_texture_pipeline"
+        local_temp_base.mkdir(parents=True, exist_ok=True)
+        import tempfile
+        local_temp_dir = Path(tempfile.mkdtemp(prefix="texture_", dir=str(local_temp_base)))
+        local_out_dir = local_temp_dir / "outputs"
+        local_out_dir.mkdir(parents=True, exist_ok=True)
+        local_sanitized_dir = local_temp_dir / "sanitized_inputs"
+        local_sanitized_dir.mkdir(parents=True, exist_ok=True)
+        texture_dir.mkdir(parents=True, exist_ok=True)
+        texture_output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        hi_path = hi_input_path if isinstance(hi_input_path, Path) else Path(hi_input_path)
+        lo_path = lo_input_path if isinstance(lo_input_path, Path) else Path(lo_input_path)
+        
+        try:
+            hi_path = ensure_utf8_copy(
+                hi_path,
+                local_sanitized_dir,
+                logger=logger,
+                prefix="[Texture]",
+            )
+        except Exception as exc:
+            logger.warning(f"[Texture] 하이 메쉬 UTF-8 변환 실패 (원본 사용): {exc}")
+        
+        hi_str = str(hi_path)
+        lo_str = str(lo_path)
+        local_out_dir_str = str(local_out_dir.resolve())
+        local_out_path = local_out_dir / texture_output_path.name
+        cmd = [
+            sys.executable,
+            str(pipeline_script),
+            "--hi",
+            hi_str,
+            "--lo",
+            lo_str,
+            "--out",
+            str(local_out_path.resolve()),
+            "--blender",
+            blender_exec,
+            "--outdir",
+            local_out_dir_str,
+        ]
+        
+        self._update_progress(84, "텍스처 파이프라인 실행 중...")
 
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[Denoiser] 프로세스 오류 (exit code: {e.returncode})")
-            if hasattr(e, 'stdout') and e.stdout:
-                logger.error(f"[Denoiser] stdout: {e.stdout}")
-            if hasattr(e, 'stderr') and e.stderr:
-                logger.error(f"[Denoiser] stderr: {e.stderr}")
-            raise RuntimeError(f"메쉬 노이즈 제거 실패: {e}")
-        except subprocess.TimeoutExpired as e:
-            logger.error(f"[Denoiser] 타임아웃 (30분 초과)")
-            raise RuntimeError("메쉬 노이즈 제거 타임아웃: 30분 초과")
-        except Exception as e:
-            # SIGSEGV 등 모든 예외 처리
-            error_str = str(e)
-            if "SIGSEGV" in error_str or "died with" in error_str or "Signal" in error_str:
-                logger.error(f"[Denoiser] 세그멘테이션 폴트 발생 (SIGSEGV)")
-                logger.error(f"[Denoiser] 이는 보통 손상된 OBJ 파일, 메모리 부족, 또는 PyMeshLab/Open3D 라이브러리 문제로 발생합니다")
-                raise RuntimeError(f"메쉬 노이즈 제거 중 크래시 발생 (SIGSEGV). 파일이 손상되었거나 메모리 부족일 수 있습니다")
-            logger.error(f"[Denoiser] 예상치 못한 오류: {e}", exc_info=True)
-            raise RuntimeError(f"메쉬 노이즈 제거 실패: {e}")
+        try:
+            execute_subprocess(
+                cmd,
+                cwd=str(AI_PIPELINE_PATH / "Texture"),
+                logger=logger,
+                prefix="[Texture]",
+                timeout_sec=3600,
+            )
+        except SubprocessTimeoutError:
+            logger.error("[Texture] 타임아웃 (60분 초과)")
+            raise RuntimeError("텍스처 파이프라인 타임아웃: 60분 초과")
+        except SubprocessError as error:
+            if error.returncode < 0:
+                raise RuntimeError(f"텍스처 파이프라인 실행 중 시그널 종료 발생 (returncode: {error.returncode})")
+            if error.output:
+                logger.error(f"[Texture] 프로세스 출력:\n{error.output}")
+            raise RuntimeError(f"텍스처 파이프라인 실패: exit code {error.returncode}")
+        except Exception as exc:
+            logger.error(f"[Texture] 예상치 못한 오류: {exc}", exc_info=True)
+            raise RuntimeError(f"텍스처 파이프라인 실패: {exc}")
+
+        if not local_out_path.exists():
+            raise FileNotFoundError(f"텍스처 파이프라인 결과를 찾지 못했습니다: {local_out_path}")
+        
+        try:
+            shutil.copy2(local_out_path, texture_output_path)
+            logger.info(f"[Texture] 최종 결과 복사: {local_out_path} -> {texture_output_path}")
+        except Exception as copy_exc:
+            logger.error(f"[Texture] 결과 복사 실패: {copy_exc}", exc_info=True)
+            raise RuntimeError(f"텍스처 결과 복사 실패: {copy_exc}")
+        finally:
+            try:
+                shutil.rmtree(local_temp_dir, ignore_errors=True)
+            except Exception as cleanup_exc:
+                logger.warning(f"[Texture] 로컬 임시 디렉토리 정리 실패: {cleanup_exc}")
+
+        self._update_progress(96, f"텍스처 파이프라인 완료: {texture_output_path}")
+        return texture_output_path
     
     def run_full_pipeline(
         self,
@@ -815,90 +757,30 @@ class AIPipeline:
             except Exception as e:
                 logger.warning(f"[AIPipeline] group name 추출 실패, group_id 사용: {e}")
             
-            # 네트워크 경로 또는 절대 경로 처리
-            outputs_root_str = str(outputs_base_dir)
-            
-            # 네트워크 경로인지 확인 (UNC 경로 또는 로컬 마운트된 네트워크 경로)
-            import re
-            is_unc_path = (outputs_root_str.startswith('\\\\') or outputs_root_str.startswith('//'))
-            mounted_pattern = re.compile(r'^[A-Z]:\\([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[A-Za-z0-9_-]+)\\')
-            is_mounted_network = bool(mounted_pattern.match(outputs_root_str))
-            
-            # 네트워크 경로인 경우 문자열 직접 조작 (Path 객체는 UNC 경로에서 parent 연산이 이상하게 동작할 수 있음)
-            if is_unc_path or is_mounted_network:
-                # UNC 경로 또는 로컬 마운트된 네트워크 경로 처리
-                if outputs_root_str.endswith('\\') or outputs_root_str.endswith('/'):
-                    outputs_root_str = outputs_root_str.rstrip('\\/')
-                
-                # storage 경로 추출 (outputs가 포함된 경우 제거)
-                # 예: \\server\share\storage\outputs -> \\server\share\storage
-                # 또는: C:\70.12.246.48\storage\outputs -> C:\70.12.246.48\storage
-                # 또는: //70.12.246.48/storage/outputs -> //70.12.246.48/storage
-                storage_base = outputs_root_str.rstrip('\\/')
-                
-                # outputs 제거 (끝에 있는 경우)
-                if storage_base.lower().endswith('\\outputs'):
-                    storage_base = storage_base[:-8]  # '\\outputs' 제거
-                elif storage_base.lower().endswith('/outputs'):
-                    storage_base = storage_base[:-8]  # '/outputs' 제거
-                elif storage_base.lower().endswith('outputs'):
-                    storage_base = storage_base[:-7]  # 'outputs' 제거
-                
-                # 경로 정규화 (끝에 백슬래시 제거)
-                storage_base = storage_base.rstrip('\\/')
-                
-                # storage\storage 또는 storage/storage 중복 제거 (버그 방지)
-                # 여러 번 반복될 수 있으므로 while 루프 사용
-                while '\\storage\\storage' in storage_base:
-                    storage_base = storage_base.replace('\\storage\\storage', '\\storage')
-                while '/storage/storage' in storage_base:
-                    storage_base = storage_base.replace('/storage/storage', '/storage')
-                # 혼합된 경우도 처리
-                while '\\storage/storage' in storage_base:
-                    storage_base = storage_base.replace('\\storage/storage', '\\storage')
-                while '/storage\\storage' in storage_base:
-                    storage_base = storage_base.replace('/storage\\storage', '/storage')
-                
-                # 네트워크 경로 생성
-                # 중간 산출물: storage\outputs\optimized\{group_name}\{folder_name}
-                # 최종 산출물: storage\outputs\final\{group_name}\{folder_name}
-                # 백슬래시 사용 (Windows 경로)
-                sep = '\\' if '\\' in storage_base else '/'
-                temp_dir_str = f"{storage_base}{sep}temp"
-                optimized_dir_str = f"{storage_base}{sep}outputs{sep}optimized{sep}{group_name}{sep}{folder_name}"
-                final_dir_str = f"{storage_base}{sep}outputs{sep}final{sep}{group_name}{sep}{folder_name}"
-                
-                # Path 객체 생성 (UNC 경로는 문자열로 직접 조작)
-                # UNC 경로의 경우 Path 객체가 제대로 작동하지 않을 수 있으므로 문자열로 처리
-                temp_dir = Path(temp_dir_str)
-                optimized_dir = Path(optimized_dir_str)
-                final_dir = Path(final_dir_str)
-                
-                # 디렉토리 생성 및 접근 확인
-                try:
-                    optimized_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"[경로 생성] optimized_dir 생성: {optimized_dir_str} (존재: {optimized_dir.exists()})")
-                except Exception as e:
-                    logger.error(f"[경로 생성] optimized_dir 생성 실패: {optimized_dir_str}, 오류: {e}")
-                    raise
-                
-                try:
-                    final_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"[경로 생성] final_dir 생성: {final_dir_str} (존재: {final_dir.exists()})")
-                except Exception as e:
-                    logger.error(f"[경로 생성] final_dir 생성 실패: {final_dir_str}, 오류: {e}")
-                    raise
-            else:
-                # 일반 경로는 Path 객체 사용
-                outputs_root = Path(outputs_base_dir)
-                temp_dir = outputs_root.parent / "temp"
-                optimized_dir = outputs_root / "optimized" / group_name / folder_name
-                final_dir = outputs_root / "final" / group_name / folder_name
-            
+            context = resolve_pipeline_paths(
+                uploads_input_path=uploads_input_path,
+                outputs_base_dir=outputs_base_dir,
+                group_name=group_name,
+                folder_name=folder_name,
+            )
+            directories = context.directories
+            folder_name = context.folder_name
+            uploads_path = context.uploads_path
+            temp_dir = directories.temp_dir
+            optimized_dir = directories.optimized_dir
+            final_dir = directories.final_dir
+            texture_dir = directories.texture_dir
+
+            temp_dir_display = directories.temp_dir_str or str(temp_dir)
+            optimized_dir_display = directories.optimized_dir_str or str(optimized_dir)
+            final_dir_display = directories.final_dir_str or str(final_dir)
+            texture_dir_display = directories.texture_dir_str or str(texture_dir)
+
             logger.info(f"[AIPipeline] outputs_base_dir: {outputs_base_dir}")
-            logger.info(f"[AIPipeline] temp_dir: {temp_dir} (문자열: {temp_dir_str if (is_unc_path or is_mounted_network) else str(temp_dir)})")
-            logger.info(f"[AIPipeline] optimized_dir: {optimized_dir} (문자열: {optimized_dir_str if (is_unc_path or is_mounted_network) else str(optimized_dir)})")
-            logger.info(f"[AIPipeline] final_dir: {final_dir} (문자열: {final_dir_str if (is_unc_path or is_mounted_network) else str(final_dir)})")
+            logger.info(f"[AIPipeline] temp_dir: {temp_dir} (문자열: {temp_dir_display})")
+            logger.info(f"[AIPipeline] optimized_dir: {optimized_dir} (문자열: {optimized_dir_display})")
+            logger.info(f"[AIPipeline] final_dir: {final_dir} (문자열: {final_dir_display})")
+            logger.info(f"[AIPipeline] texture_dir: {texture_dir} (문자열: {texture_dir_display})")
 
             model_type_key = (model_type or "space").strip().lower()
 
@@ -917,6 +799,7 @@ class AIPipeline:
                     final_dir,
                     model_type=model_type,
                 )
+                final_obj_path = Path(final_path)
             else:
                 # 1단계: 메쉬 최적화 → outputs/optimized
                 optimized_path = self.run_mesh_optimizer(uploads_input_path, temp_dir, optimized_dir, model_type=model_type)
@@ -927,20 +810,41 @@ class AIPipeline:
                     final_dir,
                     model_type=model_type,
                 )
+                final_obj_path = Path(final_path)
+            
+            if not final_obj_path.exists():
+                raise FileNotFoundError(f"메쉬 파이프라인 최종 OBJ를 찾지 못했습니다: {final_obj_path}")
+            
+            safe_folder_name = sanitize_filename(folder_name or final_obj_path.stem)
+            texture_output_filename = f"{safe_folder_name}_final.glb"
+            texture_output_path = texture_dir / texture_output_filename
+            
+            hi_input_path = uploads_path
+            texture_final_path = self.run_texture_pipeline(
+                hi_input_path=hi_input_path,
+                lo_input_path=final_obj_path,
+                texture_dir=texture_dir,
+                texture_output_path=texture_output_path,
+            )
             
             # 최종 경로 확인 및 검증
-            final_path_str = str(final_path)
-            logger.info(f"[AIPipeline] 최종 경로: {final_path_str}")
+            final_path_str = str(texture_final_path)
+            logger.info(f"[AIPipeline] 텍스처 최종 경로: {final_path_str}")
+            logger.info(f"[AIPipeline] 메쉬 보정 최종 OBJ: {final_obj_path}")
             
             # 파일 존재 확인
-            if not final_path.exists():
-                logger.error(f"[AIPipeline] 경고: 최종 파일이 존재하지 않습니다: {final_path_str}")
+            if not texture_final_path.exists():
+                logger.error(f"[AIPipeline] 경고: 텍스처 최종 파일이 존재하지 않습니다: {final_path_str}")
                 # 파일이 없어도 경로는 반환 (에러 처리 상위에서)
             else:
-                file_size = final_path.stat().st_size if final_path.exists() else 0
-                logger.info(f"[AIPipeline] 최종 파일 확인 - 경로: {final_path_str}, 크기: {file_size} bytes, 존재: {final_path.exists()}")
+                file_size = texture_final_path.stat().st_size if texture_final_path.exists() else 0
+                logger.info(f"[AIPipeline] 텍스처 최종 파일 확인 - 경로: {final_path_str}, 크기: {file_size} bytes, 존재: {texture_final_path.exists()}")
             
-            self._update_progress(100, f"AI 파이프라인 완료: {final_path_str}")
+            if final_obj_path.exists():
+                obj_size = final_obj_path.stat().st_size
+                logger.info(f"[AIPipeline] 메쉬 보정 OBJ 확인 - 경로: {final_obj_path}, 크기: {obj_size} bytes")
+            
+            self._update_progress(100, f"AI 파이프라인 완료 (OBJ & 텍스처 GLB 생성): {final_obj_path} | {final_path_str}")
             return final_path_str
             
         except Exception as e:
