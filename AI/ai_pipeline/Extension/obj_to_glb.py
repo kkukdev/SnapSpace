@@ -1,6 +1,10 @@
 # obj_to_glb.py
 import trimesh
 import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='ignore')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='ignore')
+
 
 def convert_obj_to_glb(input_path, output_path=None):
     if output_path is None:
