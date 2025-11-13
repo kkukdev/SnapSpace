@@ -309,7 +309,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             EditorGUI.BeginChangeCheck();
             int scanDebounce = EditorGUILayout.IntField("Scan Debounce (ms)", cachedScanDebounce);
-            string objPatterns = EditorGUILayout.TextField("OBJ Patterns", cachedObjPatterns ?? "*.obj");
+            string objPatterns = EditorGUILayout.TextField("Mesh File Patterns", cachedObjPatterns ?? "*.obj,*.glb,*.fbx");
+            EditorGUILayout.HelpBox("메시 파일 검색 패턴을 쉼표로 구분하여 입력하세요.\n예: *.obj,*.glb,*.fbx", MessageType.Info);
             float unitScale = EditorGUILayout.FloatField("Unit Scale", cachedUnitScale);
             bool settingsChanged = EditorGUI.EndChangeCheck();
             
@@ -345,13 +346,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             EditorGUILayout.HelpBox("WatchConfig를 먼저 선택하세요.\nCreate > Configs > WatchConfig로 생성할 수 있습니다.", MessageType.Info);
         }
 
-        EditorGUILayout.Space();
-        EditorGUILayout.LabelField("OBJ Files", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Mesh Files", EditorStyles.boldLabel);
         
         _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true), GUILayout.MinHeight(150));
         if (_items.Count == 0)
         {
-            EditorGUILayout.HelpBox("OBJ 파일 목록이 비어있습니다.\nAPI 연동 후 그룹의 스캔 데이터를 조회할 수 있습니다.", MessageType.Info);
+            EditorGUILayout.HelpBox("메시 파일 목록이 비어있습니다.\nAPI 연동 후 그룹의 스캔 데이터를 조회할 수 있습니다.", MessageType.Info);
         }
         else
         {
@@ -405,14 +406,14 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     int textMemosCount = it.memos.Count(m => m != null && m.type == "text");
                     if (textMemosCount > 0)
                     {
-                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. OBJ를 Import하면 3D 공간에 표시됩니다.", MessageType.Info);
+                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. 메시를 Import하면 3D 공간에 표시됩니다.", MessageType.Info);
                     }
                 }
                 
                 // 둘 다 없는 경우 (이론적으로는 발생하지 않아야 함)
                 if (string.IsNullOrEmpty(it.originalPath) && string.IsNullOrEmpty(it.retouchedPath))
                 {
-                    EditorGUILayout.HelpBox("OBJ 파일 경로가 없습니다.", MessageType.Warning);
+                    EditorGUILayout.HelpBox("메시 파일 경로가 없습니다.", MessageType.Warning);
                 }
                 
                 EditorGUILayout.EndVertical();
@@ -788,7 +789,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         foreach (var scan in response.data)
                         {
                             // original_file_path와 retouched_file_path는 파일 경로 또는 폴더 경로일 수 있음
-                            // 파일 경로인 경우 그대로 사용, 폴더 경로인 경우 폴더 안에서 .obj 파일을 찾음
+                            // 파일 경로인 경우 그대로 사용, 폴더 경로인 경우 objPatterns 설정에 따라 메시 파일을 찾음
                             string originalPath = null;
                             string retouchedPath = null;
                             
@@ -807,17 +808,17 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 }
                                 else if (Directory.Exists(convertedPath))
                                 {
-                                    // 폴더 경로인 경우 (폴더 안에서 .obj 파일 찾기)
-                                    string[] objFiles = Directory.GetFiles(convertedPath, "*.obj", SearchOption.TopDirectoryOnly);
-                                    if (objFiles.Length > 0)
+                                    // 폴더 경로인 경우 (objPatterns 설정에 따라 파일 찾기)
+                                    string[] meshFiles = FindMeshFiles(convertedPath);
+                                    if (meshFiles.Length > 0)
                                     {
-                                        // 첫 번째 .obj 파일 사용
-                                        originalPath = objFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in original folder: {convertedPath}");
+                                        // 첫 번째 파일 사용
+                                        originalPath = meshFiles[0];
+                                        Debug.Log($"[ObjDropWatcher] Found {meshFiles.Length} mesh file(s) in original folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in original folder: {convertedPath}");
+                                        Debug.LogWarning($"[ObjDropWatcher] No mesh files found in original folder: {convertedPath}");
                                     }
                                 }
                                 else
@@ -841,17 +842,17 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 }
                                 else if (Directory.Exists(convertedPath))
                                 {
-                                    // 폴더 경로인 경우 (폴더 안에서 .obj 파일 찾기)
-                                    string[] objFiles = Directory.GetFiles(convertedPath, "*.obj", SearchOption.TopDirectoryOnly);
-                                    if (objFiles.Length > 0)
+                                    // 폴더 경로인 경우 (objPatterns 설정에 따라 파일 찾기)
+                                    string[] meshFiles = FindMeshFiles(convertedPath);
+                                    if (meshFiles.Length > 0)
                                     {
-                                        // 첫 번째 .obj 파일 사용
-                                        retouchedPath = objFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {objFiles.Length} OBJ file(s) in retouched folder: {convertedPath}");
+                                        // 첫 번째 파일 사용
+                                        retouchedPath = meshFiles[0];
+                                        Debug.Log($"[ObjDropWatcher] Found {meshFiles.Length} mesh file(s) in retouched folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No OBJ files found in retouched folder: {convertedPath}");
+                                        Debug.LogWarning($"[ObjDropWatcher] No mesh files found in retouched folder: {convertedPath}");
                                     }
                                 }
                                 else
@@ -1158,6 +1159,60 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     }
 
     /// <summary>
+    /// objPatterns 설정에 따라 폴더에서 메시 파일을 찾습니다.
+    /// 여러 패턴을 쉼표로 구분하여 지원합니다 (예: "*.obj,*.glb,*.fbx").
+    /// </summary>
+    string[] FindMeshFiles(string folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath))
+            return new string[0];
+        
+        // objPatterns 설정 가져오기
+        string patternsStr = "*.obj"; // 기본값
+        if (config != null)
+        {
+            try
+            {
+                patternsStr = config.objPatterns ?? "*.obj";
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to get objPatterns from config: {ex.Message}, using default: *.obj");
+            }
+        }
+        
+        // 쉼표로 구분된 패턴 파싱
+        string[] patterns = patternsStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < patterns.Length; i++)
+        {
+            patterns[i] = patterns[i].Trim();
+        }
+        
+        // 각 패턴으로 파일 검색
+        List<string> foundFiles = new List<string>();
+        foreach (string pattern in patterns)
+        {
+            if (string.IsNullOrWhiteSpace(pattern))
+                continue;
+            
+            try
+            {
+                string[] files = Directory.GetFiles(folderPath, pattern, SearchOption.TopDirectoryOnly);
+                foundFiles.AddRange(files);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to search files with pattern '{pattern}' in '{folderPath}': {ex.Message}");
+            }
+        }
+        
+        // 중복 제거 및 정렬
+        foundFiles = foundFiles.Distinct().OrderBy(f => f).ToList();
+        
+        return foundFiles.ToArray();
+    }
+
+    /// <summary>
     /// 프로젝트 루트 경로를 가져옵니다.
     /// WatchConfig에 projectRoot가 설정되어 있으면 사용하고, 없으면 Unity 프로젝트 루트를 반환합니다.
     /// </summary>
@@ -1236,31 +1291,76 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return apiPath;
     }
 
-    void Spawn(string objPath, MemoData[] memos = null)
+    void Spawn(string meshPath, MemoData[] memos = null)
     {
         try
         {
-            // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
-            // 이렇게 하면 RuntimeObjLoader가 메시를 이동시키지 않고 원본 좌표를 그대로 유지합니다.
-            // OBJ 파일에서 촬영 시작 지점(0,0,0)이 Unity의 원점과 일치합니다.
-            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
-            Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
+            if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
+            {
+                EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{meshPath}", "OK");
+                return;
+            }
+            
+            GameObject go = null;
+            string extension = Path.GetExtension(meshPath).ToLowerInvariant();
+            
+            // 파일 확장자에 따라 적절한 로더 선택
+            switch (extension)
+            {
+                case ".obj":
+                    // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+                    // 이렇게 하면 RuntimeObjLoader가 메시를 이동시키지 않고 원본 좌표를 그대로 유지합니다.
+                    // OBJ 파일에서 촬영 시작 지점(0,0,0)이 Unity의 원점과 일치합니다.
+                    go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
+                    Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
+                    break;
+                    
+                case ".glb":
+                case ".gltf":
+                    // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
+                    go = LoadGlbOrGltf(meshPath);
+                    if (go != null)
+                    {
+                        Undo.RegisterCreatedObjectUndo(go, "Spawn GLB/GLTF");
+                    }
+                    break;
+                    
+                case ".fbx":
+                    // FBX 파일은 Unity의 기본 임포트 기능 사용
+                    go = LoadFbx(meshPath);
+                    if (go != null)
+                    {
+                        Undo.RegisterCreatedObjectUndo(go, "Spawn FBX");
+                    }
+                    break;
+                    
+                default:
+                    EditorUtility.DisplayDialog("지원하지 않는 형식", 
+                        $"지원하지 않는 파일 형식입니다: {extension}\n\n지원 형식: .obj, .glb, .gltf, .fbx", "OK");
+                    return;
+            }
+            
+            if (go == null)
+            {
+                EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
+                return;
+            }
+            
             Selection.activeObject = go;
 
-            // OBJ 파일의 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
-            // 이렇게 하면 OBJ 파일의 촬영 시작 지점(0,0,0)이 Unity 원점과 일치합니다.
+            // 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
             go.transform.position = Vector3.zero;
             go.transform.rotation = Quaternion.identity;
 
             // 단위 보정: config의 unitScale 사용 (기본값 1000f = mm → m 변환)
-            // 주의: OBJ 파일의 좌표가 mm 단위라면, Unity의 m 단위로 변환하기 위해 스케일 적용
-            // 예: OBJ 좌표 (1000mm, 2000mm, 3000mm) → Unity 스케일 1000 적용 → (1m, 2m, 3m)
+            // 주의: 메시 파일의 좌표가 mm 단위라면, Unity의 m 단위로 변환하기 위해 스케일 적용
+            // 예: 좌표 (1000mm, 2000mm, 3000mm) → Unity 스케일 1000 적용 → (1m, 2m, 3m)
             float unitScale = config != null ? config.unitScale : 1000f;
             go.transform.localScale = Vector3.one * unitScale;
 
-            Debug.Log($"[Spawned with scale x{unitScale}, preserving original coordinates] {objPath}");
+            Debug.Log($"[Spawned {extension} with scale x{unitScale}, preserving original coordinates] {meshPath}");
             
-            // memos가 있으면 OBJ GameObject의 자식으로 텍스트 표시
+            // memos가 있으면 GameObject의 자식으로 텍스트 표시
             if (memos != null && memos.Length > 0)
             {
                 SpawnMemosAsChildren(go, memos, unitScale);
@@ -1268,13 +1368,136 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         }
         catch (Exception ex)
         {
-            Debug.LogError($"Spawn 실패: {objPath}\n{ex}");
+            Debug.LogError($"Spawn 실패: {meshPath}\n{ex}");
+            EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
+        }
+    }
+    
+    /// <summary>
+    /// GLB/GLTF 파일을 로드합니다.
+    /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+    /// </summary>
+    GameObject LoadGlbOrGltf(string filePath)
+    {
+        try
+        {
+            // Unity 에디터에서만 작동
+            #if UNITY_EDITOR
+            // 파일을 Assets 폴더로 복사하여 임포트
+            string fileName = Path.GetFileName(filePath);
+            string tempAssetPath = $"Assets/Temp_{fileName}";
+            
+            // 파일 복사
+            File.Copy(filePath, tempAssetPath, true);
+            
+            // AssetDatabase를 통해 임포트
+            AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
+            
+            // ModelImporter 설정 (필요시)
+            ModelImporter importer = AssetImporter.GetAtPath(tempAssetPath) as ModelImporter;
+            if (importer != null)
+            {
+                // 스케일을 1로 설정 (나중에 unitScale 적용)
+                importer.globalScale = 1.0f;
+                importer.SaveAndReimport();
+            }
+            
+            // 임포트된 게임오브젝트 로드
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+            if (prefab != null)
+            {
+                // 씬에 인스턴스 생성 (프리팹이 아닐 수도 있으므로 GameObject.Instantiate 사용)
+                GameObject instance = GameObject.Instantiate(prefab);
+                instance.name = Path.GetFileNameWithoutExtension(filePath);
+                
+                // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
+                // AssetDatabase.DeleteAsset(tempAssetPath);
+                
+                return instance;
+            }
+            else
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to load GLB/GLTF as GameObject: {tempAssetPath}");
+                // 임시 파일 삭제
+                AssetDatabase.DeleteAsset(tempAssetPath);
+                return null;
+            }
+            #else
+            Debug.LogError("[ObjDropWatcher] GLB/GLTF loading is only supported in Unity Editor");
+            return null;
+            #endif
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ObjDropWatcher] Failed to load GLB/GLTF file {filePath}: {ex.Message}");
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// FBX 파일을 로드합니다.
+    /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+    /// </summary>
+    GameObject LoadFbx(string filePath)
+    {
+        try
+        {
+            // Unity 에디터에서만 작동
+            #if UNITY_EDITOR
+            // 파일을 Assets 폴더로 복사하여 임포트
+            string fileName = Path.GetFileName(filePath);
+            string tempAssetPath = $"Assets/Temp_{fileName}";
+            
+            // 파일 복사
+            File.Copy(filePath, tempAssetPath, true);
+            
+            // AssetDatabase를 통해 임포트
+            AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
+            
+            // ModelImporter 설정 (필요시)
+            ModelImporter importer = AssetImporter.GetAtPath(tempAssetPath) as ModelImporter;
+            if (importer != null)
+            {
+                // 스케일을 1로 설정 (나중에 unitScale 적용)
+                importer.globalScale = 1.0f;
+                importer.SaveAndReimport();
+            }
+            
+            // 임포트된 게임오브젝트 로드
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+            if (prefab != null)
+            {
+                // 씬에 인스턴스 생성 (프리팹이 아닐 수도 있으므로 GameObject.Instantiate 사용)
+                GameObject instance = GameObject.Instantiate(prefab);
+                instance.name = Path.GetFileNameWithoutExtension(filePath);
+                
+                // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
+                // AssetDatabase.DeleteAsset(tempAssetPath);
+                
+                return instance;
+            }
+            else
+            {
+                Debug.LogWarning($"[ObjDropWatcher] Failed to load FBX as GameObject: {tempAssetPath}");
+                // 임시 파일 삭제
+                AssetDatabase.DeleteAsset(tempAssetPath);
+                return null;
+            }
+            #else
+            Debug.LogError("[ObjDropWatcher] FBX loading is only supported in Unity Editor");
+            return null;
+            #endif
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ObjDropWatcher] Failed to load FBX file {filePath}: {ex.Message}");
+            return null;
         }
     }
 
     /// <summary>
-    /// memos를 OBJ GameObject의 자식으로 생성합니다.
-    /// 메모의 좌표는 OBJ의 로컬 좌표계를 사용합니다.
+    /// memos를 메시 GameObject의 자식으로 생성합니다.
+    /// 메모의 좌표는 메시의 로컬 좌표계를 사용합니다.
     /// </summary>
     void SpawnMemosAsChildren(GameObject parentObj, MemoData[] memos, float unitScale)
     {
@@ -1299,33 +1522,33 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // OBJ 파일: (x, y, z) → RuntimeObjLoader: (x, y, -z)
             anchorPosition.z = -anchorPosition.z;
             
-            // 메모는 OBJ GameObject의 자식이므로 로컬 좌표계를 사용합니다.
-            // OBJ GameObject에 unitScale (예: 1000)이 적용되어 있으므로,
-            // 메모의 로컬 좌표는 OBJ 파일의 원본 좌표(변환 후)를 그대로 사용하면 됩니다.
-            // OBJ GameObject의 스케일이 자동으로 적용되어 올바른 위치에 표시됩니다.
+            // 메모는 메시 GameObject의 자식이므로 로컬 좌표계를 사용합니다.
+            // 메시 GameObject에 unitScale (예: 1000)이 적용되어 있으므로,
+            // 메모의 로컬 좌표는 파일의 원본 좌표(변환 후)를 그대로 사용하면 됩니다.
+            // 메시 GameObject의 스케일이 자동으로 적용되어 올바른 위치에 표시됩니다.
             // 
-            // 예시:
+            // 예시 (OBJ 파일의 경우):
             // - OBJ 파일 원본 좌표: (0.80mm, 1.43mm, 0.13mm)
             // - Z축 변환 후: (0.80mm, 1.43mm, -0.13mm)  <- RuntimeObjLoader와 동일한 변환
             // - 메모 로컬 좌표: (0.80, 1.43, -0.13)
-            // - OBJ GameObject 스케일: (1000, 1000, 1000)
-            // - 결과: 메모가 OBJ 메시와 같은 위치에 표시됨 (OBJ의 스케일이 자동 적용)
+            // - 메시 GameObject 스케일: (1000, 1000, 1000)
+            // - 결과: 메모가 메시와 같은 위치에 표시됨 (메시의 스케일이 자동 적용)
             // 
-            // 주의: unitScale을 곱하지 않음 (메모가 OBJ의 자식이므로 OBJ의 스케일을 상속받음)
+            // 주의: unitScale을 곱하지 않음 (메모가 메시의 자식이므로 메시의 스케일을 상속받음)
             
-            // OBJ GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
+            // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
             Create3DTextAsChild(parentObj, memo.content, anchorPosition);
             memoCount++;
         }
         
         if (memoCount > 0)
         {
-            Debug.Log($"[ObjDropWatcher] Spawned {memoCount} text memo(s) as children of OBJ object");
+            Debug.Log($"[ObjDropWatcher] Spawned {memoCount} text memo(s) as children of mesh object");
         }
     }
 
     /// <summary>
-    /// OBJ GameObject의 자식으로 3D 텍스트를 생성합니다.
+    /// 메시 GameObject의 자식으로 3D 텍스트를 생성합니다.
     /// 위치는 부모 객체의 로컬 좌표계를 사용합니다.
     /// </summary>
     void Create3DTextAsChild(GameObject parentObj, string text, Vector3 localPosition)
