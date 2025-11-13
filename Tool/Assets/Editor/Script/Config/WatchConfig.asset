@@ -17,5 +17,5 @@ MonoBehaviour:
   groupScansEndpoint: /api/v1/groups/{group_id}/scans
   projectRoot: C:\Users\SSAFY\Desktop\dev_dydgk\S13P31S102
   scanDebounceMs: 800
-  objPatterns: '*.obj'
-  unitScale: 100
+  objPatterns: '*.obj, *.glb'
+  unitScale: 1000

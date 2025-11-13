@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
+using ObjDropWatcher.ExportImport;
 
 public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
 {
@@ -1295,6 +1296,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     {
         try
         {
+            Debug.Log($"[Spawn] ===== Spawn 시작 =====\n경로: {meshPath}\n파일 존재: {File.Exists(meshPath)}");
+            
             if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
             {
                 EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{meshPath}", "OK");
@@ -1303,6 +1306,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             GameObject go = null;
             string extension = Path.GetExtension(meshPath).ToLowerInvariant();
+            Debug.Log($"[Spawn] 파일 확장자: {extension}");
             
             // 파일 확장자에 따라 적절한 로더 선택
             switch (extension)
@@ -1312,7 +1316,11 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     // 이렇게 하면 RuntimeObjLoader가 메시를 이동시키지 않고 원본 좌표를 그대로 유지합니다.
                     // OBJ 파일에서 촬영 시작 지점(0,0,0)이 Unity의 원점과 일치합니다.
                     go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
-                    Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
+                    if (go != null)
+                    {
+                        Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
+                        Debug.Log($"[Spawn] OBJ 로드 완료: {go.name}");
+                    }
                     break;
                     
                 case ".glb":
@@ -1322,6 +1330,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     if (go != null)
                     {
                         Undo.RegisterCreatedObjectUndo(go, "Spawn GLB/GLTF");
+                        Debug.Log($"[Spawn] GLB/GLTF 로드 완료: {go.name}");
                     }
                     break;
                     
@@ -1331,6 +1340,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     if (go != null)
                     {
                         Undo.RegisterCreatedObjectUndo(go, "Spawn FBX");
+                        Debug.Log($"[Spawn] FBX 로드 완료: {go.name}");
                     }
                     break;
                     
@@ -1342,10 +1352,12 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             if (go == null)
             {
+                Debug.LogError($"[Spawn] GameObject 생성 실패: {meshPath}");
                 EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
                 return;
             }
             
+            Debug.Log($"[Spawn] GameObject 생성 성공:\n이름: {go.name}\n경로: {meshPath}\nGameObject 인스턴스 ID: {go.GetInstanceID()}");
             Selection.activeObject = go;
 
             // 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
@@ -1356,9 +1368,131 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // 주의: 메시 파일의 좌표가 mm 단위라면, Unity의 m 단위로 변환하기 위해 스케일 적용
             // 예: 좌표 (1000mm, 2000mm, 3000mm) → Unity 스케일 1000 적용 → (1m, 2m, 3m)
             float unitScale = config != null ? config.unitScale : 1000f;
+            
+            // 메시의 모든 버텍스에서 Y 좌표 최솟값 찾기 (스케일 적용 전 로컬 좌표 기준)
+            // 스케일을 미리 알 수 있으므로 스케일 적용 후 값을 계산
+            float minY = FindMinimumY(go, unitScale);
+            
+            // 스케일 적용
             go.transform.localScale = Vector3.one * unitScale;
+            
+            // Y 좌표 최솟값이 0보다 작으면 그만큼 위로 올리기
+            if (minY < 0f)
+            {
+                float offsetY = -minY;
+                go.transform.position = new Vector3(0f, offsetY, 0f);
+                Debug.Log($"[Spawn] Adjusted Y position by {offsetY} to lift mesh above ground (minY was {minY})");
+            }
+            else
+            {
+                Debug.Log($"[Spawn] Mesh Y position is already above or at ground level (minY: {minY})");
+            }
 
             Debug.Log($"[Spawned {extension} with scale x{unitScale}, preserving original coordinates] {meshPath}");
+            
+            // GameObject에 경로 정보 저장 (나중에 ObjectTransformManagerWindow에서 찾을 수 있도록)
+            // 주의: 모든 자식 오브젝트에도 경로를 저장해야 할 수 있음
+            
+            // GameObject가 여전히 유효한지 확인
+            if (go == null)
+            {
+                Debug.LogError($"[Spawn] 경로 저장 실패: GameObject가 null입니다. 경로: {meshPath}");
+                return;
+            }
+            
+            try
+            {
+                Debug.Log($"[Spawn] 경로 저장 시작 - GameObject: {go.name}, 경로: {meshPath}, InstanceID: {go.GetInstanceID()}");
+                Debug.Log($"[Spawn] SetPath 호출 전 - GameObject null 체크: {go == null}, 이름: {go?.name}");
+                
+                // 루트 GameObject에 경로 저장
+                try
+                {
+                    ObjPathInfo.SetPath(go, meshPath);
+                    Debug.Log($"[Spawn] SetPath 호출 완료");
+                }
+                catch (System.Exception setPathEx)
+                {
+                    Debug.LogError($"[Spawn] SetPath 호출 중 예외: {setPathEx.Message}\nStack trace: {setPathEx.StackTrace}");
+                }
+            
+                // Unity 에디터에서 변경사항 저장 (DontSaveInEditor 플래그가 없을 때만)
+                #if UNITY_EDITOR
+                if (go != null)
+                {
+                    try
+                    {
+                        // GameObject가 저장 가능한지 확인
+                        if ((go.hideFlags & HideFlags.DontSaveInEditor) == 0)
+                        {
+                            EditorUtility.SetDirty(go);
+                        }
+                    }
+                    catch (System.Exception)
+                    {
+                        // Assertion 오류는 무시 (경로는 이미 저장됨)
+                    }
+                }
+                #endif
+                
+                // 모든 자식 오브젝트에도 경로 저장 (GLB/GLTF/FBX의 경우 자식 오브젝트가 있을 수 있음)
+                if (go != null)
+                {
+                    Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
+                    Debug.Log($"[Spawn] 자식 오브젝트 개수: {allChildren.Length}");
+                    foreach (Transform child in allChildren)
+                    {
+                        if (child != null && child != go.transform && child.gameObject != null)
+                        {
+                            ObjPathInfo.SetPath(child.gameObject, meshPath);
+                            #if UNITY_EDITOR
+                            try
+                            {
+                                // GameObject가 저장 가능한지 확인
+                                if (child.gameObject != null && (child.gameObject.hideFlags & HideFlags.DontSaveInEditor) == 0)
+                                {
+                                    EditorUtility.SetDirty(child.gameObject);
+                                }
+                            }
+                            catch (System.Exception)
+                            {
+                                // Assertion 오류는 무시 (경로는 이미 저장됨)
+                            }
+                            #endif
+                            Debug.Log($"[Spawn] 자식 오브젝트에 경로 저장: {child.name}");
+                        }
+                    }
+                }
+                
+                // 경로 저장 확인 (루트만 확인)
+                if (go != null)
+                {
+                    string savedPath = ObjPathInfo.GetPath(go);
+                    Debug.Log($"[Spawn] 경로 저장 후 확인:\n저장된 경로: {savedPath}\n원본 경로: {meshPath}\n일치 여부: {savedPath == meshPath}");
+                    
+                    // Component 확인
+                    var pathInfo = go.GetComponent<ObjPathInfo>();
+                    if (pathInfo != null)
+                    {
+                        Debug.Log($"[Spawn] ObjPathInfo Component 확인:\nComponent 존재: true\nComponent 경로: {pathInfo.ObjFilePath}\nComponent InstanceID: {pathInfo.GetInstanceID()}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"[Spawn] ObjPathInfo Component가 없습니다! GameObject: {go.name}, InstanceID: {go.GetInstanceID()}");
+                    }
+                    
+                    Debug.Log($"[Spawn] GameObject 유효성 확인: {go.name}, InstanceID: {go.GetInstanceID()}");
+                    Debug.Log($"[Spawn] ===== Spawn 완료 =====\nGameObject: {go.name}\n최종 경로: {savedPath}\nInstanceID: {go.GetInstanceID()}");
+                }
+                else
+                {
+                    Debug.LogError($"[Spawn] 경로 저장 중 GameObject가 null이 되었습니다!");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[Spawn] 경로 저장 중 예외 발생: {ex.Message}\nStack trace: {ex.StackTrace}");
+            }
             
             // memos가 있으면 GameObject의 자식으로 텍스트 표시
             if (memos != null && memos.Length > 0)
@@ -1409,6 +1543,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 // 씬에 인스턴스 생성 (프리팹이 아닐 수도 있으므로 GameObject.Instantiate 사용)
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
+                
+                Debug.Log($"[LoadGlbOrGltf] 인스턴스 생성: {instance.name}, InstanceID: {instance.GetInstanceID()}, 원본 경로: {filePath}");
                 
                 // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
@@ -1470,6 +1606,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 // 씬에 인스턴스 생성 (프리팹이 아닐 수도 있으므로 GameObject.Instantiate 사용)
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
+                
+                Debug.Log($"[LoadFbx] 인스턴스 생성: {instance.name}, InstanceID: {instance.GetInstanceID()}, 원본 경로: {filePath}");
                 
                 // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
@@ -1545,6 +1683,73 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         {
             Debug.Log($"[ObjDropWatcher] Spawned {memoCount} text memo(s) as children of mesh object");
         }
+    }
+
+    /// <summary>
+    /// GameObject와 그 모든 자식에서 메시 버텍스의 Y 좌표 최솟값을 찾습니다.
+    /// 루트의 로컬 좌표계 기준으로 계산하며, 스케일이 적용된 후의 값을 반환합니다.
+    /// </summary>
+    float FindMinimumY(GameObject root, float scale)
+    {
+        if (root == null)
+            return 0f;
+
+        float minY = float.PositiveInfinity;
+        
+        // 모든 MeshFilter 컴포넌트 찾기 (자식 포함)
+        MeshFilter[] meshFilters = root.GetComponentsInChildren<MeshFilter>(true);
+        
+        Transform rootTransform = root.transform;
+        
+        foreach (MeshFilter mf in meshFilters)
+        {
+            if (mf == null || mf.sharedMesh == null)
+                continue;
+            
+            Mesh mesh = mf.sharedMesh;
+            Vector3[] vertices = mesh.vertices;
+            
+            if (vertices == null || vertices.Length == 0)
+                continue;
+            
+            Transform meshTransform = mf.transform;
+            
+            // 메시가 속한 오브젝트가 루트인지 자식인지 확인
+            bool isRootMesh = (meshTransform == rootTransform);
+            
+            foreach (Vector3 vertex in vertices)
+            {
+                float vertexY;
+                
+                if (isRootMesh)
+                {
+                    // 루트의 메시인 경우: 버텍스의 로컬 Y 좌표를 직접 사용
+                    vertexY = vertex.y;
+                }
+                else
+                {
+                    // 자식 오브젝트의 메시인 경우: 자식의 로컬 좌표를 루트의 로컬 좌표계로 변환
+                    // 자식의 월드 좌표로 변환 (스케일은 아직 적용 안 됨, 기본 1,1,1)
+                    Vector3 vertexWorldPos = meshTransform.TransformPoint(vertex);
+                    // 루트의 로컬 좌표계로 변환
+                    Vector3 vertexRootLocalPos = rootTransform.InverseTransformPoint(vertexWorldPos);
+                    vertexY = vertexRootLocalPos.y;
+                }
+                
+                // 스케일 적용 후 Y 좌표 계산
+                float scaledY = vertexY * scale;
+                
+                // Y 좌표 최솟값 업데이트
+                if (scaledY < minY)
+                    minY = scaledY;
+            }
+        }
+        
+        // 메시를 찾지 못한 경우 0 반환
+        if (float.IsPositiveInfinity(minY))
+            return 0f;
+        
+        return minY;
     }
 
     /// <summary>

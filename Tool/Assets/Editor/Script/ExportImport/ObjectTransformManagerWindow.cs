@@ -50,6 +50,78 @@ public class ObjectTransformManagerWindow : EditorWindow
     private Vector2 _listScroll;
     private string _manualPath = "";
     private bool _autoDetectOnSceneChange = true;
+    
+    /// <summary>
+    /// 기본 경로를 가져옵니다 (WatchConfig 또는 storage 경로)
+    /// </summary>
+    string GetDefaultPath()
+    {
+        // 1. WatchConfig에서 projectRoot 가져오기 시도
+        try
+        {
+            var configs = Resources.FindObjectsOfTypeAll<WatchConfig>();
+            if (configs != null && configs.Length > 0)
+            {
+                var config = configs[0];
+                if (config != null && !string.IsNullOrWhiteSpace(config.projectRoot))
+                {
+                    string projectRoot = config.projectRoot;
+                    // 절대 경로인지 확인
+                    if (Path.IsPathRooted(projectRoot))
+                    {
+                        if (Directory.Exists(projectRoot))
+                        {
+                            // storage/uploads 경로 확인
+                            string uploadsPath = Path.Combine(projectRoot, "storage", "uploads");
+                            if (Directory.Exists(uploadsPath))
+                            {
+                                return uploadsPath;
+                            }
+                            return projectRoot;
+                        }
+                    }
+                    else
+                    {
+                        // 상대 경로인 경우
+                        string fullPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", projectRoot));
+                        if (Directory.Exists(fullPath))
+                        {
+                            // storage/uploads 경로 확인
+                            string uploadsPath = Path.Combine(fullPath, "storage", "uploads");
+                            if (Directory.Exists(uploadsPath))
+                            {
+                                return uploadsPath;
+                            }
+                            return fullPath;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // WatchConfig 접근 실패 시 무시
+        }
+        
+        // 2. 기본 storage 경로 사용
+        string[] commonPaths = {
+            Path.Combine(Application.dataPath, "..", "storage", "uploads"),
+            Path.Combine(Application.dataPath, "..", "storage", "outputs"),
+            Path.Combine(Application.dataPath, "..", "storage")
+        };
+        
+        foreach (var path in commonPaths)
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (Directory.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+        
+        // 3. 기본값: Application.dataPath
+        return Application.dataPath;
+    }
 
     [MenuItem("Tools/Object Transform Manager")]
     public static void Open()
@@ -63,10 +135,68 @@ public class ObjectTransformManagerWindow : EditorWindow
     {
         // 씬 변경 감지
         EditorApplication.hierarchyChanged += OnHierarchyChanged;
-        // 씬에서 자동으로 OBJ 감지
-        if (_autoDetectOnSceneChange)
+        
+        // 기본 경로 설정 (처음 열 때만)
+        if (string.IsNullOrEmpty(_manualPath))
         {
-            EditorApplication.delayCall += AutoDetectSceneObjects;
+            _manualPath = GetDefaultPath();
+        }
+        
+        // 기존 항목들 중 경로가 없는 항목에 대해 경로 찾기 시도
+        EditorApplication.delayCall += () =>
+        {
+            TryFindMissingPaths();
+            
+            // 씬에서 자동으로 OBJ 감지
+            if (_autoDetectOnSceneChange)
+            {
+                AutoDetectSceneObjects();
+            }
+        };
+    }
+    
+    /// <summary>
+    /// 경로가 없는 관리 항목들에 대해 경로를 찾아서 업데이트합니다.
+    /// </summary>
+    void TryFindMissingPaths()
+    {
+        if (_managedObjects == null || _managedObjects.Count == 0)
+            return;
+        
+        SetupSearchPaths();
+        int foundCount = 0;
+        
+        foreach (var item in _managedObjects)
+        {
+            // 경로가 없거나 파일이 존재하지 않는 경우에만 찾기
+            if (string.IsNullOrEmpty(item.objPath) || !File.Exists(item.objPath))
+            {
+                string foundPath = null;
+                
+                // GameObject가 있는 경우 GameObject에서 경로 찾기
+                if (item.gameObject != null)
+                {
+                    foundPath = ObjPathFinder.FindObjPath(item.gameObject);
+                }
+                // GameObject가 없지만 이름이 있는 경우 이름으로 찾기
+                else if (!string.IsNullOrEmpty(item.objectName))
+                {
+                    foundPath = ObjPathFinder.FindObjPathForImport(item.objectName, null);
+                }
+                
+                if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
+                {
+                    item.objPath = foundPath;
+                    foundCount++;
+                    Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
+                }
+            }
+        }
+        
+        if (foundCount > 0)
+        {
+            Debug.Log($"[OBJ Manager] Found paths for {foundCount} managed object(s)");
+            Repaint();
         }
     }
 
@@ -144,16 +274,41 @@ public class ObjectTransformManagerWindow : EditorWindow
                     EditorGUIUtility.PingObject(item.gameObject);
                 }
                 
-                if (GUILayout.Button("경로 수정", GUILayout.Height(22)))
+                // 경로가 없으면 "경로 찾기", 있으면 "경로 수정"
+                string pathButtonText = string.IsNullOrEmpty(item.objPath) || !File.Exists(item.objPath)
+                    ? "경로 찾기"
+                    : "경로 수정";
+                
+                if (GUILayout.Button(pathButtonText, GUILayout.Height(22)))
                 {
-                    string newPath = EditorUtility.OpenFilePanel("OBJ 파일 선택", 
-                        string.IsNullOrEmpty(item.objPath) ? Application.dataPath : Path.GetDirectoryName(item.objPath), 
-                        "obj");
-                    if (!string.IsNullOrEmpty(newPath) && File.Exists(newPath))
+                    // 먼저 자동으로 경로 찾기 시도
+                    SetupSearchPaths();
+                    string foundPath = ObjPathFinder.FindObjPath(item.gameObject);
+                    
+                    // 경로를 찾았고 파일이 존재하면 사용
+                    if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
                     {
-                        item.objPath = newPath;
+                        item.objPath = foundPath;
                         item.UpdateTransform();
-                        Debug.Log($"[OBJ Manager] Updated path for '{item.objectName}': {newPath}");
+                        Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
+                        Repaint();
+                    }
+                    else
+                    {
+                        // 경로를 찾지 못한 경우 수동으로 선택
+                        string defaultPath = GetDefaultPath();
+                        string startPath = !string.IsNullOrEmpty(item.objPath) && File.Exists(item.objPath)
+                            ? Path.GetDirectoryName(item.objPath)
+                            : defaultPath;
+                        
+                        string newPath = EditorUtility.OpenFilePanel("OBJ 파일 선택", startPath, "obj");
+                        if (!string.IsNullOrEmpty(newPath) && File.Exists(newPath))
+                        {
+                            item.objPath = newPath;
+                            item.UpdateTransform();
+                            Debug.Log($"[OBJ Manager] Updated path for '{item.objectName}': {newPath}");
+                            Repaint();
+                        }
                     }
                 }
             }
@@ -162,6 +317,34 @@ public class ObjectTransformManagerWindow : EditorWindow
                 if (GUILayout.Button("경로로 로드", GUILayout.Height(22)))
                 {
                     LoadObjFromPath(item.objPath, item);
+                }
+                
+                // 경로가 없는 경우 경로 찾기 버튼 추가
+                if (string.IsNullOrEmpty(item.objPath) || !File.Exists(item.objPath))
+                {
+                    if (GUILayout.Button("경로 찾기", GUILayout.Height(22)))
+                    {
+                        SetupSearchPaths();
+                        string foundPath = ObjPathFinder.FindObjPathForImport(item.objectName, null);
+                        if (!string.IsNullOrEmpty(foundPath) && File.Exists(foundPath))
+                        {
+                            item.objPath = foundPath;
+                            Debug.Log($"[OBJ Manager] Found path for '{item.objectName}': {foundPath}");
+                            Repaint();
+                        }
+                        else
+                        {
+                            // 경로를 찾지 못한 경우 수동으로 선택
+                            string defaultPath = GetDefaultPath();
+                            string newPath = EditorUtility.OpenFilePanel("OBJ 파일 선택", defaultPath, "obj");
+                            if (!string.IsNullOrEmpty(newPath) && File.Exists(newPath))
+                            {
+                                item.objPath = newPath;
+                                Debug.Log($"[OBJ Manager] Updated path for '{item.objectName}': {newPath}");
+                                Repaint();
+                            }
+                        }
+                    }
                 }
             }
             
@@ -195,7 +378,9 @@ public class ObjectTransformManagerWindow : EditorWindow
         _manualPath = EditorGUILayout.TextField(_manualPath);
         if (GUILayout.Button("찾기", GUILayout.Width(60)))
         {
-            string path = EditorUtility.OpenFilePanel("OBJ 파일 선택", Application.dataPath, "obj");
+            // 기본 경로 가져오기
+            string defaultPath = GetDefaultPath();
+            string path = EditorUtility.OpenFilePanel("OBJ 파일 선택", defaultPath, "obj");
             if (!string.IsNullOrEmpty(path))
             {
                 _manualPath = path;
@@ -758,13 +943,14 @@ public class ObjectTransformManagerWindow : EditorWindow
             var item = _managedObjects.FirstOrDefault(m => m.gameObject == obj);
             string objPath = item != null ? item.objPath : ObjPathFinder.FindObjPath(obj);
             
-            var data = new ObjectTransformData(obj, objPath, false);
+            // children 포함하여 export (메모 등 자식 오브젝트도 포함)
+            var data = new ObjectTransformData(obj, objPath, true);
             collection.objects.Add(data);
         }
         
         string json = JsonUtility.ToJson(collection, true);
         File.WriteAllText(filePath, json);
-        Debug.Log($"[OBJ Manager] Exported {objects.Count} objects to JSON: {filePath}");
+        Debug.Log($"[OBJ Manager] Exported {objects.Count} objects (with children) to JSON: {filePath}");
     }
 
     void ImportObjects(ExportFormat format)

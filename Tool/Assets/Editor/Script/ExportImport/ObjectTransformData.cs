@@ -32,6 +32,14 @@ namespace ObjDropWatcher.ExportImport
         {
             if (obj == null) return null;
 
+            // 1. ObjPathInfo Component에서 경로 가져오기 (가장 우선순위가 높음)
+            string pathFromComponent = ObjPathInfo.GetPath(obj);
+            if (!string.IsNullOrEmpty(pathFromComponent) && System.IO.File.Exists(pathFromComponent))
+            {
+                Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component: {pathFromComponent}");
+                return pathFromComponent;
+            }
+
             string objName = obj.name;
             List<string> candidateFileNames = new List<string>();
 
