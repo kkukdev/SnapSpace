@@ -588,9 +588,10 @@ class FileAdapter extends BaseAdapter
     // "file"은 FastApiInterface에서 @Part("file")에 설정한 '이름'과 일치해야 합니다.
     MultipartBody.Part filePart = MultipartBody.Part.createFormData("file", file.getName(), requestFile);
     MultipartBody.Part groupNamePart = MultipartBody.Part.createFormData("group_name", groupName);
+    MultipartBody.Part modelTypePart = MultipartBody.Part.createFormData("model_type", "object");
 
     // 4. Retrofit Call 객체를 생성
-    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(groupNamePart, filePart);
+    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(modelTypePart, groupNamePart, filePart);
 
     // 5. 요청을 비동기(Asynchronous)로 실행
     call.enqueue(new Callback<FastApiService.FastSuccessResponse>() {

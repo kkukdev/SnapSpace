@@ -535,8 +535,8 @@ namespace oc
                     m.vertices[i] = v;
                 }
                 m.indices.clear();
-                m.MirrorZ();
-                m.SwapYZ();
+                //m.MirrorZ();
+                //m.SwapYZ();
             }
 
             LOGI("PLY Export: total vertices=%d", totalVertices);
@@ -700,8 +700,8 @@ namespace oc
                         m.vertices[i] = v;
                     }
                     m.indices.clear();
-                    m.MirrorZ();
-                    m.SwapYZ();
+                    //m.MirrorZ();
+                    //m.SwapYZ();
                 }
 
                 LOGI("PLY vertices: %d", plyVertices);
@@ -852,6 +852,7 @@ namespace oc
                 v.x = p.x * s - p.z * c;
                 v.y = p.y;
                 v.z = p.x * c + p.z * s;
+                
                 if (sbuf[1] == ' ')
                 {
                     sprintf(buffer, "v %f %f %f\n", v.x, v.y, v.z);
@@ -1093,12 +1094,25 @@ namespace oc
             // GetPose()로 실제 AR 카메라 위치 가져오기
             std::vector<glm::mat4> poses = ar->GetPose();
             glm::mat4 cameraPose = poses[OPENGL_CAMERA];
+            float x = cameraPose[3][0]; 
+            float y = cameraPose[3][1]; 
+            float z = cameraPose[3][2];
+            float yaw = glm::radians(reconstruction.dataset->ReadYaw()); 
+            float s = glm::sin(-yaw); 
+            float c = glm::cos(-yaw); 
+            float t_x = x * s - z * c; 
+            float t_z = x * c + z * s; 
+            //t_z *= -1.0; 
+            x = t_x; 
+            y = y;
+            z = t_z;
+
             if (axis == 0)
-                output = cameraPose[3][2];  // X
+                output = x;  // X
             if (axis == 1)
-                output = cameraPose[3][0];  // Y
+                output = y;  // Y
             if (axis == 2)
-                output = cameraPose[3][1];  // Z
+                output = z;  // Z
         }
         return output;
     }
