@@ -211,6 +211,30 @@ public class ObjectTransformManagerWindow : EditorWindow
 
     void OnHierarchyChanged()
     {
+        // Hierarchy에서 삭제된 GameObject를 관리 목록에서 제거
+        EditorApplication.delayCall += () =>
+        {
+            if (_managedObjects != null && _managedObjects.Count > 0)
+            {
+                bool removed = false;
+                for (int i = _managedObjects.Count - 1; i >= 0; i--)
+                {
+                    var item = _managedObjects[i];
+                    // GameObject가 null이거나 삭제된 경우 (Unity의 오버로드된 == 연산자 사용)
+                    if (item.gameObject == null)
+                    {
+                        _managedObjects.RemoveAt(i);
+                        removed = true;
+                    }
+                }
+                
+                if (removed)
+                {
+                    Repaint();
+                }
+            }
+        };
+        
         if (_autoDetectOnSceneChange)
         {
             EditorApplication.delayCall += AutoDetectSceneObjects;
@@ -351,7 +375,15 @@ public class ObjectTransformManagerWindow : EditorWindow
             
             if (GUILayout.Button("삭제", GUILayout.Height(22)))
             {
+                // GameObject가 있으면 Hierarchy에서도 삭제
+                if (item.gameObject != null)
+                {
+                    Undo.DestroyObjectImmediate(item.gameObject);
+                }
+                
+                // 관리 목록에서 제거
                 _managedObjects.RemoveAt(i);
+                Repaint();
             }
             
             EditorGUILayout.EndVertical();
