@@ -535,8 +535,8 @@ namespace oc
                     m.vertices[i] = v;
                 }
                 m.indices.clear();
-                m.MirrorZ();
-                m.SwapYZ();
+                //m.MirrorZ();
+                //m.SwapYZ();
             }
 
             LOGI("PLY Export: total vertices=%d", totalVertices);
@@ -700,8 +700,8 @@ namespace oc
                         m.vertices[i] = v;
                     }
                     m.indices.clear();
-                    m.MirrorZ();
-                    m.SwapYZ();
+                    //m.MirrorZ();
+                    //m.SwapYZ();
                 }
 
                 LOGI("PLY vertices: %d", plyVertices);
@@ -1102,10 +1102,10 @@ namespace oc
             float c = glm::cos(-yaw); 
             float t_x = x * s - z * c; 
             float t_z = x * c + z * s; 
-            t_z *= -1.0; 
+            //t_z *= -1.0; 
             x = t_x; 
-            z = y;
-            y = t_z;
+            y = y;
+            z = t_z;
 
             if (axis == 0)
                 output = x;  // X
