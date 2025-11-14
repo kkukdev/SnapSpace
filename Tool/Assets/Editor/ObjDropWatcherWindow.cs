@@ -415,7 +415,12 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (File.Exists(it.originalPath))
                         {
-                            Spawn(it.originalPath, it.memos);
+                            GameObject spawnedObj = Spawn(it.originalPath, it.memos);
+                            // ObjectTransformManagerWindow에 경로 정보 전달 (현재 로드된 경로: original)
+                            if (spawnedObj != null)
+                            {
+                                ObjectTransformManagerWindow.SetObjPaths(spawnedObj, it.originalPath, it.retouchedPath, it.originalPath);
+                            }
                         }
                         else
                         {
@@ -434,7 +439,12 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (File.Exists(it.retouchedPath))
                         {
-                            Spawn(it.retouchedPath, it.memos);
+                            GameObject spawnedObj = Spawn(it.retouchedPath, it.memos);
+                            // ObjectTransformManagerWindow에 경로 정보 전달 (현재 로드된 경로: retouched)
+                            if (spawnedObj != null)
+                            {
+                                ObjectTransformManagerWindow.SetObjPaths(spawnedObj, it.originalPath, it.retouchedPath, it.retouchedPath);
+                            }
                         }
                         else
                         {
@@ -1145,7 +1155,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return apiPath;
     }
 
-    void Spawn(string meshPath, MemoUtils.MemoData[] memos = null)
+    GameObject Spawn(string meshPath, MemoUtils.MemoData[] memos = null)
     {
         try
         {
@@ -1153,7 +1163,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
             {
                 EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{meshPath}", "OK");
-                return;
+                return null;
             }
             
             GameObject go = null;
@@ -1195,13 +1205,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 default:
                     EditorUtility.DisplayDialog("지원하지 않는 형식", 
                         $"지원하지 않는 파일 형식입니다: {extension}\n\n지원 형식: .obj, .glb, .gltf, .fbx", "OK");
-                    return;
+                    return null;
             }
             
             if (go == null)
             {
                 EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
-                return;
+                return null;
             }
             
             Selection.activeObject = go;
@@ -1239,7 +1249,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // GameObject가 여전히 유효한지 확인
             if (go == null)
             {
-                return;
+                return null;
             }
             
             try
@@ -1328,10 +1338,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             {
                 MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
             }
+            
+            return go;
         }
         catch (Exception ex)
         {
             EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
+            return null;
         }
     }
     
