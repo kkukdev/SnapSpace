@@ -656,13 +656,19 @@ namespace ObjDropWatcher.ExportImport
 
             Type type = component.GetType();
             string typeName = type.AssemblyQualifiedName ?? type.FullName;
-            if (typeName != componentType && type.FullName != componentType) return;
+            if (typeName != componentType && type.FullName != componentType)
+            {
+                return;
+            }
 
             // properties 문자열을 파싱하여 키-값 쌍 복원
             if (string.IsNullOrEmpty(properties))
+            {
                 return;
+            }
                 
             string[] pairs = properties.Split('|');
+            
             foreach (string pair in pairs)
             {
                 if (string.IsNullOrEmpty(pair))
@@ -696,27 +702,41 @@ namespace ObjDropWatcher.ExportImport
         /// <summary>
         /// 필드를 복원합니다.
         /// </summary>
-        void RestoreField(Component component, Type type, string fieldName, string jsonValue)
+        bool RestoreField(Component component, Type type, string fieldName, string jsonValue)
         {
             var field = type.GetField(fieldName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field == null || !IsSerializableField(field)) return;
+            if (field == null || !IsSerializableField(field))
+            {
+                return false;
+            }
 
             object value = DeserializeValue(jsonValue, field.FieldType);
             if (value != null)
+            {
                 field.SetValue(component, value);
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
         /// 속성을 복원합니다.
         /// </summary>
-        void RestoreProperty(Component component, Type type, string propName, string jsonValue)
+        bool RestoreProperty(Component component, Type type, string propName, string jsonValue)
         {
             var prop = type.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
-            if (prop == null || !prop.CanWrite) return;
+            if (prop == null || !prop.CanWrite)
+            {
+                return false;
+            }
 
             object value = DeserializeValue(jsonValue, prop.PropertyType);
             if (value != null)
+            {
                 prop.SetValue(component, value);
+                return true;
+            }
+            return false;
         }
 
         object DeserializeValue(string jsonValue, Type targetType)
@@ -816,7 +836,7 @@ namespace ObjDropWatcher.ExportImport
                 try
                 {
                     var compData = new ComponentData(component);
-                    if (!string.IsNullOrEmpty(compData.properties) || !string.IsNullOrEmpty(compData.componentType))
+                    if (!string.IsNullOrEmpty(compData.componentType))
                     {
                         components.Add(compData);
                     }
@@ -832,8 +852,33 @@ namespace ObjDropWatcher.ExportImport
         {
             foreach (Transform child in obj.transform)
             {
-                var childData = new ObjectTransformData(child.gameObject, null, true);
-                children.Add(childData);
+                // 메모 children(TextMesh)인 경우 Transform 정보를 저장하지 않고 컴포넌트만 저장
+                bool isMemoChild = child.gameObject.TryGetComponent<TextMesh>(out _);
+                
+                if (isMemoChild)
+                {
+                    // 메모 children은 Transform 정보 없이 컴포넌트 정보만 저장
+                    var childData = new ObjectTransformData(child.gameObject, null, false);
+                    // Transform 정보를 0으로 설정 (사용하지 않음)
+                    childData.positionX = 0;
+                    childData.positionY = 0;
+                    childData.positionZ = 0;
+                    childData.rotationX = 0;
+                    childData.rotationY = 0;
+                    childData.rotationZ = 0;
+                    childData.scaleX = 1;
+                    childData.scaleY = 1;
+                    childData.scaleZ = 1;
+                    // children은 저장하지 않음 (메모는 자식이 없음)
+                    childData.children.Clear();
+                    children.Add(childData);
+                }
+                else
+                {
+                    // 메모가 아닌 children은 Transform 정보도 저장
+                    var childData = new ObjectTransformData(child.gameObject, null, true);
+                    children.Add(childData);
+                }
             }
         }
 
@@ -1072,9 +1117,17 @@ namespace ObjDropWatcher.ExportImport
                 try
                 {
                     Type compType = FindComponentType(compData.componentType);
-                    if (compType == null) continue;
+                    if (compType == null)
+                    {
+                        continue;
+                    }
 
                     Component component = GetOrAddComponent(obj, compType);
+                    if (component == null)
+                    {
+                        continue;
+                    }
+                    
                     compData.ApplyToComponent(component);
                 }
                 catch (Exception ex)
@@ -1089,33 +1142,64 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         static Type FindComponentType(string typeName)
         {
-            // 1. AssemblyQualifiedName으로 직접 찾기
-            Type type = Type.GetType(typeName);
-            if (type != null) return type;
+            if (string.IsNullOrEmpty(typeName))
+                return null;
 
-            // 2. FullName으로 찾기
+            // 1. FullName 추출 (AssemblyQualifiedName에서)
+            string fullName = typeName;
             if (typeName.Contains(","))
             {
-                string fullName = typeName.Split(',')[0];
-                type = Type.GetType(fullName);
-                if (type != null) return type;
+                fullName = typeName.Split(',')[0].Trim();
             }
 
-            // 3. 모든 어셈블리에서 찾기
+            // 2. Unity의 일반적인 컴포넌트 타입 직접 매핑
+            if (fullName == "UnityEngine.MeshRenderer")
+                return typeof(MeshRenderer);
+            if (fullName == "UnityEngine.TextMesh")
+                return typeof(TextMesh);
+            if (fullName == "UnityEngine.MeshFilter")
+                return typeof(MeshFilter);
+            if (fullName == "UnityEngine.Renderer")
+                return typeof(Renderer);
+
+            // 3. FullName으로 직접 찾기
+            Type type = Type.GetType(fullName);
+            if (type != null) return type;
+
+            // 4. AssemblyQualifiedName으로 직접 찾기
+            type = Type.GetType(typeName);
+            if (type != null) return type;
+
+            // 5. 모든 어셈블리에서 찾기
             foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
             {
-                type = assembly.GetType(typeName);
+                // FullName으로 찾기 시도
+                type = assembly.GetType(fullName);
                 if (type != null) return type;
 
+                // AssemblyQualifiedName으로 찾기 시도 (단, 어셈블리 이름 부분만 매칭)
                 if (typeName.Contains(","))
                 {
-                    string fullName = typeName.Split(',')[0];
-                    type = assembly.GetType(fullName);
-                    if (type != null) return type;
+                    string[] parts = typeName.Split(',');
+                    if (parts.Length > 1)
+                    {
+                        // 어셈블리 이름 추출 (예: "UnityEngine.CoreModule")
+                        string assemblyName = parts[1].Trim();
+                        
+                        // 어셈블리 이름이 일치하는 경우 FullName으로 찾기
+                        if (assembly.FullName != null && assembly.FullName.StartsWith(assemblyName))
+                        {
+                            type = assembly.GetType(fullName);
+                            if (type != null) return type;
+                        }
+                        
+                        // AssemblyQualifiedName 전체로 찾기
+                        type = assembly.GetType(typeName);
+                        if (type != null) return type;
+                    }
                 }
             }
 
-            Debug.LogWarning($"[ObjectTransformData] Component type not found: {typeName}");
             return null;
         }
 
@@ -1400,9 +1484,9 @@ namespace ObjDropWatcher.ExportImport
         public void ApplyToGameObject(GameObject obj)
         {
             if (obj == null) return;
-            obj.transform.localPosition = position;
-            obj.transform.localEulerAngles = rotation;
-            obj.transform.localScale = scale;
+            obj.transform.localPosition = GetPosition();
+            obj.transform.localEulerAngles = GetRotation();
+            obj.transform.localScale = GetScale();
         }
 
         /// <summary>

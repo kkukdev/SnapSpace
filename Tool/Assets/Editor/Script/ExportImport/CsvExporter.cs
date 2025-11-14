@@ -136,21 +136,15 @@ namespace ObjDropWatcher.ExportImport
                         var data = new ObjectTransformData
                         {
                             objectName = UnescapeCsvField(fields[0]),
-                            position = new Vector3(
-                                float.Parse(fields[1], CultureInfo.InvariantCulture),
-                                float.Parse(fields[2], CultureInfo.InvariantCulture),
-                                float.Parse(fields[3], CultureInfo.InvariantCulture)
-                            ),
-                            rotation = new Vector3(
-                                float.Parse(fields[4], CultureInfo.InvariantCulture),
-                                float.Parse(fields[5], CultureInfo.InvariantCulture),
-                                float.Parse(fields[6], CultureInfo.InvariantCulture)
-                            ),
-                            scale = new Vector3(
-                                float.Parse(fields[7], CultureInfo.InvariantCulture),
-                                float.Parse(fields[8], CultureInfo.InvariantCulture),
-                                float.Parse(fields[9], CultureInfo.InvariantCulture)
-                            ),
+                            positionX = float.Parse(fields[1], CultureInfo.InvariantCulture),
+                            positionY = float.Parse(fields[2], CultureInfo.InvariantCulture),
+                            positionZ = float.Parse(fields[3], CultureInfo.InvariantCulture),
+                            rotationX = float.Parse(fields[4], CultureInfo.InvariantCulture),
+                            rotationY = float.Parse(fields[5], CultureInfo.InvariantCulture),
+                            rotationZ = float.Parse(fields[6], CultureInfo.InvariantCulture),
+                            scaleX = float.Parse(fields[7], CultureInfo.InvariantCulture),
+                            scaleY = float.Parse(fields[8], CultureInfo.InvariantCulture),
+                            scaleZ = float.Parse(fields[9], CultureInfo.InvariantCulture),
                             objFilePath = fields.Length > 10 ? UnescapeCsvField(fields[10]) : null,
                             // 새로운 필드 (하위 호환성을 위해 기본값 사용)
                             objectType = fields.Length > 11 && int.TryParse(fields[11], out int type) ? (ObjectType)type : ObjectType.Unknown,

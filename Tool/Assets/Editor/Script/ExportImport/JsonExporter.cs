@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using Newtonsoft.Json;
 
 namespace ObjDropWatcher.ExportImport
 {
@@ -54,7 +55,7 @@ namespace ObjDropWatcher.ExportImport
                     return;
                 }
 
-                string json = JsonUtility.ToJson(collection, true);
+                string json = JsonConvert.SerializeObject(collection, Formatting.Indented);
                 File.WriteAllText(filePath, json);
                 
                 string message = $"JSON 형식으로 {collection.objects.Count}개의 OBJ 오브젝트를 export했습니다.";
@@ -90,7 +91,7 @@ namespace ObjDropWatcher.ExportImport
                 }
 
                 string json = File.ReadAllText(filePath);
-                var collection = JsonUtility.FromJson<ObjectTransformCollection>(json);
+                var collection = JsonConvert.DeserializeObject<ObjectTransformCollection>(json);
                 
                 Debug.Log($"[JSON Import] Imported {collection.objects.Count} objects from: {filePath}");
                 return collection;

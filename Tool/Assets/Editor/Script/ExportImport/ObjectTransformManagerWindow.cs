@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using ObjDropWatcher.ExportImport;
+using Newtonsoft.Json;
 
 public class ObjectTransformManagerWindow : EditorWindow
 {
@@ -43,6 +44,11 @@ public class ObjectTransformManagerWindow : EditorWindow
                 scale = gameObject.transform.localScale;
             }
         }
+        
+        // 편의 메서드 (ObjectTransformData와 일관성 유지)
+        public Vector3 GetPosition() => position;
+        public Vector3 GetRotation() => rotation;
+        public Vector3 GetScale() => scale;
     }
     
     private List<ManagedObjItem> _managedObjects = new List<ManagedObjItem>();
@@ -1055,7 +1061,7 @@ public class ObjectTransformManagerWindow : EditorWindow
             collection.objects.Add(data);
         }
         
-        string json = JsonUtility.ToJson(collection, true);
+        string json = JsonConvert.SerializeObject(collection, Formatting.Indented);
         File.WriteAllText(filePath, json);
     }
 
@@ -1252,224 +1258,53 @@ public class ObjectTransformManagerWindow : EditorWindow
                                 }
                                 #endif
                                 
-                                // 2. memo.txt에서 메모 읽기 및 스폰 (기본 anchor 위치)
-                                MemoUtils.MemoData[] memos = null;
-                                try
-                                {
-                                    memos = MemoUtils.FindAndParseMemoFile(objPath);
-                                }
-                                catch (Exception memoEx)
-                                {
-                                    Debug.LogWarning($"[OBJ Manager] Failed to parse memo file for '{go.name}': {memoEx.Message}");
-                                }
-                                
-                                // memo.txt의 메모를 먼저 스폰
-                                int spawnedMemoCount = 0;
-                                if (memos != null && memos.Length > 0)
-                                {
-                                    float unitScale = MemoUtils.GetUnitScale();
-                                    MemoUtils.SpawnMemosAsChildren(go, memos, null, unitScale);
-                                    spawnedMemoCount = memos.Length;
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Spawned {spawnedMemoCount} memo(s) from memo.txt for '{go.name}'");
-                                }
-                                else
-                                {
-                                    Debug.Log($"[OBJ Manager] [DEBUG] No memos found in memo.txt for '{go.name}'");
-                                }
-                                
-                                // 3. JSON의 Transform 정보를 OBJ와 메모에 적용
-                                // OBJ의 Transform 적용
+                                // 2. JSON의 Transform 정보를 OBJ에 적용
                                 go.transform.position = data.GetPosition();
                                 go.transform.eulerAngles = data.GetRotation();
                                 go.transform.localScale = data.GetScale();
                                 
-                                // JSON의 children에서 메모 Transform 정보 추출
-                                Dictionary<string, (Vector3 position, Quaternion rotation, Vector3 scale)> memoTransforms = new Dictionary<string, (Vector3, Quaternion, Vector3)>();
-                                
-                                if (data.children != null && data.children.Count > 0)
+                                // 3. memo.txt에서 메모 읽기 및 스폰 (anchor 기반)
+                                try
                                 {
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Processing {data.children.Count} children from JSON");
-                                    
-                                    foreach (var childData in data.children)
+                                    var memos = MemoUtils.FindAndParseMemoFile(objPath);
+                                    if (memos != null && memos.Length > 0)
                                     {
-                                        // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
-                                        bool isMemoChild = false;
-                                        try
-                                        {
-                                            if (childData.components != null)
-                                            {
-                                                foreach (var compData in childData.components)
-                                                {
-                                                    if (compData.componentType != null && 
-                                                        (compData.componentType.Contains("TextMesh") || 
-                                                         compData.componentType.Contains("UnityEngine.TextMesh")))
-                                                    {
-                                                        isMemoChild = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        catch
-                                        {
-                                            // 무시
-                                        }
-                                        
-                                        if (isMemoChild)
-                                        {
-                                            // localPosition을 anchor로 역변환
-                                            Vector3 localPos = childData.position;
-                                            Debug.Log($"[OBJ Manager] [DEBUG] Memo child found: '{childData.objectName}', original position={localPos}");
-                                            
-                                            // Z축 변환 고려
-                                            localPos.z = -localPos.z;
-                                            string anchor = MemoUtils.Vector3ToAnchor(localPos);
-                                            
-                                            // Transform 정보 저장
-                                            memoTransforms[anchor] = (childData.position, Quaternion.Euler(childData.rotation), childData.scale);
-                                            Debug.Log($"[OBJ Manager] [DEBUG] Extracted memo Transform - anchor: '{anchor}', position: {childData.position}, rotation: {childData.rotation}, scale: {childData.scale}");
-                                        }
-                                    }
-                                    
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Extracted {memoTransforms.Count} memo Transform(s) from JSON");
-                                }
-                                else
-                                {
-                                    Debug.Log($"[OBJ Manager] [DEBUG] No children in JSON data");
-                                }
-                                
-                                // 4. 스폰된 메모들에 JSON의 Transform 정보 적용
-                                int appliedTransformCount = 0;
-                                
-                                if (memos != null && memos.Length > 0 && memoTransforms.Count > 0)
-                                {
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Starting Transform application - spawned memos: {spawnedMemoCount}, JSON transforms: {memoTransforms.Count}");
-                                    
-                                    // 스폰된 메모 children 찾기
-                                    List<Transform> spawnedMemoChildren = new List<Transform>();
-                                    foreach (Transform child in go.transform)
-                                    {
-                                        if (child == null || child.gameObject == null)
-                                            continue;
-                                        
-                                        if (child.gameObject.TryGetComponent<TextMesh>(out var textMesh))
-                                        {
-                                            spawnedMemoChildren.Add(child);
-                                        }
-                                    }
-                                    
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Found {spawnedMemoChildren.Count} TextMesh children in scene");
-                                    
-                                    foreach (Transform child in spawnedMemoChildren)
-                                    {
-                                        // 현재 메모의 localPosition을 anchor로 변환
-                                        Vector3 localPos = child.transform.localPosition;
-                                        Debug.Log($"[OBJ Manager] [DEBUG] Processing memo '{child.name}' - current localPosition: {localPos}");
-                                        
-                                        Vector3 posBeforeZFlip = localPos;
-                                        localPos.z = -localPos.z;
-                                        string anchor = MemoUtils.Vector3ToAnchor(localPos);
-                                        
-                                        Debug.Log($"[OBJ Manager] [DEBUG] Memo '{child.name}' - anchor after Z-flip: '{anchor}' (before Z-flip: {MemoUtils.Vector3ToAnchor(posBeforeZFlip)})");
-                                        
-                                        // JSON에서 해당 anchor의 Transform 정보 찾기
-                                        if (memoTransforms.TryGetValue(anchor, out var transformInfo))
-                                        {
-                                            // Transform 정보 적용
-                                            child.transform.localPosition = transformInfo.position;
-                                            child.transform.localEulerAngles = transformInfo.rotation.eulerAngles;
-                                            child.transform.localScale = transformInfo.scale;
-                                            
-                                            appliedTransformCount++;
-                                            Debug.Log($"[OBJ Manager] [DEBUG] ✓ Applied JSON Transform to memo '{child.name}' - anchor: '{anchor}', position: {transformInfo.position}, rotation: {transformInfo.rotation.eulerAngles}, scale: {transformInfo.scale}");
-                                        }
-                                        else
-                                        {
-                                            Debug.Log($"[OBJ Manager] [DEBUG] ✗ No exact match for anchor '{anchor}' in JSON transforms");
-                                            
-                                            // 정확한 매칭 실패 시 거리 기반으로 가장 가까운 Transform 찾기
-                                            float minDistance = float.MaxValue;
-                                            string closestAnchor = null;
-                                            
-                                            foreach (var kvp in memoTransforms)
-                                            {
-                                                Vector3 exportAnchorPos = MemoUtils.ParseAnchor(kvp.Key);
-                                                exportAnchorPos.z = -exportAnchorPos.z;
-                                                
-                                                float distance = Vector3.Distance(localPos, exportAnchorPos);
-                                                if (distance < minDistance)
-                                                {
-                                                    minDistance = distance;
-                                                    closestAnchor = kvp.Key;
-                                                }
-                                            }
-                                            
-                                            Debug.Log($"[OBJ Manager] [DEBUG] Closest anchor: '{closestAnchor}', distance: {minDistance:F6}");
-                                            
-                                            // 거리가 매우 가까우면 (0.01 이하) 매칭
-                                            if (closestAnchor != null && minDistance < 0.01f)
-                                            {
-                                                var transformInfo2 = memoTransforms[closestAnchor];
-                                                child.transform.localPosition = transformInfo2.position;
-                                                child.transform.localEulerAngles = transformInfo2.rotation.eulerAngles;
-                                                child.transform.localScale = transformInfo2.scale;
-                                                
-                                                appliedTransformCount++;
-                                                Debug.Log($"[OBJ Manager] [DEBUG] ✓ Applied JSON Transform by distance - anchor: '{anchor}' matched with '{closestAnchor}', distance: {minDistance:F6}");
-                                            }
-                                            else
-                                            {
-                                                Debug.LogWarning($"[OBJ Manager] [DEBUG] ✗ Failed to match memo '{child.name}' - closest distance: {minDistance:F6} (threshold: 0.01)");
-                                            }
-                                        }
-                                    }
-                                    
-                                    Debug.Log($"[OBJ Manager] [DEBUG] Applied Transform to {appliedTransformCount} out of {spawnedMemoChildren.Count} memo(s)");
-                                }
-                                else
-                                {
-                                    if (memos == null || memos.Length == 0)
-                                    {
-                                        Debug.Log($"[OBJ Manager] [DEBUG] No memos from memo.txt - skipping Transform application");
-                                    }
-                                    if (memoTransforms.Count == 0)
-                                    {
-                                        Debug.Log($"[OBJ Manager] [DEBUG] No memo transforms in JSON - skipping Transform application");
+                                        float unitScale = MemoUtils.GetUnitScale();
+                                        // memo.txt의 anchor와 텍스트만 사용하여 스폰
+                                        MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                                        Debug.Log($"[OBJ Manager] Spawned {memos.Length} memo(s) from memo.txt for '{go.name}'");
                                     }
                                 }
+                                catch (Exception memoEx)
+                                {
+                                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for '{go.name}': {memoEx.Message}");
+                                }
                                 
-                                // 5. 메모가 아닌 다른 children 복원 (JSON에서)
+                                // 4. 메모가 아닌 children만 JSON에서 복원 (메모는 memo.txt 사용)
                                 if (data.children != null && data.children.Count > 0)
                                 {
                                     int nonMemoChildrenCount = 0;
                                     foreach (var childData in data.children)
                                     {
-                                        // 메모 children인지 확인
+                                        // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
                                         bool isMemoChild = false;
-                                        try
+                                        if (childData.components != null)
                                         {
-                                            if (childData.components != null)
+                                            foreach (var compData in childData.components)
                                             {
-                                                foreach (var compData in childData.components)
+                                                if (compData.componentType != null && 
+                                                    (compData.componentType.Contains("TextMesh") || 
+                                                     compData.componentType.Contains("UnityEngine.TextMesh")))
                                                 {
-                                                    if (compData.componentType != null && 
-                                                        (compData.componentType.Contains("TextMesh") || 
-                                                         compData.componentType.Contains("UnityEngine.TextMesh")))
-                                                    {
-                                                        isMemoChild = true;
-                                                        break;
-                                                    }
+                                                    isMemoChild = true;
+                                                    break;
                                                 }
                                             }
                                         }
-                                        catch
-                                        {
-                                            // 무시
-                                        }
                                         
+                                        // 메모가 아닌 children만 복원
                                         if (!isMemoChild)
                                         {
-                                            // 메모가 아닌 children은 복원
                                             try
                                             {
                                                 GameObject child = childData.CreateGameObject();
@@ -1487,6 +1322,10 @@ public class ObjectTransformManagerWindow : EditorWindow
                                         }
                                     }
                                     
+                                    if (nonMemoChildrenCount > 0)
+                                    {
+                                        Debug.Log($"[OBJ Manager] Restored {nonMemoChildrenCount} non-memo children from JSON");
+                                    }
                                 }
                                 
                                 // 관리 목록에 추가
