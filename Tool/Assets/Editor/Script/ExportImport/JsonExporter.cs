@@ -29,7 +29,6 @@ namespace ObjDropWatcher.ExportImport
                     // OBJ 파일 경로가 없으면 건너뛰기
                     if (string.IsNullOrEmpty(objPath))
                     {
-                        Debug.LogWarning($"[JSON Export] Skipping object '{obj.name}': OBJ file path not found");
                         skippedCount++;
                         continue;
                     }
@@ -43,7 +42,6 @@ namespace ObjDropWatcher.ExportImport
                     }
                     else
                     {
-                        Debug.LogWarning($"[JSON Export] Skipping non-OBJ object '{obj.name}': Type = {data.objectType}");
                         skippedCount++;
                     }
                 }
@@ -65,17 +63,10 @@ namespace ObjDropWatcher.ExportImport
                 }
                 message += $"\n{filePath}";
                 
-                Debug.Log($"[JSON Export] Exported {collection.objects.Count} OBJ objects to: {filePath}");
-                if (skippedCount > 0)
-                {
-                    Debug.Log($"[JSON Export] Skipped {skippedCount} objects");
-                }
-                
                 EditorUtility.DisplayDialog("Export 완료", message, "OK");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[JSON Export] Failed: {ex}");
                 EditorUtility.DisplayDialog("Export 실패", $"JSON export 실패:\n{ex.Message}", "OK");
             }
         }
@@ -93,12 +84,10 @@ namespace ObjDropWatcher.ExportImport
                 string json = File.ReadAllText(filePath);
                 var collection = JsonConvert.DeserializeObject<ObjectTransformCollection>(json);
                 
-                Debug.Log($"[JSON Import] Imported {collection.objects.Count} objects from: {filePath}");
                 return collection;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[JSON Import] Failed: {ex}");
                 EditorUtility.DisplayDialog("Import 실패", $"JSON import 실패:\n{ex.Message}", "OK");
                 return null;
             }

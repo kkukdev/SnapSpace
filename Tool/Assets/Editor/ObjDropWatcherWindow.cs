@@ -162,7 +162,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             catch (System.Exception ex)
             {
                 // ObjectField 사용 중 오류 발생 시 안전하게 처리
-                Debug.LogWarning($"[ObjDropWatcher] ObjectField error: {ex.Message}");
                 EditorGUILayout.HelpBox($"WatchConfig 표시 중 오류가 발생했습니다: {ex.Message}", MessageType.Warning);
             }
         }
@@ -183,9 +182,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 }
                 // newConfig가 null이 아니지만 AssetDatabase에 없는 경우는 무시
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to set config: {ex.Message}");
             }
         }
 
@@ -236,9 +234,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             Repaint();
                         }
                     }
-                    catch (System.Exception ex)
+                    catch (System.Exception)
                     {
-                        Debug.LogError($"[ObjDropWatcher] Failed to update API URL: {ex.Message}");
                     }
                 };
             }
@@ -382,9 +379,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             Repaint();
                         }
                     }
-                    catch (System.Exception ex)
+                    catch (System.Exception)
                     {
-                        Debug.LogError($"[ObjDropWatcher] Failed to update settings: {ex.Message}");
                     }
                 };
             }
@@ -572,7 +568,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                     $"서버 URL: {apiUrl}";
                 
                 EditorUtility.DisplayDialog("HTTP 연결 차단", errorMessage, "OK");
-                Debug.LogError($"[ObjDropWatcher] HTTP connection blocked: {ex.Message}");
             }
             else
             {
@@ -581,7 +576,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 _pendingRequest = null;
                 
                 EditorUtility.DisplayDialog("요청 오류", $"요청 전송 실패: {ex.Message}", "OK");
-                Debug.LogError($"[ObjDropWatcher] Request failed: {ex.Message}");
             }
             ScheduleRepaint();
         }
@@ -592,7 +586,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             _pendingRequest = null;
             
             EditorUtility.DisplayDialog("요청 오류", $"예기치 않은 오류가 발생했습니다: {ex.Message}", "OK");
-            Debug.LogError($"[ObjDropWatcher] Unexpected error: {ex.Message}\nStack trace: {ex.StackTrace}");
             ScheduleRepaint();
         }
     }
@@ -687,7 +680,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                     $"서버 URL: {apiUrl}";
                 
                 EditorUtility.DisplayDialog("HTTP 연결 차단", errorMessage, "OK");
-                Debug.LogError($"[ObjDropWatcher] HTTP connection blocked: {ex.Message}");
             }
             else
             {
@@ -696,7 +688,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 _pendingRequest = null;
                 
                 EditorUtility.DisplayDialog("요청 오류", $"요청 전송 실패: {ex.Message}", "OK");
-                Debug.LogError($"[ObjDropWatcher] Request failed: {ex.Message}");
             }
             ScheduleRepaint();
         }
@@ -707,7 +698,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             _pendingRequest = null;
             
             EditorUtility.DisplayDialog("요청 오류", $"예기치 않은 오류가 발생했습니다: {ex.Message}", "OK");
-            Debug.LogError($"[ObjDropWatcher] Unexpected error: {ex.Message}\nStack trace: {ex.StackTrace}");
             ScheduleRepaint();
         }
     }
@@ -727,7 +717,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 try
                 {
                     string jsonResponse = _pendingRequest.downloadHandler.text;
-                    Debug.Log($"[ObjDropWatcher] API Response: {jsonResponse}");
                     
                     // Unity의 JsonUtility는 중첩된 구조를 파싱하기 어려울 수 있으므로
                     // 수동으로 파싱하거나 간단한 구조로 변환
@@ -737,24 +726,20 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         _availableGroups.Clear();
                         _availableGroups.AddRange(response.data.groups);
-                        Debug.Log($"[ObjDropWatcher] Successfully fetched {_availableGroups.Count} groups from API");
                     }
                     else
                     {
                         string errorMsg = response != null ? response.message : "Unknown error";
-                        Debug.LogWarning($"[ObjDropWatcher] API response indicates failure: {errorMsg}");
                         EditorUtility.DisplayDialog("API 오류", $"그룹 조회 실패: {errorMsg}", "OK");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[ObjDropWatcher] Failed to parse API response: {ex.Message}\nStack trace: {ex.StackTrace}");
                     EditorUtility.DisplayDialog("파싱 오류", $"응답 파싱 실패: {ex.Message}\n\nUnity의 JsonUtility는 Dictionary 타입을 지원하지 않습니다.\nAPI 응답의 meta_data 필드가 문제일 수 있습니다.", "OK");
                 }
             }
             else
             {
-                Debug.LogError($"[ObjDropWatcher] API request failed: {_pendingRequest.error}");
                 
                 // 서버 응답이 없는 경우 (서버가 꺼져있거나 연결할 수 없는 경우)
                 string errorMessage = _pendingRequest.error;
@@ -825,7 +810,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 try
                 {
                     string jsonResponse = _pendingRequest.downloadHandler.text;
-                    Debug.Log($"[ObjDropWatcher] Scans API Response: {jsonResponse}");
                     
                     // 기본 응답 구조 파싱 (memos는 파일에서 직접 읽어옴)
                     GroupScansResponse response = JsonUtility.FromJson<GroupScansResponse>(jsonResponse);
@@ -852,7 +836,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 {
                                     // 파일 경로인 경우
                                     originalPath = convertedPath;
-                                    Debug.Log($"[ObjDropWatcher] Found original file: {originalPath}");
                                 }
                                 else if (Directory.Exists(convertedPath))
                                 {
@@ -862,16 +845,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                     {
                                         // 첫 번째 파일 사용
                                         originalPath = meshFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {meshFiles.Length} mesh file(s) in original folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No mesh files found in original folder: {convertedPath}");
                                     }
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[ObjDropWatcher] Original path does not exist: {convertedPath}");
                                 }
                             }
                             
@@ -886,7 +866,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 {
                                     // 파일 경로인 경우
                                     retouchedPath = convertedPath;
-                                    Debug.Log($"[ObjDropWatcher] Found retouched file: {retouchedPath}");
                                 }
                                 else if (Directory.Exists(convertedPath))
                                 {
@@ -896,16 +875,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                     {
                                         // 첫 번째 파일 사용
                                         retouchedPath = meshFiles[0];
-                                        Debug.Log($"[ObjDropWatcher] Found {meshFiles.Length} mesh file(s) in retouched folder: {convertedPath}");
                                     }
                                     else
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] No mesh files found in retouched folder: {convertedPath}");
                                     }
                                 }
                                 else
                                 {
-                                    Debug.LogWarning($"[ObjDropWatcher] Retouched path does not exist: {convertedPath}");
                                 }
                             }
                             
@@ -953,22 +929,18 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                         memos = MemoUtils.ParseMemoFile(memoFilePath);
                                         if (memos != null && memos.Length > 0)
                                         {
-                                            Debug.Log($"[ObjDropWatcher] Loaded {memos.Length} memo(s) from file: {memoFilePath}");
                                         }
                                     }
-                                    catch (Exception ex)
+                                    catch (Exception)
                                     {
-                                        Debug.LogWarning($"[ObjDropWatcher] Failed to parse memo file {memoFilePath}: {ex.Message}");
                                     }
                                 }
                                 else
                                 {
-                                    Debug.Log($"[ObjDropWatcher] memo.txt not found in folder: {memoFolderPath}");
                                 }
                             }
                             else if (string.IsNullOrEmpty(scan.original_file_path))
                             {
-                                Debug.Log($"[ObjDropWatcher] No original_file_path available, skipping memo.txt search");
                             }
                             
                             // original 또는 retouched 중 하나라도 있으면 Item 추가
@@ -993,7 +965,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 
                                 if (memos.Length > 0)
                                 {
-                                    Debug.Log($"[ObjDropWatcher] Scan {scan.scan_id} has {memos.Length} memo(s)");
                                 }
                             }
                         }
@@ -1002,7 +973,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         int retouchedCount = _items.Count(it => !string.IsNullOrEmpty(it.retouchedPath));
                         int memosCount = _items.Sum(it => it.memos != null ? it.memos.Length : 0);
                         
-                        Debug.Log($"[ObjDropWatcher] Successfully fetched {_items.Count} items from {response.data.Length} scans (Original: {originalCount}, Retouched: {retouchedCount}, Memos: {memosCount})");
                         
                         if (_items.Count == 0)
                         {
@@ -1018,19 +988,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     else
                     {
                         string errorMsg = response != null ? response.message : "Unknown error";
-                        Debug.LogWarning($"[ObjDropWatcher] API response indicates failure: {errorMsg}");
                         EditorUtility.DisplayDialog("API 오류", $"스캔 조회 실패: {errorMsg}", "OK");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"[ObjDropWatcher] Failed to parse scans API response: {ex.Message}\nStack trace: {ex.StackTrace}");
                     EditorUtility.DisplayDialog("파싱 오류", $"응답 파싱 실패: {ex.Message}", "OK");
                 }
             }
             else
             {
-                Debug.LogError($"[ObjDropWatcher] Scans API request failed: {_pendingRequest.error}");
                 EditorUtility.DisplayDialog("요청 실패", $"스캔 조회 실패: {_pendingRequest.error}", "OK");
             }
             
@@ -1065,9 +1032,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             {
                 patternsStr = config.objPatterns ?? "*.obj";
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to get objPatterns from config: {ex.Message}, using default: *.obj");
             }
         }
         
@@ -1090,9 +1056,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 string[] files = Directory.GetFiles(folderPath, pattern, SearchOption.TopDirectoryOnly);
                 foundFiles.AddRange(files);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to search files with pattern '{pattern}' in '{folderPath}': {ex.Message}");
             }
         }
         
@@ -1127,9 +1092,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     }
                 }
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to get projectRoot from config: {ex.Message}");
             }
         }
         
@@ -1185,7 +1149,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     {
         try
         {
-            Debug.Log($"[Spawn] ===== Spawn 시작 =====\n경로: {meshPath}\n파일 존재: {File.Exists(meshPath)}");
             
             if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
             {
@@ -1195,7 +1158,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             GameObject go = null;
             string extension = Path.GetExtension(meshPath).ToLowerInvariant();
-            Debug.Log($"[Spawn] 파일 확장자: {extension}");
             
             // 파일 확장자에 따라 적절한 로더 선택
             switch (extension)
@@ -1208,7 +1170,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     if (go != null)
                     {
                         Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
-                        Debug.Log($"[Spawn] OBJ 로드 완료: {go.name}");
                     }
                     break;
                     
@@ -1219,7 +1180,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     if (go != null)
                     {
                         Undo.RegisterCreatedObjectUndo(go, "Spawn GLB/GLTF");
-                        Debug.Log($"[Spawn] GLB/GLTF 로드 완료: {go.name}");
                     }
                     break;
                     
@@ -1229,7 +1189,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     if (go != null)
                     {
                         Undo.RegisterCreatedObjectUndo(go, "Spawn FBX");
-                        Debug.Log($"[Spawn] FBX 로드 완료: {go.name}");
                     }
                     break;
                     
@@ -1241,12 +1200,10 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             if (go == null)
             {
-                Debug.LogError($"[Spawn] GameObject 생성 실패: {meshPath}");
                 EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
                 return;
             }
             
-            Debug.Log($"[Spawn] GameObject 생성 성공:\n이름: {go.name}\n경로: {meshPath}\nGameObject 인스턴스 ID: {go.GetInstanceID()}");
             Selection.activeObject = go;
 
             // 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
@@ -1270,14 +1227,11 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             {
                 float offsetY = -minY;
                 go.transform.position = new Vector3(0f, offsetY, 0f);
-                Debug.Log($"[Spawn] Adjusted Y position by {offsetY} to lift mesh above ground (minY was {minY})");
             }
             else
             {
-                Debug.Log($"[Spawn] Mesh Y position is already above or at ground level (minY: {minY})");
             }
 
-            Debug.Log($"[Spawned {extension} with scale x{unitScale}, preserving original coordinates] {meshPath}");
             
             // GameObject에 경로 정보 저장 (나중에 ObjectTransformManagerWindow에서 찾을 수 있도록)
             // 주의: 모든 자식 오브젝트에도 경로를 저장해야 할 수 있음
@@ -1285,24 +1239,19 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // GameObject가 여전히 유효한지 확인
             if (go == null)
             {
-                Debug.LogError($"[Spawn] 경로 저장 실패: GameObject가 null입니다. 경로: {meshPath}");
                 return;
             }
             
             try
             {
-                Debug.Log($"[Spawn] 경로 저장 시작 - GameObject: {go.name}, 경로: {meshPath}, InstanceID: {go.GetInstanceID()}");
-                Debug.Log($"[Spawn] SetPath 호출 전 - GameObject null 체크: {go == null}, 이름: {go?.name}");
                 
                 // 루트 GameObject에 경로 저장
                 try
                 {
                     ObjPathInfo.SetPath(go, meshPath);
-                    Debug.Log($"[Spawn] SetPath 호출 완료");
                 }
-                catch (System.Exception setPathEx)
+                catch (System.Exception)
                 {
-                    Debug.LogError($"[Spawn] SetPath 호출 중 예외: {setPathEx.Message}\nStack trace: {setPathEx.StackTrace}");
                 }
             
                 // Unity 에디터에서 변경사항 저장 (DontSaveInEditor 플래그가 없을 때만)
@@ -1328,7 +1277,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 if (go != null)
                 {
                     Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
-                    Debug.Log($"[Spawn] 자식 오브젝트 개수: {allChildren.Length}");
                     foreach (Transform child in allChildren)
                     {
                         if (child != null && child != go.transform && child.gameObject != null)
@@ -1348,7 +1296,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 // Assertion 오류는 무시 (경로는 이미 저장됨)
                             }
                             #endif
-                            Debug.Log($"[Spawn] 자식 오브젝트에 경로 저장: {child.name}");
                         }
                     }
                 }
@@ -1357,30 +1304,23 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 if (go != null)
                 {
                     string savedPath = ObjPathInfo.GetPath(go);
-                    Debug.Log($"[Spawn] 경로 저장 후 확인:\n저장된 경로: {savedPath}\n원본 경로: {meshPath}\n일치 여부: {savedPath == meshPath}");
                     
                     // Component 확인
                     var pathInfo = go.GetComponent<ObjPathInfo>();
                     if (pathInfo != null)
                     {
-                        Debug.Log($"[Spawn] ObjPathInfo Component 확인:\nComponent 존재: true\nComponent 경로: {pathInfo.ObjFilePath}\nComponent InstanceID: {pathInfo.GetInstanceID()}");
                     }
                     else
                     {
-                        Debug.LogError($"[Spawn] ObjPathInfo Component가 없습니다! GameObject: {go.name}, InstanceID: {go.GetInstanceID()}");
                     }
                     
-                    Debug.Log($"[Spawn] GameObject 유효성 확인: {go.name}, InstanceID: {go.GetInstanceID()}");
-                    Debug.Log($"[Spawn] ===== Spawn 완료 =====\nGameObject: {go.name}\n최종 경로: {savedPath}\nInstanceID: {go.GetInstanceID()}");
                 }
                 else
                 {
-                    Debug.LogError($"[Spawn] 경로 저장 중 GameObject가 null이 되었습니다!");
                 }
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                Debug.LogError($"[Spawn] 경로 저장 중 예외 발생: {ex.Message}\nStack trace: {ex.StackTrace}");
             }
             
             // memos가 있으면 GameObject의 자식으로 텍스트 표시
@@ -1391,7 +1331,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         }
         catch (Exception ex)
         {
-            Debug.LogError($"Spawn 실패: {meshPath}\n{ex}");
             EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
         }
     }
@@ -1433,7 +1372,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
                 
-                Debug.Log($"[LoadGlbOrGltf] 인스턴스 생성: {instance.name}, InstanceID: {instance.GetInstanceID()}, 원본 경로: {filePath}");
                 
                 // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
@@ -1442,19 +1380,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             }
             else
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to load GLB/GLTF as GameObject: {tempAssetPath}");
                 // 임시 파일 삭제
                 AssetDatabase.DeleteAsset(tempAssetPath);
                 return null;
             }
             #else
-            Debug.LogError("[ObjDropWatcher] GLB/GLTF loading is only supported in Unity Editor");
             return null;
             #endif
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Debug.LogError($"[ObjDropWatcher] Failed to load GLB/GLTF file {filePath}: {ex.Message}");
             return null;
         }
     }
@@ -1496,7 +1431,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
                 
-                Debug.Log($"[LoadFbx] 인스턴스 생성: {instance.name}, InstanceID: {instance.GetInstanceID()}, 원본 경로: {filePath}");
                 
                 // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
@@ -1505,19 +1439,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             }
             else
             {
-                Debug.LogWarning($"[ObjDropWatcher] Failed to load FBX as GameObject: {tempAssetPath}");
                 // 임시 파일 삭제
                 AssetDatabase.DeleteAsset(tempAssetPath);
                 return null;
             }
             #else
-            Debug.LogError("[ObjDropWatcher] FBX loading is only supported in Unity Editor");
             return null;
             #endif
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Debug.LogError($"[ObjDropWatcher] Failed to load FBX file {filePath}: {ex.Message}");
             return null;
         }
     }
@@ -1624,10 +1555,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         {
             // 잘못된 객체인 경우 무시 (예: DontSaveInEditor 객체)
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
-            Debug.LogWarning($"[ObjDropWatcher] Failed to mark config dirty: {ex.Message}");
         }
     }
 

@@ -561,7 +561,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         var defaultMat = new Material(Shader.Find("Standard"));
                         defaultMat.color = Color.white;
                         meshRenderer.sharedMaterial = defaultMat;
-                        Debug.Log($"[OBJ Manager] Created default material for '{meshRenderer.gameObject.name}'");
                     }
                     else
                     {
@@ -607,7 +606,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         if (materialFixed)
                         {
                             meshRenderer.sharedMaterials = materials;
-                            Debug.Log($"[OBJ Manager] Fixed materials for '{meshRenderer.gameObject.name}'");
                         }
                     }
                     
@@ -655,9 +653,9 @@ public class ObjectTransformManagerWindow : EditorWindow
                         MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
                     }
                 }
-                catch (Exception memoEx)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for OBJ '{go.name}': {memoEx.Message}");
+                    // 메모 스폰 실패 시 무시
                 }
                 
                 _managedObjects.Add(new ManagedObjItem(go, objPath));
@@ -670,7 +668,6 @@ public class ObjectTransformManagerWindow : EditorWindow
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[OBJ Manager] Failed to load OBJ: {objPath}\n{ex}");
             EditorUtility.DisplayDialog("로드 실패", $"OBJ 파일을 로드할 수 없습니다:\n{ex.Message}", "OK");
         }
     }
@@ -723,7 +720,6 @@ public class ObjectTransformManagerWindow : EditorWindow
                         var defaultMat = new Material(Shader.Find("Standard"));
                         defaultMat.color = Color.white;
                         meshRenderer.sharedMaterial = defaultMat;
-                        Debug.Log($"[OBJ Manager] Created default material for '{meshRenderer.gameObject.name}'");
                     }
                     else
                     {
@@ -816,9 +812,9 @@ public class ObjectTransformManagerWindow : EditorWindow
                         MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
                     }
                 }
-                catch (Exception memoEx)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for loaded OBJ '{go.name}': {memoEx.Message}");
+                    // 메모 스폰 실패 시 무시
                 }
                 
                 item.gameObject = go;
@@ -830,7 +826,6 @@ public class ObjectTransformManagerWindow : EditorWindow
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[OBJ Manager] Failed to load OBJ: {objPath}\n{ex}");
             EditorUtility.DisplayDialog("로드 실패", $"OBJ 파일을 로드할 수 없습니다:\n{ex.Message}", "OK");
         }
     }
@@ -1041,7 +1036,6 @@ public class ObjectTransformManagerWindow : EditorWindow
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Export] Failed: {ex}");
                 EditorUtility.DisplayDialog("Export 실패", $"Export 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             }
         };
@@ -1272,12 +1266,11 @@ public class ObjectTransformManagerWindow : EditorWindow
                                         float unitScale = MemoUtils.GetUnitScale();
                                         // memo.txt의 anchor와 텍스트만 사용하여 스폰
                                         MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
-                                        Debug.Log($"[OBJ Manager] Spawned {memos.Length} memo(s) from memo.txt for '{go.name}'");
                                     }
                                 }
-                                catch (Exception memoEx)
+                                catch (Exception)
                                 {
-                                    Debug.LogWarning($"[OBJ Manager] Failed to spawn memos for '{go.name}': {memoEx.Message}");
+                                    // 메모 스폰 실패 시 무시
                                 }
                                 
                                 // 4. 메모가 아닌 children만 JSON에서 복원 (메모는 memo.txt 사용)
@@ -1315,16 +1308,16 @@ public class ObjectTransformManagerWindow : EditorWindow
                                                     nonMemoChildrenCount++;
                                                 }
                                             }
-                                            catch (Exception ex)
+                                            catch (Exception)
                                             {
-                                                Debug.LogWarning($"[OBJ Manager] Failed to restore non-memo child {childData.objectName}: {ex.Message}");
+                                                // 자식 복원 실패 시 무시
                                             }
                                         }
                                     }
                                     
                                     if (nonMemoChildrenCount > 0)
                                     {
-                                        Debug.Log($"[OBJ Manager] Restored {nonMemoChildrenCount} non-memo children from JSON");
+                                        // 자식 복원 완료
                                     }
                                 }
                                 
@@ -1336,19 +1329,16 @@ public class ObjectTransformManagerWindow : EditorWindow
                             }
                             else
                             {
-                                Debug.LogError($"[OBJ Manager] LoadObj returned null for: {objPath}");
                                 failCount++;
                             }
                         }
-                        catch (Exception ex)
+                        catch (Exception)
                         {
-                            Debug.LogError($"[OBJ Manager] Failed to load OBJ: {objPath}\n{ex}");
                             failCount++;
                         }
                     }
                     else
                     {
-                        Debug.LogWarning($"[OBJ Manager] OBJ file not found: {data.objFilePath ?? data.objectName}");
                         failCount++;
                     }
                 }
@@ -1359,7 +1349,6 @@ public class ObjectTransformManagerWindow : EditorWindow
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Import] Failed: {ex}");
                 EditorUtility.DisplayDialog("Import 실패", $"Import 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             }
         };

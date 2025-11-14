@@ -29,7 +29,6 @@ namespace ObjDropWatcher.ExportImport
                     // OBJ 파일 경로가 없으면 건너뛰기
                     if (string.IsNullOrEmpty(objPath))
                     {
-                        Debug.LogWarning($"[Binary Export] Skipping object '{obj.name}': OBJ file path not found");
                         skippedCount++;
                         continue;
                     }
@@ -43,7 +42,6 @@ namespace ObjDropWatcher.ExportImport
                     }
                     else
                     {
-                        Debug.LogWarning($"[Binary Export] Skipping non-OBJ object '{obj.name}': Type = {data.objectType}");
                         skippedCount++;
                     }
                 }
@@ -72,17 +70,10 @@ namespace ObjDropWatcher.ExportImport
                 }
                 message += $"\n{filePath}";
                 
-                Debug.Log($"[Binary Export] Exported {count} OBJ objects to: {filePath}");
-                if (skippedCount > 0)
-                {
-                    Debug.Log($"[Binary Export] Skipped {skippedCount} objects");
-                }
-                
                 EditorUtility.DisplayDialog("Export 완료", message, "OK");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Binary Export] Failed: {ex}");
                 EditorUtility.DisplayDialog("Export 실패", $"바이너리 export 실패:\n{ex.Message}", "OK");
             }
         }
@@ -107,12 +98,10 @@ namespace ObjDropWatcher.ExportImport
                 // 직렬화 가능한 형태에서 일반 컬렉션으로 변환
                 var collection = serializableCollection.ToObjectTransformCollection();
 
-                Debug.Log($"[Binary Import] Imported {collection.objects.Count} objects from: {filePath}");
                 return collection;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Binary Import] Failed: {ex}");
                 EditorUtility.DisplayDialog("Import 실패", $"바이너리 import 실패:\n{ex.Message}", "OK");
                 return null;
             }

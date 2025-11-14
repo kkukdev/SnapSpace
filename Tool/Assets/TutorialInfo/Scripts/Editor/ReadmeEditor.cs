@@ -36,7 +36,7 @@ public class ReadmeEditor : Editor
             }
             else
             {
-                Debug.Log($"Could not find the Readme folder at {s_ReadmeSourceDirectory}");
+                // Readme 폴더를 찾을 수 없음
             }
 
             var readmeAsset = SelectReadme();
@@ -87,7 +87,6 @@ public class ReadmeEditor : Editor
         }
         else
         {
-            Debug.Log("Couldn't find a readme");
             return null;
         }
     }

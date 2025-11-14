@@ -49,9 +49,8 @@ namespace ObjDropWatcher.ExportImport
                     {
                         content = File.ReadAllText(filePath, System.Text.Encoding.GetEncoding(949)); // CP949
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Debug.LogWarning($"[MemoUtils] Failed to read memo file with UTF-8 and CP949: {ex.Message}");
                         return new MemoData[0];
                     }
                 }
@@ -126,9 +125,8 @@ namespace ObjDropWatcher.ExportImport
 
                 return memos.ToArray();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogError($"[MemoUtils] Failed to parse memo file {filePath}: {ex.Message}");
                 return new MemoData[0];
             }
         }
@@ -226,9 +224,9 @@ namespace ObjDropWatcher.ExportImport
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogWarning($"[MemoUtils] Failed to parse anchor '{anchor}': {ex.Message}");
+                // anchor 파싱 실패 시 zero 반환
             }
             
             return result;
@@ -283,7 +281,6 @@ namespace ObjDropWatcher.ExportImport
                         localPosition = transformInfo.position;
                         localRotation = transformInfo.rotation;
                         localScale = transformInfo.scale;
-                        Debug.Log($"[MemoUtils] Using exported Transform for memo with anchor '{memo.anchor}': position={localPosition}, rotation={localRotation.eulerAngles}, scale={localScale}");
                     }
                 }
                 
@@ -295,11 +292,6 @@ namespace ObjDropWatcher.ExportImport
                 // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
                 Create3DTextAsChild(parentObj, memo.content, localPosition, localRotation, localScale);
                 memoCount++;
-            }
-            
-            if (memoCount > 0)
-            {
-                Debug.Log($"[MemoUtils] Spawned {memoCount} text memo(s) as children of mesh object");
             }
         }
 
@@ -342,12 +334,10 @@ namespace ObjDropWatcher.ExportImport
                 textMesh.anchor = TextAnchor.MiddleCenter;
                 textMesh.alignment = TextAlignment.Center;
                 textMesh.color = Color.yellow; // 노란색으로 표시
-                
-                Debug.Log($"[MemoUtils] Created 3D text memo as child at local position {localPosition}, rotation {localRotation.eulerAngles}, scale {localScale}: {text}");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogError($"[MemoUtils] Failed to create 3D text memo as child: {ex.Message}");
+                // 3D 텍스트 생성 실패 시 무시
             }
         }
 
@@ -368,9 +358,9 @@ namespace ObjDropWatcher.ExportImport
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogWarning($"[MemoUtils] Failed to get unitScale from WatchConfig: {ex.Message}");
+                // unitScale 가져오기 실패 시 기본값 사용
             }
             
             return 1000f; // 기본값

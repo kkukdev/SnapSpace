@@ -34,7 +34,6 @@ namespace ObjDropWatcher.ExportImport
                     // OBJ 파일 경로가 없으면 건너뛰기
                     if (string.IsNullOrEmpty(objPath))
                     {
-                        Debug.LogWarning($"[CSV Export] Skipping object '{obj.name}': OBJ file path not found");
                         skippedCount++;
                         continue;
                     }
@@ -44,7 +43,6 @@ namespace ObjDropWatcher.ExportImport
                     // OBJ 파일만 export
                     if (data.objectType != ObjectType.ObjFile)
                     {
-                        Debug.LogWarning($"[CSV Export] Skipping non-OBJ object '{obj.name}': Type = {data.objectType}");
                         skippedCount++;
                         continue;
                     }
@@ -88,17 +86,10 @@ namespace ObjDropWatcher.ExportImport
                 }
                 message += $"\n{filePath}";
                 
-                Debug.Log($"[CSV Export] Exported {exportedCount} OBJ objects to: {filePath}");
-                if (skippedCount > 0)
-                {
-                    Debug.Log($"[CSV Export] Skipped {skippedCount} objects");
-                }
-                
                 EditorUtility.DisplayDialog("Export 완료", message, "OK");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[CSV Export] Failed: {ex}");
                 EditorUtility.DisplayDialog("Export 실패", $"CSV export 실패:\n{ex.Message}", "OK");
             }
         }
@@ -152,18 +143,16 @@ namespace ObjDropWatcher.ExportImport
                         };
                         collection.objects.Add(data);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Debug.LogWarning($"[CSV Import] Failed to parse line {i + 1}: {ex.Message}");
+                        // 파싱 실패한 라인은 건너뛰기
                     }
                 }
 
-                Debug.Log($"[CSV Import] Imported {collection.objects.Count} objects from: {filePath}");
                 return collection;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[CSV Import] Failed: {ex}");
                 EditorUtility.DisplayDialog("Import 실패", $"CSV import 실패:\n{ex.Message}", "OK");
                 return null;
             }

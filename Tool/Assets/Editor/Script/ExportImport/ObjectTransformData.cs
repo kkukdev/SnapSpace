@@ -38,7 +38,6 @@ namespace ObjDropWatcher.ExportImport
             string pathFromComponent = ObjPathInfo.GetPath(obj);
             if (!string.IsNullOrEmpty(pathFromComponent) && System.IO.File.Exists(pathFromComponent))
             {
-                Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component (root): {pathFromComponent}");
                 return pathFromComponent;
             }
 
@@ -52,7 +51,6 @@ namespace ObjDropWatcher.ExportImport
                         string childPath = ObjPathInfo.GetPath(child.gameObject);
                         if (!string.IsNullOrEmpty(childPath) && System.IO.File.Exists(childPath))
                         {
-                            Debug.Log($"[ObjPathFinder] Found path from ObjPathInfo component (child '{child.name}'): {childPath}");
                             return childPath;
                         }
                     }
@@ -125,15 +123,11 @@ namespace ObjDropWatcher.ExportImport
                 }
             }
 
-            Debug.Log($"[ObjPathFinder] Searching for OBJ file for '{objName}' with candidates: {string.Join(", ", candidateFileNames)}");
-
             // 3. 검색 경로 목록에서 찾기
             foreach (var searchPath in _searchPaths)
             {
                 if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
                     continue;
-
-                Debug.Log($"[ObjPathFinder] Searching in path: {searchPath}");
 
                 try
                 {
@@ -143,7 +137,6 @@ namespace ObjDropWatcher.ExportImport
                         string exactPath = Path.Combine(searchPath, candidateFileName + ".obj");
                         if (File.Exists(exactPath))
                         {
-                            Debug.Log($"[ObjPathFinder] Found OBJ file: {exactPath}");
                             return exactPath;
                         }
 
@@ -151,7 +144,6 @@ namespace ObjDropWatcher.ExportImport
                         var found = Directory.GetFiles(searchPath, candidateFileName + ".obj", SearchOption.AllDirectories);
                         if (found.Length > 0)
                         {
-                            Debug.Log($"[ObjPathFinder] Found OBJ file in subdirectory: {found[0]}");
                             return found[0];
                         }
                     }
@@ -165,15 +157,14 @@ namespace ObjDropWatcher.ExportImport
                         {
                             if (string.Equals(fileBaseName, candidateFileName, StringComparison.OrdinalIgnoreCase))
                             {
-                                Debug.Log($"[ObjPathFinder] Found OBJ file (case-insensitive): {file}");
                                 return file;
                             }
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ObjPathFinder] Error searching in {searchPath}: {ex.Message}");
+                    // 검색 중 오류 발생 시 다음 경로로 계속
                 }
             }
 
@@ -191,8 +182,6 @@ namespace ObjDropWatcher.ExportImport
                 if (!Directory.Exists(commonPath))
                     continue;
 
-                Debug.Log($"[ObjPathFinder] Searching in common path: {commonPath}");
-
                 try
                 {
                     foreach (var candidateFileName in candidateFileNames)
@@ -200,18 +189,16 @@ namespace ObjDropWatcher.ExportImport
                         var found = Directory.GetFiles(commonPath, candidateFileName + ".obj", SearchOption.AllDirectories);
                         if (found.Length > 0)
                         {
-                            Debug.Log($"[ObjPathFinder] Found OBJ file in common path: {found[0]}");
                             return found[0];
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ObjPathFinder] Error searching in common path {commonPath}: {ex.Message}");
+                    // 검색 중 오류 발생 시 다음 경로로 계속
                 }
             }
 
-            Debug.LogWarning($"[ObjPathFinder] Could not find OBJ file for '{objName}'");
             return null;
         }
 
@@ -398,9 +385,9 @@ namespace ObjDropWatcher.ExportImport
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ComponentData] Failed to save field {field.Name}: {ex.Message}");
+                    // 필드 저장 실패 시 건너뛰기
                 }
             }
         }
@@ -438,9 +425,9 @@ namespace ObjDropWatcher.ExportImport
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ComponentData] Failed to save property {prop.Name}: {ex.Message}");
+                    // 속성 저장 실패 시 건너뛰기
                 }
             }
         }
@@ -692,9 +679,9 @@ namespace ObjDropWatcher.ExportImport
                         RestoreProperty(component, type, key.Substring(9), value);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ComponentData] Failed to restore {key}: {ex.Message}");
+                    // 복원 실패 시 건너뛰기
                 }
             }
         }
@@ -841,9 +828,9 @@ namespace ObjDropWatcher.ExportImport
                         components.Add(compData);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ObjectTransformData] Failed to save component {component.GetType().Name}: {ex.Message}");
+                    // 컴포넌트 저장 실패 시 건너뛰기
                 }
             }
         }
@@ -970,7 +957,6 @@ namespace ObjDropWatcher.ExportImport
 
             if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
             {
-                Debug.LogWarning($"[ObjectTransformData] OBJ file not found for '{objectName}', creating empty GameObject");
                 return new GameObject(objectName);
             }
 
@@ -978,9 +964,8 @@ namespace ObjDropWatcher.ExportImport
             {
                 return RuntimeObjLoader.LoadObj(objPath);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogWarning($"[ObjectTransformData] Failed to load OBJ: {objPath}\n{ex}");
                 return new GameObject(objectName);
             }
         }
@@ -1075,7 +1060,6 @@ namespace ObjDropWatcher.ExportImport
                             if (needsFix)
                             {
                                 materialFixed = true;
-                                Debug.Log($"[ObjectTransformData] Fixed material '{mat.name}' to be opaque (renderQueue: {mat.renderQueue}, color alpha: {mat.color.a})");
                             }
                             
                             EditorUtility.SetDirty(mat);
@@ -1130,9 +1114,9 @@ namespace ObjDropWatcher.ExportImport
                     
                     compData.ApplyToComponent(component);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ObjectTransformData] Failed to restore component {compData.componentType}: {ex.Message}");
+                    // 컴포넌트 복원 실패 시 건너뛰기
                 }
             }
         }
@@ -1238,9 +1222,9 @@ namespace ObjDropWatcher.ExportImport
                         child.transform.SetParent(parent.transform, false);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.LogWarning($"[ObjectTransformData] Failed to restore child {childData.objectName}: {ex.Message}");
+                    // 자식 복원 실패 시 건너뛰기
                 }
             }
         }
@@ -1280,7 +1264,6 @@ namespace ObjDropWatcher.ExportImport
                     } while (GameObject.Find(uniqueName) != null);
                     
                     newObj.name = uniqueName;
-                    Debug.Log($"[ObjectTransformData] Renamed object to '{uniqueName}' to avoid duplicate");
                 }
             }
 
@@ -1340,12 +1323,10 @@ namespace ObjDropWatcher.ExportImport
                 if (!string.IsNullOrEmpty(selectedPath) && File.Exists(selectedPath))
                 {
                     objFilePath = selectedPath;
-                    Debug.Log($"[ObjectTransformData] User selected OBJ path for '{objectName}': {objFilePath}");
                     return true;
                 }
                 else
                 {
-                    Debug.LogWarning($"[ObjectTransformData] User cancelled or invalid path for '{objectName}'");
                     return false;
                 }
             }
@@ -1563,7 +1544,6 @@ namespace ObjDropWatcher.ExportImport
                 // OBJ 파일만 처리 (다른 타입은 건너뛰기)
                 if (data.objectType != ObjectType.ObjFile)
                 {
-                    Debug.Log($"{logPrefix} Skipping non-OBJ object: {data.objectName} (Type: {data.objectType})");
                     skippedCount++;
                     continue;
                 }
@@ -1577,14 +1557,8 @@ namespace ObjDropWatcher.ExportImport
                 }
                 else
                 {
-                    Debug.LogWarning($"{logPrefix} Failed to create/find object: {data.objectName} (OBJ file path not found or invalid)");
                     failCount++;
                 }
-            }
-
-            if (skippedCount > 0)
-            {
-                Debug.Log($"{logPrefix} Skipped {skippedCount} non-OBJ objects");
             }
 
             return new ImportResult { successCount = successCount, failCount = failCount };

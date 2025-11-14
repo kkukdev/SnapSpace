@@ -30,34 +30,26 @@ namespace ObjDropWatcher.ExportImport
         {
             if (obj == null)
             {
-                Debug.LogError("[ObjPathInfo] GetOrAdd: GameObject가 null입니다.");
                 return null;
             }
             
             try
             {
-                Debug.Log($"[ObjPathInfo] GetOrAdd 시작: obj={obj?.name}, obj null: {obj == null}");
-                
                 var pathInfo = obj.GetComponent<ObjPathInfo>();
-                Debug.Log($"[ObjPathInfo] GetComponent 결과: {pathInfo != null}");
                 
                 if (pathInfo == null)
                 {
                     // GameObject가 파괴되었는지 확인
                     if (obj == null)
                     {
-                        Debug.LogError("[ObjPathInfo] GetOrAdd: GameObject가 AddComponent 전에 파괴되었습니다.");
                         return null;
                     }
                     
-                    Debug.Log($"[ObjPathInfo] AddComponent 호출 전: obj={obj.name}");
                     pathInfo = obj.AddComponent<ObjPathInfo>();
-                    Debug.Log($"[ObjPathInfo] AddComponent 호출 후: pathInfo={pathInfo != null}");
                     
                     // AddComponent가 실패했는지 확인
                     if (pathInfo == null)
                     {
-                        Debug.LogError($"[ObjPathInfo] GetOrAdd: AddComponent가 null을 반환했습니다. GameObject: {obj.name}");
                         return null;
                     }
                     
@@ -68,39 +60,19 @@ namespace ObjDropWatcher.ExportImport
                         if (pathInfo != null)
                         {
                             pathInfo.hideFlags = HideFlags.None;
-                            Debug.Log($"[ObjPathInfo] hideFlags 설정 완료");
                         }
                     }
-                    catch (System.Exception hideFlagsEx)
+                    catch (System.Exception)
                     {
-                        Debug.LogError($"[ObjPathInfo] hideFlags 설정 실패: {hideFlagsEx.Message}");
+                        // hideFlags 설정 실패 시 무시
                     }
                     #endif
-                    
-                    // obj가 여전히 유효한지 확인
-                    if (obj != null)
-                    {
-                        Debug.Log($"[ObjPathInfo] Component 추가됨: {obj.name}, InstanceID: {obj.GetInstanceID()}, pathInfo InstanceID: {pathInfo.GetInstanceID()}");
-                    }
-                    else
-                    {
-                        Debug.LogWarning("[ObjPathInfo] Component 추가 후 GameObject가 null이 되었습니다.");
-                    }
-                }
-                else
-                {
-                    if (obj != null)
-                    {
-                        Debug.Log($"[ObjPathInfo] 기존 Component 사용: {obj.name}, InstanceID: {obj.GetInstanceID()}");
-                    }
                 }
                 
-                Debug.Log($"[ObjPathInfo] GetOrAdd 완료: pathInfo={pathInfo != null}");
                 return pathInfo;
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                Debug.LogError($"[ObjPathInfo] GetOrAdd 실패: {ex.Message}\nStack trace: {ex.StackTrace}");
                 return null;
             }
         }
@@ -112,19 +84,16 @@ namespace ObjDropWatcher.ExportImport
         {
             if (obj == null)
             {
-                Debug.LogWarning("[ObjPathInfo] GetPath: GameObject가 null입니다.");
                 return null;
             }
             
             var pathInfo = obj.GetComponent<ObjPathInfo>();
             if (pathInfo == null)
             {
-                Debug.LogWarning($"[ObjPathInfo] GetPath: {obj.name}에 ObjPathInfo Component가 없습니다.");
                 return null;
             }
             
             string path = pathInfo.ObjFilePath;
-            Debug.Log($"[ObjPathInfo] GetPath: {obj.name} -> {path ?? "(null)"}");
             return path;
         }
 
@@ -135,18 +104,12 @@ namespace ObjDropWatcher.ExportImport
         {
             if (obj == null)
             {
-                Debug.LogError("[ObjPathInfo] SetPath: GameObject가 null입니다.");
                 return;
             }
             
             try
             {
-                string objName = obj != null ? obj.name : "(null)";
-                Debug.Log($"[ObjPathInfo] SetPath 시작: GameObject={objName}, 경로={path}, obj null: {obj == null}");
-                
-                Debug.Log($"[ObjPathInfo] GetOrAdd 호출 전");
                 var pathInfo = GetOrAdd(obj);
-                Debug.Log($"[ObjPathInfo] GetOrAdd 호출 후 - pathInfo: {pathInfo != null}, obj: {obj != null}");
                 
                 if (pathInfo != null && obj != null)
                 {
@@ -172,17 +135,11 @@ namespace ObjDropWatcher.ExportImport
                         // Assertion 오류는 무시 (경로는 이미 저장됨)
                     }
                     #endif
-                    Debug.Log($"[ObjPathInfo] SetPath 완료: {objName} -> {pathInfo.ObjFilePath}");
-                }
-                else
-                {
-                    Debug.LogError($"[ObjPathInfo] SetPath 실패: {objName}에 Component를 추가할 수 없습니다. (pathInfo: {pathInfo != null}, obj: {obj != null})");
                 }
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                string objName = obj != null ? obj.name : "(null)";
-                Debug.LogError($"[ObjPathInfo] SetPath 예외 발생: GameObject={objName}, 경로={path}\n오류: {ex.Message}\nStack trace: {ex.StackTrace}");
+                // SetPath 실패 시 무시
             }
         }
     }
