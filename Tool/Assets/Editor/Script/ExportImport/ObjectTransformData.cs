@@ -768,7 +768,10 @@ namespace ObjDropWatcher.ExportImport
         public float positionX, positionY, positionZ;
         public float rotationX, rotationY, rotationZ; // Euler angles
         public float scaleX, scaleY, scaleZ;
-        public string objFilePath; // 원본 OBJ 파일 경로 (선택적)
+        public string objFilePath; // 원본 OBJ 파일 경로 (선택적, 하위 호환성 유지)
+        public string originalPath; // Original OBJ 파일 경로 (새로운 구조)
+        public string retouchedPath; // Retouched OBJ 파일 경로 (새로운 구조)
+        public bool isUsingRetouched; // 현재 Retouched 버전을 사용 중인지 여부
         public ObjectType objectType = ObjectType.Unknown; // 오브젝트 타입
         public string primitiveType; // Unity 기본 오브젝트 타입 (Plane, Cube, Sphere 등)
         public List<ComponentData> components = new List<ComponentData>(); // 모든 컴포넌트 정보
@@ -798,7 +801,10 @@ namespace ObjDropWatcher.ExportImport
             scaleX = obj.transform.localScale.x;
             scaleY = obj.transform.localScale.y;
             scaleZ = obj.transform.localScale.z;
-            objFilePath = objPath;
+            objFilePath = objPath; // 하위 호환성 유지
+            
+            // 새로운 구조: Original/Retouched children 감지
+            DetectOriginalRetouchedStructure(obj);
             
             // 오브젝트 타입 감지
             DetectObjectType(obj);
@@ -810,6 +816,73 @@ namespace ObjDropWatcher.ExportImport
             if (includeChildren)
             {
                 SaveChildren(obj);
+            }
+        }
+        
+        /// <summary>
+        /// GameObject에서 Original/Retouched 구조를 감지하고 경로를 저장합니다.
+        /// </summary>
+        void DetectOriginalRetouchedStructure(GameObject obj)
+        {
+            if (obj == null)
+                return;
+            
+            // 새로운 구조: root GameObject의 children에서 "Original"과 "Retouched" 찾기
+            Transform originalTransform = obj.transform.Find("Original");
+            Transform retouchedTransform = obj.transform.Find("Retouched");
+            
+            bool hasNewStructure = (originalTransform != null || retouchedTransform != null);
+            
+            if (hasNewStructure)
+            {
+                // Original 경로 찾기
+                if (originalTransform != null)
+                {
+                    string originalObjPath = ObjPathFinder.FindObjPath(originalTransform.gameObject);
+                    if (!string.IsNullOrEmpty(originalObjPath) && File.Exists(originalObjPath))
+                    {
+                        originalPath = originalObjPath;
+                    }
+                }
+                
+                // Retouched 경로 찾기
+                if (retouchedTransform != null)
+                {
+                    string retouchedObjPath = ObjPathFinder.FindObjPath(retouchedTransform.gameObject);
+                    if (!string.IsNullOrEmpty(retouchedObjPath) && File.Exists(retouchedObjPath))
+                    {
+                        retouchedPath = retouchedObjPath;
+                    }
+                }
+                
+                // 현재 사용 중인 버전 확인
+                if (retouchedTransform != null && retouchedTransform.gameObject.activeSelf)
+                {
+                    isUsingRetouched = true;
+                }
+                else if (originalTransform != null && originalTransform.gameObject.activeSelf)
+                {
+                    isUsingRetouched = false;
+                }
+                
+                // objFilePath는 현재 활성화된 버전의 경로로 설정 (하위 호환성)
+                if (isUsingRetouched && !string.IsNullOrEmpty(retouchedPath))
+                {
+                    objFilePath = retouchedPath;
+                }
+                else if (!string.IsNullOrEmpty(originalPath))
+                {
+                    objFilePath = originalPath;
+                }
+            }
+            else
+            {
+                // 기존 구조: objPath를 originalPath로 설정
+                if (!string.IsNullOrEmpty(objFilePath))
+                {
+                    originalPath = objFilePath;
+                }
+                isUsingRetouched = false;
             }
         }
 
@@ -947,10 +1020,19 @@ namespace ObjDropWatcher.ExportImport
 
         /// <summary>
         /// OBJ 파일에서 GameObject를 로드합니다.
+        /// Original/Retouched 구조가 있으면 모두 로드하여 children으로 추가합니다.
         /// </summary>
         GameObject LoadObjFile()
         {
-            // OBJ 파일 경로 찾기
+            // 새로운 구조: Original과 Retouched 경로가 모두 있는 경우
+            bool hasNewStructure = !string.IsNullOrEmpty(originalPath) || !string.IsNullOrEmpty(retouchedPath);
+            
+            if (hasNewStructure)
+            {
+                return LoadObjFileWithBothVersions();
+            }
+            
+            // 기존 구조: 단일 OBJ 파일 로드
             string objPath = string.IsNullOrEmpty(objFilePath) || !File.Exists(objFilePath)
                 ? ObjPathFinder.FindObjPathForImport(objectName, objFilePath)
                 : objFilePath;
@@ -962,11 +1044,382 @@ namespace ObjDropWatcher.ExportImport
 
             try
             {
-                return RuntimeObjLoader.LoadObj(objPath);
+                return RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
             }
             catch (Exception)
             {
                 return new GameObject(objectName);
+            }
+        }
+        
+        /// <summary>
+        /// Original과 Retouched 버전을 모두 로드하여 하나의 root GameObject에 children으로 추가합니다.
+        /// ObjDropWatcherWindow.SpawnWithBothVersions와 동일한 로직을 사용합니다.
+        /// </summary>
+        GameObject LoadObjFileWithBothVersions()
+        {
+            try
+            {
+                // Original 파일이 없으면 오류
+                string actualOriginalPath = !string.IsNullOrEmpty(originalPath) && File.Exists(originalPath)
+                    ? originalPath
+                    : (!string.IsNullOrEmpty(objFilePath) && File.Exists(objFilePath) ? objFilePath : null);
+                
+                if (string.IsNullOrEmpty(actualOriginalPath))
+                {
+                    // Original 경로를 찾지 못한 경우 시도
+                    actualOriginalPath = ObjPathFinder.FindObjPathForImport(objectName, originalPath ?? objFilePath);
+                }
+                
+                if (string.IsNullOrEmpty(actualOriginalPath) || !File.Exists(actualOriginalPath))
+                {
+                    // Original을 찾지 못하면 기존 방식으로 단일 파일 로드
+                    return LoadObjFile();
+                }
+                
+                // Root GameObject 생성
+                string rootName = Path.GetFileNameWithoutExtension(actualOriginalPath);
+                if (string.IsNullOrEmpty(rootName))
+                    rootName = objectName;
+                GameObject rootGo = new GameObject($"{rootName}_Root");
+                #if UNITY_EDITOR
+                Undo.RegisterCreatedObjectUndo(rootGo, "Load OBJ Root");
+                #endif
+                
+                // Root를 Unity 원점에 배치
+                rootGo.transform.position = Vector3.zero;
+                rootGo.transform.rotation = Quaternion.identity;
+                rootGo.transform.localScale = Vector3.one;
+                
+                // unitScale 가져오기
+                float unitScale = MemoUtils.GetUnitScale();
+                
+                // Original OBJ 로드 및 설정
+                GameObject originalGo = LoadSingleMeshFile(actualOriginalPath);
+                if (originalGo == null)
+                {
+                    GameObject.DestroyImmediate(rootGo);
+                    return null;
+                }
+                
+                originalGo.name = "Original";
+                originalGo.transform.SetParent(rootGo.transform, false);
+                originalGo.transform.localPosition = Vector3.zero;
+                originalGo.transform.localRotation = Quaternion.identity;
+                
+                // Original OBJ에 unitScale 적용 및 Y 오프셋 처리
+                float minY = FindMinimumY(originalGo, unitScale);
+                originalGo.transform.localScale = Vector3.one * unitScale;
+                
+                if (minY < 0f)
+                {
+                    float offsetY = -minY;
+                    rootGo.transform.position = new Vector3(0f, offsetY, 0f);
+                }
+                
+                // Original OBJ를 보이는 상태로 설정 (isUsingRetouched에 따라)
+                originalGo.SetActive(!isUsingRetouched);
+                
+                // Retouched OBJ 로드 및 설정 (있는 경우)
+                GameObject retouchedGo = null;
+                string actualRetouchedPath = !string.IsNullOrEmpty(retouchedPath) && File.Exists(retouchedPath)
+                    ? retouchedPath
+                    : null;
+                
+                if (!string.IsNullOrEmpty(actualRetouchedPath))
+                {
+                    retouchedGo = LoadSingleMeshFile(actualRetouchedPath);
+                    if (retouchedGo != null)
+                    {
+                        retouchedGo.name = "Retouched";
+                        retouchedGo.transform.SetParent(rootGo.transform, false);
+                        retouchedGo.transform.localPosition = Vector3.zero;
+                        retouchedGo.transform.localRotation = Quaternion.identity;
+                        retouchedGo.transform.localScale = Vector3.one * unitScale;
+                        
+                        // Retouched OBJ를 안보이는 상태로 설정 (isUsingRetouched에 따라)
+                        retouchedGo.SetActive(isUsingRetouched);
+                    }
+                }
+                
+                // 경로 정보 저장
+                try
+                {
+                    ObjPathInfo.SetPath(rootGo, actualOriginalPath);
+                    
+                    // 모든 children에도 경로 저장
+                    Transform[] allChildren = rootGo.GetComponentsInChildren<Transform>(true);
+                    foreach (Transform child in allChildren)
+                    {
+                        if (child != null && child != rootGo.transform && child.gameObject != null)
+                        {
+                            ObjPathInfo.SetPath(child.gameObject, actualOriginalPath);
+                        }
+                    }
+                    
+                    #if UNITY_EDITOR
+                    if ((rootGo.hideFlags & HideFlags.DontSaveInEditor) == 0)
+                    {
+                        EditorUtility.SetDirty(rootGo);
+                    }
+                    #endif
+                }
+                catch (System.Exception)
+                {
+                    // 경로 저장 실패 시 무시
+                }
+                
+                return rootGo;
+            }
+            catch (Exception ex)
+            {
+                #if UNITY_EDITOR
+                EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
+                #endif
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// 단일 메시 파일을 로드합니다. (내부 헬퍼 메서드)
+        /// </summary>
+        GameObject LoadSingleMeshFile(string meshPath)
+        {
+            if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
+            {
+                return null;
+            }
+            
+            GameObject go = null;
+            string extension = Path.GetExtension(meshPath).ToLowerInvariant();
+            
+            // 파일 확장자에 따라 적절한 로더 선택
+            switch (extension)
+            {
+                case ".obj":
+                    // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+                    go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
+                    if (go != null)
+                    {
+                        #if UNITY_EDITOR
+                        Undo.RegisterCreatedObjectUndo(go, "Load OBJ");
+                        #endif
+                    }
+                    break;
+                    
+                case ".glb":
+                case ".gltf":
+                    // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
+                    go = LoadGlbOrGltf(meshPath);
+                    if (go != null)
+                    {
+                        #if UNITY_EDITOR
+                        Undo.RegisterCreatedObjectUndo(go, "Load GLB/GLTF");
+                        #endif
+                    }
+                    break;
+                    
+                case ".fbx":
+                    // FBX 파일은 Unity의 기본 임포트 기능 사용
+                    go = LoadFbx(meshPath);
+                    if (go != null)
+                    {
+                        #if UNITY_EDITOR
+                        Undo.RegisterCreatedObjectUndo(go, "Load FBX");
+                        #endif
+                    }
+                    break;
+                    
+                default:
+                    #if UNITY_EDITOR
+                    EditorUtility.DisplayDialog("지원하지 않는 형식", 
+                        $"지원하지 않는 파일 형식입니다: {extension}\n\n지원 형식: .obj, .glb, .gltf, .fbx", "OK");
+                    #endif
+                    return null;
+            }
+            
+            if (go == null)
+            {
+                #if UNITY_EDITOR
+                EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
+                #endif
+                return null;
+            }
+            
+            return go;
+        }
+        
+        /// <summary>
+        /// GameObject와 그 모든 자식에서 메시 버텍스의 Y 좌표 최솟값을 찾습니다.
+        /// </summary>
+        float FindMinimumY(GameObject root, float scale)
+        {
+            if (root == null)
+                return 0f;
+
+            float minY = float.PositiveInfinity;
+            
+            // 모든 MeshFilter 컴포넌트 찾기 (자식 포함)
+            MeshFilter[] meshFilters = root.GetComponentsInChildren<MeshFilter>(true);
+            
+            Transform rootTransform = root.transform;
+            
+            foreach (MeshFilter mf in meshFilters)
+            {
+                if (mf == null || mf.sharedMesh == null)
+                    continue;
+                
+                Mesh mesh = mf.sharedMesh;
+                Vector3[] vertices = mesh.vertices;
+                
+                if (vertices == null || vertices.Length == 0)
+                    continue;
+                
+                Transform meshTransform = mf.transform;
+                
+                // 메시가 속한 오브젝트가 루트인지 자식인지 확인
+                bool isRootMesh = (meshTransform == rootTransform);
+                
+                foreach (Vector3 vertex in vertices)
+                {
+                    float vertexY;
+                    
+                    if (isRootMesh)
+                    {
+                        // 루트의 메시인 경우: 버텍스의 로컬 Y 좌표를 직접 사용
+                        vertexY = vertex.y;
+                    }
+                    else
+                    {
+                        // 자식 오브젝트의 메시인 경우: 자식의 로컬 좌표를 루트의 로컬 좌표계로 변환
+                        Vector3 vertexWorldPos = meshTransform.TransformPoint(vertex);
+                        Vector3 vertexRootLocalPos = rootTransform.InverseTransformPoint(vertexWorldPos);
+                        vertexY = vertexRootLocalPos.y;
+                    }
+                    
+                    // 스케일 적용 후 Y 좌표 계산
+                    float scaledY = vertexY * scale;
+                    
+                    // Y 좌표 최솟값 업데이트
+                    if (scaledY < minY)
+                        minY = scaledY;
+                }
+            }
+            
+            // 메시를 찾지 못한 경우 0 반환
+            if (float.IsPositiveInfinity(minY))
+                return 0f;
+            
+            return minY;
+        }
+        
+        /// <summary>
+        /// GLB/GLTF 파일을 로드합니다.
+        /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+        /// </summary>
+        GameObject LoadGlbOrGltf(string filePath)
+        {
+            try
+            {
+                // Unity 에디터에서만 작동
+                #if UNITY_EDITOR
+                // 파일을 Assets 폴더로 복사하여 임포트
+                string fileName = Path.GetFileName(filePath);
+                string tempAssetPath = $"Assets/Temp_{fileName}";
+                
+                // 파일 복사
+                File.Copy(filePath, tempAssetPath, true);
+                
+                // AssetDatabase를 통해 임포트
+                AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
+                
+                // ModelImporter 설정 (필요시)
+                ModelImporter importer = AssetImporter.GetAtPath(tempAssetPath) as ModelImporter;
+                if (importer != null)
+                {
+                    // 스케일을 1로 설정 (나중에 unitScale 적용)
+                    importer.globalScale = 1.0f;
+                    importer.SaveAndReimport();
+                }
+                
+                // 임포트된 게임오브젝트 로드
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+                if (prefab != null)
+                {
+                    // 씬에 인스턴스 생성
+                    GameObject instance = GameObject.Instantiate(prefab);
+                    instance.name = Path.GetFileNameWithoutExtension(filePath);
+                    
+                    return instance;
+                }
+                else
+                {
+                    // 임시 파일 삭제
+                    AssetDatabase.DeleteAsset(tempAssetPath);
+                    return null;
+                }
+                #else
+                return null;
+                #endif
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// FBX 파일을 로드합니다.
+        /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+        /// </summary>
+        GameObject LoadFbx(string filePath)
+        {
+            try
+            {
+                // Unity 에디터에서만 작동
+                #if UNITY_EDITOR
+                // 파일을 Assets 폴더로 복사하여 임포트
+                string fileName = Path.GetFileName(filePath);
+                string tempAssetPath = $"Assets/Temp_{fileName}";
+                
+                // 파일 복사
+                File.Copy(filePath, tempAssetPath, true);
+                
+                // AssetDatabase를 통해 임포트
+                AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
+                
+                // ModelImporter 설정 (필요시)
+                ModelImporter importer = AssetImporter.GetAtPath(tempAssetPath) as ModelImporter;
+                if (importer != null)
+                {
+                    // 스케일을 1로 설정 (나중에 unitScale 적용)
+                    importer.globalScale = 1.0f;
+                    importer.SaveAndReimport();
+                }
+                
+                // 임포트된 게임오브젝트 로드
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+                if (prefab != null)
+                {
+                    // 씬에 인스턴스 생성
+                    GameObject instance = GameObject.Instantiate(prefab);
+                    instance.name = Path.GetFileNameWithoutExtension(filePath);
+                    
+                    return instance;
+                }
+                else
+                {
+                    // 임시 파일 삭제
+                    AssetDatabase.DeleteAsset(tempAssetPath);
+                    return null;
+                }
+                #else
+                return null;
+                #endif
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
@@ -1582,6 +2035,9 @@ namespace ObjDropWatcher.ExportImport
                 scaleY = scaleY,
                 scaleZ = scaleZ,
                 objFilePath = objFilePath,
+                originalPath = originalPath,
+                retouchedPath = retouchedPath,
+                isUsingRetouched = isUsingRetouched,
                 objectType = (int)objectType,
                 primitiveType = primitiveType ?? ""
             };
@@ -1623,6 +2079,9 @@ namespace ObjDropWatcher.ExportImport
                 scaleY = data.scaleY,
                 scaleZ = data.scaleZ,
                 objFilePath = data.objFilePath,
+                originalPath = data.originalPath,
+                retouchedPath = data.retouchedPath,
+                isUsingRetouched = data.isUsingRetouched,
                 objectType = (ObjectType)data.objectType,
                 primitiveType = data.primitiveType ?? ""
             };
@@ -1669,7 +2128,10 @@ namespace ObjDropWatcher.ExportImport
         public float positionX, positionY, positionZ;
         public float rotationX, rotationY, rotationZ;
         public float scaleX, scaleY, scaleZ;
-        public string objFilePath;
+        public string objFilePath; // 하위 호환성 유지
+        public string originalPath; // Original OBJ 파일 경로 (새로운 구조)
+        public string retouchedPath; // Retouched OBJ 파일 경로 (새로운 구조)
+        public bool isUsingRetouched; // 현재 Retouched 버전을 사용 중인지 여부
         public int objectType; // ObjectType enum을 int로 저장
         public string primitiveType;
         public List<SerializableComponentData> components = new List<SerializableComponentData>();

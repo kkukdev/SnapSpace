@@ -477,14 +477,47 @@ public class ObjectTransformManagerWindow : EditorWindow
                 }
                 
                 // Original/Retouched 토글 버튼
-                bool hasRetouched = item.HasRetouchedVersion();
-                bool hasOriginal = !string.IsNullOrEmpty(item.originalPath) && PathExists(item.originalPath);
+                // 새로운 구조 확인: root GameObject의 children에서 "Original"과 "Retouched" 찾기
+                bool hasNewStructure = false;
+                bool hasOriginalChild = false;
+                bool hasRetouchedChild = false;
+                bool isCurrentlyUsingRetouched = item.isUsingRetouched;
+                
+                if (item.gameObject != null)
+                {
+                    Transform originalTransform = item.gameObject.transform.Find("Original");
+                    Transform retouchedTransform = item.gameObject.transform.Find("Retouched");
+                    hasOriginalChild = originalTransform != null;
+                    hasRetouchedChild = retouchedTransform != null;
+                    hasNewStructure = hasOriginalChild || hasRetouchedChild;
+                    
+                    // 새로운 구조에서는 실제 활성화된 children을 확인하여 현재 상태 결정
+                    if (hasNewStructure)
+                    {
+                        if (hasRetouchedChild && retouchedTransform.gameObject.activeSelf)
+                        {
+                            isCurrentlyUsingRetouched = true;
+                        }
+                        else if (hasOriginalChild && originalTransform.gameObject.activeSelf)
+                        {
+                            isCurrentlyUsingRetouched = false;
+                        }
+                        // item.isUsingRetouched를 실제 상태와 동기화 (필요시)
+                        if (item.isUsingRetouched != isCurrentlyUsingRetouched)
+                        {
+                            item.isUsingRetouched = isCurrentlyUsingRetouched;
+                        }
+                    }
+                }
+                
+                bool hasRetouched = hasNewStructure ? hasRetouchedChild : item.HasRetouchedVersion();
+                bool hasOriginal = hasNewStructure ? hasOriginalChild : (!string.IsNullOrEmpty(item.originalPath) && PathExists(item.originalPath));
                 
                 // 둘 다 있어야 토글 가능
                 GUI.enabled = hasRetouched && hasOriginal;
                 
                 string toggleButtonText;
-                if (item.isUsingRetouched)
+                if (isCurrentlyUsingRetouched)
                 {
                     toggleButtonText = "Original로 전환";
                 }
@@ -1591,310 +1624,268 @@ public class ObjectTransformManagerWindow : EditorWindow
             return;
         }
         
-        // 현재 GameObject 참조 저장 (먼저 저장)
-        GameObject oldGameObject = item.gameObject;
+        GameObject rootGo = item.gameObject;
         
-        // 토글할 경로 결정 (폴더 경로에서 .obj 파일 찾기)
-        string targetPath = null;
+        // 새로운 구조: root GameObject의 children에서 "Original"과 "Retouched" 찾기
+        Transform originalTransform = rootGo.transform.Find("Original");
+        Transform retouchedTransform = rootGo.transform.Find("Retouched");
+        
         bool newIsUsingRetouched = !item.isUsingRetouched;
         
-        if (newIsUsingRetouched)
+        // 새로운 구조를 사용하는 경우 (Original과 Retouched children이 있는 경우)
+        if (originalTransform != null || retouchedTransform != null)
         {
-            // Retouched로 전환
-            if (string.IsNullOrEmpty(item.retouchedPath))
+            try
             {
-                EditorUtility.DisplayDialog("파일 없음", "Retouched 경로가 설정되지 않았습니다.", "OK");
-                return;
-            }
-            
-            // retouchedPath가 파일이면 그대로 사용, 폴더면 .obj 파일 찾기
-            if (File.Exists(item.retouchedPath))
-            {
-                targetPath = item.retouchedPath;
-            }
-            else if (Directory.Exists(item.retouchedPath))
-            {
-                string[] objFiles = Directory.GetFiles(item.retouchedPath, "*.obj", SearchOption.TopDirectoryOnly);
-                if (objFiles.Length > 0)
+                if (newIsUsingRetouched)
                 {
-                    targetPath = objFiles[0]; // 첫 번째 .obj 파일 사용
+                    // Retouched로 전환
+                    if (retouchedTransform == null)
+                    {
+                        EditorUtility.DisplayDialog("파일 없음", "Retouched 버전이 없습니다.", "OK");
+                        return;
+                    }
+                    
+                    // Original 숨기기, Retouched 보이기
+                    if (originalTransform != null)
+                    {
+                        originalTransform.gameObject.SetActive(false);
+                    }
+                    retouchedTransform.gameObject.SetActive(true);
                 }
                 else
                 {
-                    EditorUtility.DisplayDialog("파일 없음", $"Retouched 폴더에 OBJ 파일을 찾을 수 없습니다:\n{item.retouchedPath}", "OK");
-                    return;
+                    // Original로 전환
+                    if (originalTransform == null)
+                    {
+                        EditorUtility.DisplayDialog("파일 없음", "Original 버전이 없습니다.", "OK");
+                        return;
+                    }
+                    
+                    // Retouched 숨기기, Original 보이기
+                    if (retouchedTransform != null)
+                    {
+                        retouchedTransform.gameObject.SetActive(false);
+                    }
+                    originalTransform.gameObject.SetActive(true);
                 }
+                
+                // ManagedObjItem 업데이트
+                item.isUsingRetouched = newIsUsingRetouched;
+                item.UpdateTransform();
+                
+                #if UNITY_EDITOR
+                Undo.RegisterCompleteObjectUndo(rootGo, $"Toggle OBJ to {(newIsUsingRetouched ? "Retouched" : "Original")}");
+                EditorUtility.SetDirty(rootGo);
+                SceneView.RepaintAll();
+                #endif
+                
+                Repaint();
             }
-            else
+            catch (Exception ex)
             {
-                EditorUtility.DisplayDialog("파일 없음", $"Retouched 경로를 찾을 수 없습니다:\n{item.retouchedPath}", "OK");
-                return;
+                EditorUtility.DisplayDialog("토글 실패", $"OBJ 버전 전환 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             }
         }
         else
         {
-            // Original로 전환
-            if (string.IsNullOrEmpty(item.originalPath))
-            {
-                EditorUtility.DisplayDialog("파일 없음", "Original 경로가 설정되지 않았습니다.", "OK");
-                return;
-            }
+            // 기존 구조 (하위 호환성): GameObject를 삭제하고 새로 로드
+            // 현재 GameObject 참조 저장 (먼저 저장)
+            GameObject oldGameObject = item.gameObject;
             
-            // originalPath가 파일이면 그대로 사용, 폴더면 .obj 파일 찾기
-            if (File.Exists(item.originalPath))
+            // 토글할 경로 결정 (폴더 경로에서 .obj 파일 찾기)
+            string targetPath = null;
+            
+            if (newIsUsingRetouched)
             {
-                targetPath = item.originalPath;
-            }
-            else if (Directory.Exists(item.originalPath))
-            {
-                string[] objFiles = Directory.GetFiles(item.originalPath, "*.obj", SearchOption.TopDirectoryOnly);
-                if (objFiles.Length > 0)
+                // Retouched로 전환
+                if (string.IsNullOrEmpty(item.retouchedPath))
                 {
-                    targetPath = objFiles[0]; // 첫 번째 .obj 파일 사용
+                    EditorUtility.DisplayDialog("파일 없음", "Retouched 경로가 설정되지 않았습니다.", "OK");
+                    return;
+                }
+                
+                // retouchedPath가 파일이면 그대로 사용, 폴더면 .obj 파일 찾기
+                if (File.Exists(item.retouchedPath))
+                {
+                    targetPath = item.retouchedPath;
+                }
+                else if (Directory.Exists(item.retouchedPath))
+                {
+                    string[] objFiles = Directory.GetFiles(item.retouchedPath, "*.obj", SearchOption.TopDirectoryOnly);
+                    if (objFiles.Length > 0)
+                    {
+                        targetPath = objFiles[0]; // 첫 번째 .obj 파일 사용
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayDialog("파일 없음", $"Retouched 폴더에 OBJ 파일을 찾을 수 없습니다:\n{item.retouchedPath}", "OK");
+                        return;
+                    }
                 }
                 else
                 {
-                    EditorUtility.DisplayDialog("파일 없음", $"Original 폴더에 OBJ 파일을 찾을 수 없습니다:\n{item.originalPath}", "OK");
+                    EditorUtility.DisplayDialog("파일 없음", $"Retouched 경로를 찾을 수 없습니다:\n{item.retouchedPath}", "OK");
                     return;
                 }
             }
             else
             {
-                EditorUtility.DisplayDialog("파일 없음", $"Original 경로를 찾을 수 없습니다:\n{item.originalPath}", "OK");
-                return;
-            }
-        }
-        
-        // 현재 Transform 정보 저장 (실제 GameObject에서 직접 가져오기)
-        Vector3 savedPosition = oldGameObject.transform.position;
-        Vector3 savedRotation = oldGameObject.transform.eulerAngles;
-        Vector3 savedScale = oldGameObject.transform.localScale;
-        string savedName = oldGameObject.name;
-        
-        // 현재 GameObject의 children 정보 저장 (메모 등)
-        List<Transform> savedChildren = new List<Transform>();
-        foreach (Transform child in oldGameObject.transform)
-        {
-            if (child != null)
-            {
-                savedChildren.Add(child);
-            }
-        }
-        
-        try
-        {
-            // 새로운 OBJ 파일 로드
-            var newGo = RuntimeObjLoader.LoadObj(targetPath, preserveOriginalCoordinates: true);
-            if (newGo == null)
-            {
-                EditorUtility.DisplayDialog("로드 실패", $"OBJ 파일을 로드할 수 없습니다:\n{targetPath}", "OK");
-                return;
-            }
-            
-            // Transform 정보 복원 (로드 후 즉시 적용)
-            newGo.transform.position = savedPosition;
-            newGo.transform.eulerAngles = savedRotation;
-            newGo.transform.localScale = savedScale;
-            newGo.name = savedName;
-            
-            // 기존 children 복원 (모든 children 복원, 메모 포함)
-            foreach (var savedChild in savedChildren)
-            {
-                if (savedChild != null && savedChild.gameObject != null)
+                // Original로 전환
+                if (string.IsNullOrEmpty(item.originalPath))
                 {
-                    GameObject childCopy = GameObject.Instantiate(savedChild.gameObject);
-                    childCopy.transform.SetParent(newGo.transform, false);
-                    childCopy.transform.localPosition = savedChild.localPosition;
-                    childCopy.transform.localRotation = savedChild.localRotation;
-                    childCopy.transform.localScale = savedChild.localScale;
-                    
-                    // (Clone) suffix 제거
-                    if (childCopy.name.EndsWith("(Clone)"))
-                    {
-                        childCopy.name = childCopy.name.Substring(0, childCopy.name.Length - 7);
-                    }
+                    EditorUtility.DisplayDialog("파일 없음", "Original 경로가 설정되지 않았습니다.", "OK");
+                    return;
                 }
-            }
-            
-            // 경로 정보 저장 (루트와 children 모두)
-            ObjPathInfo.SetPath(newGo, targetPath);
-            
-            // 모든 children에도 경로 저장
-            Transform[] allChildren = newGo.GetComponentsInChildren<Transform>(true);
-            foreach (Transform child in allChildren)
-            {
-                if (child != null && child != newGo.transform && child.gameObject != null)
-                {
-                    ObjPathInfo.SetPath(child.gameObject, targetPath);
-                }
-            }
-            
-            // MeshRenderer와 Material 확인 및 강제 설정
-            MeshRenderer[] allMeshRenderers = newGo.GetComponentsInChildren<MeshRenderer>(true);
-            
-            foreach (var meshRenderer in allMeshRenderers)
-            {
-                if (meshRenderer == null) continue;
                 
-                // Material이 제대로 할당되었는지 확인
-                if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
+                // originalPath가 파일이면 그대로 사용, 폴더면 .obj 파일 찾기
+                if (File.Exists(item.originalPath))
                 {
-                    // Material이 없으면 기본 Material 생성
-                    var defaultMat = new Material(Shader.Find("Standard"));
-                    defaultMat.color = Color.white;
-                    meshRenderer.sharedMaterial = defaultMat;
+                    targetPath = item.originalPath;
+                }
+                else if (Directory.Exists(item.originalPath))
+                {
+                    string[] objFiles = Directory.GetFiles(item.originalPath, "*.obj", SearchOption.TopDirectoryOnly);
+                    if (objFiles.Length > 0)
+                    {
+                        targetPath = objFiles[0]; // 첫 번째 .obj 파일 사용
+                    }
+                    else
+                    {
+                        EditorUtility.DisplayDialog("파일 없음", $"Original 폴더에 OBJ 파일을 찾을 수 없습니다:\n{item.originalPath}", "OK");
+                        return;
+                    }
                 }
                 else
                 {
-                    // 기존 Material들의 renderQueue를 Geometry로 강제 설정
-                    var materials = meshRenderer.sharedMaterials;
-                    bool materialFixed = false;
-                    
-                    for (int i = 0; i < materials.Length; i++)
+                    EditorUtility.DisplayDialog("파일 없음", $"Original 경로를 찾을 수 없습니다:\n{item.originalPath}", "OK");
+                    return;
+                }
+            }
+            
+            // 현재 Transform 정보 저장 (실제 GameObject에서 직접 가져오기)
+            Vector3 savedPosition = oldGameObject.transform.position;
+            Vector3 savedRotation = oldGameObject.transform.eulerAngles;
+            Vector3 savedScale = oldGameObject.transform.localScale;
+            string savedName = oldGameObject.name;
+            
+            // 현재 GameObject의 children 정보 저장 (메모 등)
+            List<Transform> savedChildren = new List<Transform>();
+            foreach (Transform child in oldGameObject.transform)
+            {
+                if (child != null)
+                {
+                    savedChildren.Add(child);
+                }
+            }
+            
+            try
+            {
+                // 새로운 OBJ 파일 로드
+                var newGo = RuntimeObjLoader.LoadObj(targetPath, preserveOriginalCoordinates: true);
+                if (newGo == null)
+                {
+                    EditorUtility.DisplayDialog("로드 실패", $"OBJ 파일을 로드할 수 없습니다:\n{targetPath}", "OK");
+                    return;
+                }
+                
+                // Transform 정보 복원 (로드 후 즉시 적용)
+                newGo.transform.position = savedPosition;
+                newGo.transform.eulerAngles = savedRotation;
+                newGo.transform.localScale = savedScale;
+                newGo.name = savedName;
+                
+                // 기존 children 복원 (모든 children 복원, 메모 포함)
+                foreach (var savedChild in savedChildren)
+                {
+                    if (savedChild != null && savedChild.gameObject != null)
                     {
-                        if (materials[i] != null)
+                        GameObject childCopy = GameObject.Instantiate(savedChild.gameObject);
+                        childCopy.transform.SetParent(newGo.transform, false);
+                        childCopy.transform.localPosition = savedChild.localPosition;
+                        childCopy.transform.localRotation = savedChild.localRotation;
+                        childCopy.transform.localScale = savedChild.localScale;
+                        
+                        // (Clone) suffix 제거
+                        if (childCopy.name.EndsWith("(Clone)"))
                         {
-                            if (materials[i].renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent)
-                            {
-                                materials[i].renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
-                                materialFixed = true;
-                            }
-                            
-                            if (materials[i].HasProperty("_Surface"))
-                            {
-                                materials[i].SetFloat("_Surface", 0);
-                                materialFixed = true;
-                            }
-                            
-                            if (materials[i].IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"))
-                            {
-                                materials[i].DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
-                                materialFixed = true;
-                            }
-                            
-                            Color matColor = materials[i].color;
-                            if (matColor.a < 0.999f)
-                            {
-                                materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
-                                materialFixed = true;
-                            }
-                            
-                            #if UNITY_EDITOR
-                            EditorUtility.SetDirty(materials[i]);
-                            #endif
+                            childCopy.name = childCopy.name.Substring(0, childCopy.name.Length - 7);
                         }
-                    }
-                    
-                    if (materialFixed)
-                    {
-                        meshRenderer.sharedMaterials = materials;
                     }
                 }
                 
-                // MeshRenderer 활성화 확인
-                meshRenderer.enabled = true;
+                // 경로 정보 저장 (루트와 children 모두)
+                ObjPathInfo.SetPath(newGo, targetPath);
                 
-                #if UNITY_EDITOR
-                EditorUtility.SetDirty(meshRenderer);
-                #endif
-            }
-            
-            // MeshFilter도 처리 (루트와 children 모두)
-            MeshFilter[] allMeshFilters = newGo.GetComponentsInChildren<MeshFilter>(true);
-            foreach (var meshFilter in allMeshFilters)
-            {
-                if (meshFilter != null && meshFilter.sharedMesh != null)
+                // 모든 children에도 경로 저장
+                Transform[] allChildren = newGo.GetComponentsInChildren<Transform>(true);
+                foreach (Transform child in allChildren)
                 {
-                    #if UNITY_EDITOR
-                    EditorUtility.SetDirty(meshFilter);
-                    #endif
-                }
-            }
-            
-            // GameObject 활성화 확인
-            newGo.SetActive(true);
-            
-            // Transform 강제 동기화
-            newGo.transform.hasChanged = true;
-            
-            #if UNITY_EDITOR
-            // Unity 에디터에서 즉시 반영 (DontSaveInEditor 플래그 체크)
-            try
-            {
-                if ((newGo.hideFlags & HideFlags.DontSaveInEditor) == 0)
-                {
-                    EditorUtility.SetDirty(newGo);
-                }
-            }
-            catch
-            {
-                // SetDirty 실패 시 무시
-            }
-            
-            // SceneView 강제 업데이트
-            SceneView.RepaintAll();
-            #endif
-            
-            // 기존 GameObject 삭제 (children 복원 후)
-            if (oldGameObject != null)
-            {
-                Undo.DestroyObjectImmediate(oldGameObject);
-            }
-            
-            // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
-            // memo.txt가 있으면 기존 메모를 제거하고 새로 생성 (memo.txt가 최신 정보)
-            try
-            {
-                var memos = MemoUtils.FindAndParseMemoFile(targetPath);
-                if (memos != null && memos.Length > 0)
-                {
-                    float unitScale = MemoUtils.GetUnitScale();
-                    // 기존 메모 children 제거 (memo.txt가 있으면 memo.txt 우선)
-                    List<GameObject> memoChildrenToRemove = new List<GameObject>();
-                    foreach (Transform child in newGo.transform)
+                    if (child != null && child != newGo.transform && child.gameObject != null)
                     {
-                        if (child != null && child.gameObject != null)
+                        ObjPathInfo.SetPath(child.gameObject, targetPath);
+                    }
+                }
+                
+                // 기존 GameObject 삭제 (children 복원 후)
+                if (oldGameObject != null)
+                {
+                    Undo.DestroyObjectImmediate(oldGameObject);
+                }
+                
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                try
+                {
+                    var memos = MemoUtils.FindAndParseMemoFile(targetPath);
+                    if (memos != null && memos.Length > 0)
+                    {
+                        float unitScale = MemoUtils.GetUnitScale();
+                        // 기존 메모 children 제거 (memo.txt가 있으면 memo.txt 우선)
+                        List<GameObject> memoChildrenToRemove = new List<GameObject>();
+                        foreach (Transform child in newGo.transform)
                         {
-                            bool isMemo = child.gameObject.GetComponent<TextMesh>() != null ||
-                                          child.gameObject.GetComponent<UnityEngine.TextMesh>() != null;
-                            if (isMemo)
+                            if (child != null && child.gameObject != null)
                             {
-                                memoChildrenToRemove.Add(child.gameObject);
+                                bool isMemo = child.gameObject.GetComponent<TextMesh>() != null ||
+                                              child.gameObject.GetComponent<UnityEngine.TextMesh>() != null;
+                                if (isMemo)
+                                {
+                                    memoChildrenToRemove.Add(child.gameObject);
+                                }
                             }
                         }
-                    }
-                    foreach (var memoChild in memoChildrenToRemove)
-                    {
-                        if (memoChild != null)
+                        foreach (var memoChild in memoChildrenToRemove)
                         {
-                            GameObject.DestroyImmediate(memoChild);
+                            if (memoChild != null)
+                            {
+                                GameObject.DestroyImmediate(memoChild);
+                            }
                         }
+                        // 새로운 memo.txt에서 메모 생성
+                        MemoUtils.SpawnMemosAsChildren(newGo, memos, unitScale);
                     }
-                    // 새로운 memo.txt에서 메모 생성
-                    MemoUtils.SpawnMemosAsChildren(newGo, memos, unitScale);
                 }
-                // memo.txt가 없으면 기존 children에서 복원한 메모를 그대로 사용
+                catch (Exception)
+                {
+                    // 메모 스폰 실패 시 무시
+                }
+                
+                // ManagedObjItem 업데이트
+                item.gameObject = newGo;
+                item.isUsingRetouched = newIsUsingRetouched;
+                // targetPath는 파일 경로이므로 폴더 경로로 변환하여 저장
+                item.objPath = GetFolderPath(targetPath);
+                item.UpdateTransform();
+                
+                Undo.RegisterCreatedObjectUndo(newGo, $"Toggle OBJ to {(newIsUsingRetouched ? "Retouched" : "Original")}");
+                Selection.activeGameObject = newGo;
+                EditorGUIUtility.PingObject(newGo);
+                Repaint();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 메모 스폰 실패 시 무시 (기존 children에서 복원한 메모 사용)
+                EditorUtility.DisplayDialog("토글 실패", $"OBJ 버전 전환 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             }
-            
-            // ManagedObjItem 업데이트
-            item.gameObject = newGo;
-            item.isUsingRetouched = newIsUsingRetouched;
-            // targetPath는 파일 경로이므로 폴더 경로로 변환하여 저장
-            item.objPath = GetFolderPath(targetPath);
-            item.UpdateTransform();
-            
-            Undo.RegisterCreatedObjectUndo(newGo, $"Toggle OBJ to {(newIsUsingRetouched ? "Retouched" : "Original")}");
-            Selection.activeGameObject = newGo;
-            EditorGUIUtility.PingObject(newGo);
-            Repaint();
-        }
-        catch (Exception ex)
-        {
-            EditorUtility.DisplayDialog("토글 실패", $"OBJ 버전 전환 중 오류가 발생했습니다:\n{ex.Message}", "OK");
         }
     }
 
@@ -2417,11 +2408,59 @@ public class ObjectTransformManagerWindow : EditorWindow
         foreach (var obj in objects)
         {
             var item = _managedObjects.FirstOrDefault(m => m.gameObject == obj);
-            // objPath가 폴더 경로일 수 있으므로 GetCurrentPath() 사용 (파일 경로 반환)
-            string objPath = item != null ? item.GetCurrentPath() : ObjPathFinder.FindObjPath(obj);
             
             // children 포함하여 export (메모 등 자식 오브젝트도 포함)
+            // objPath는 하위 호환성을 위해 유지
+            string objPath = item != null ? item.GetCurrentPath() : ObjPathFinder.FindObjPath(obj);
             var data = new ObjectTransformData(obj, objPath, true);
+            
+            // ManagedObjItem에서 originalPath와 retouchedPath 정보 가져오기
+            if (item != null)
+            {
+                // originalPath와 retouchedPath를 파일 경로로 변환
+                string originalFilePath = null;
+                string retouchedFilePath = null;
+                
+                if (!string.IsNullOrEmpty(item.originalPath))
+                {
+                    if (File.Exists(item.originalPath))
+                    {
+                        originalFilePath = item.originalPath;
+                    }
+                    else if (Directory.Exists(item.originalPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.originalPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            originalFilePath = objFile;
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(item.retouchedPath))
+                {
+                    if (File.Exists(item.retouchedPath))
+                    {
+                        retouchedFilePath = item.retouchedPath;
+                    }
+                    else if (Directory.Exists(item.retouchedPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.retouchedPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            retouchedFilePath = objFile;
+                    }
+                }
+                
+                // ObjectTransformData에 경로 정보 설정
+                if (!string.IsNullOrEmpty(originalFilePath))
+                {
+                    data.originalPath = originalFilePath;
+                }
+                if (!string.IsNullOrEmpty(retouchedFilePath))
+                {
+                    data.retouchedPath = retouchedFilePath;
+                }
+                data.isUsingRetouched = item.isUsingRetouched;
+            }
+            
             collection.objects.Add(data);
         }
         
@@ -2479,228 +2518,257 @@ public class ObjectTransformManagerWindow : EditorWindow
                         continue;
                     
                     // 경로로 OBJ 파일 로드
-                    string objPath = data.objFilePath;
-                    if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
+                    // 새로운 구조: originalPath와 retouchedPath가 있으면 ObjectTransformData.CreateGameObject()가 자동으로 처리
+                    // 기존 구조: objFilePath 사용
+                    string objPath = null;
+                    bool useNewStructure = !string.IsNullOrEmpty(data.originalPath) || !string.IsNullOrEmpty(data.retouchedPath);
+                    
+                    if (useNewStructure)
                     {
-                        // 경로를 찾지 못한 경우 시도
-                        objPath = ObjPathFinder.FindObjPathForImport(data.objectName, data.objFilePath);
+                        // 새로운 구조는 ObjectTransformData.CreateGameObject()가 처리
+                        objPath = !string.IsNullOrEmpty(data.originalPath) ? data.originalPath : data.objFilePath;
+                    }
+                    else
+                    {
+                        // 기존 구조: objFilePath 사용
+                        objPath = data.objFilePath;
+                        if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
+                        {
+                            // 경로를 찾지 못한 경우 시도
+                            objPath = ObjPathFinder.FindObjPathForImport(data.objectName, data.objFilePath);
+                        }
                     }
                     
-                    if (!string.IsNullOrEmpty(objPath) && File.Exists(objPath))
+                    if (!string.IsNullOrEmpty(objPath) && (File.Exists(objPath) || useNewStructure))
                     {
                         try
                         {
-                            // 1. 먼저 OBJ 파일 로드 (Transform은 나중에 적용)
-                            var go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
-                            if (go != null)
+                            GameObject go = null;
+                            
+                            if (useNewStructure)
                             {
-                                go.name = data.objectName;
-                                
-                                // 경로 정보 저장 (루트와 children 모두)
-                                ObjPathInfo.SetPath(go, objPath);
-                                
-                                // 모든 children에도 경로 저장
-                                Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
-                                foreach (Transform child in allChildren)
-                                {
-                                    if (child != null && child != go.transform && child.gameObject != null)
-                                    {
-                                        ObjPathInfo.SetPath(child.gameObject, objPath);
-                                    }
-                                }
-                                
-                                // MeshRenderer와 Material 확인 및 강제 설정
-                                // 루트와 children 모두 처리
-                                MeshRenderer[] allMeshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
-                                
-                                foreach (var meshRenderer in allMeshRenderers)
-                                {
-                                    if (meshRenderer == null) continue;
-                                    
-                                    // Material이 제대로 할당되었는지 확인
-                                    if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
-                                    {
-                                        // Material이 없으면 기본 Material 생성
-                                        var defaultMat = new Material(Shader.Find("Standard"));
-                                        defaultMat.color = Color.white;
-                                        meshRenderer.sharedMaterial = defaultMat;
-                                    }
-                                    else
-                                    {
-                                        // 기존 Material들의 renderQueue를 Geometry로 강제 설정 (Transparent 문제 해결)
-                                        var materials = meshRenderer.sharedMaterials;
-                                        bool materialFixed = false;
-                                        
-                                        for (int i = 0; i < materials.Length; i++)
-                                        {
-                                            if (materials[i] != null)
-                                            {
-                                                // Transparent renderQueue를 Geometry로 변경
-                                                if (materials[i].renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent)
-                                                {
-                                                    materials[i].renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
-                                                    materialFixed = true;
-                                                }
-                                                
-                                                // URP/Lit shader의 Surface Type을 Opaque로 강제 설정
-                                                if (materials[i].HasProperty("_Surface"))
-                                                {
-                                                    materials[i].SetFloat("_Surface", 0); // 0=Opaque, 1=Transparent
-                                                    materialFixed = true;
-                                                }
-                                                
-                                                // 투명 관련 키워드 비활성화
-                                                if (materials[i].IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"))
-                                                {
-                                                    materials[i].DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
-                                                    materialFixed = true;
-                                                }
-                                                
-                                                // Alpha를 1.0으로 설정
-                                                Color matColor = materials[i].color;
-                                                if (matColor.a < 0.999f)
-                                                {
-                                                    materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
-                                                    materialFixed = true;
-                                                }
-                                                
-                                                #if UNITY_EDITOR
-                                                EditorUtility.SetDirty(materials[i]);
-                                                #endif
-                                            }
-                                        }
-                                        
-                                        if (materialFixed)
-                                        {
-                                            // Material 배열을 다시 할당하여 변경사항 적용
-                                            meshRenderer.sharedMaterials = materials;
-                                        }
-                                    }
-                                    
-                                    // MeshRenderer 활성화 확인
-                                    meshRenderer.enabled = true;
-                                    
-                                    #if UNITY_EDITOR
-                                    EditorUtility.SetDirty(meshRenderer);
-                                    #endif
-                                }
-                                
-                                // MeshFilter도 처리 (루트와 children 모두)
-                                MeshFilter[] allMeshFilters = go.GetComponentsInChildren<MeshFilter>(true);
-                                foreach (var meshFilter in allMeshFilters)
-                                {
-                                    if (meshFilter != null && meshFilter.sharedMesh != null)
-                                    {
-                                        #if UNITY_EDITOR
-                                        EditorUtility.SetDirty(meshFilter);
-                                        #endif
-                                    }
-                                }
-                                
-                                // GameObject 활성화 확인
-                                go.SetActive(true);
-                                
-                                // Transform 강제 동기화
-                                go.transform.hasChanged = true;
-                                
-                                #if UNITY_EDITOR
-                                // Unity 에디터에서 즉시 반영
-                                EditorUtility.SetDirty(go);
-                                
-                                // Transform 컴포넌트도 강제 업데이트
-                                UnityEditorInternal.InternalEditorUtility.SetIsInspectorExpanded(go.transform, true);
-                                
-                                // SceneView 강제 업데이트
-                                SceneView.RepaintAll();
-                                
-                                // Selection 업데이트하여 Transform Gizmo가 제대로 표시되도록
-                                if (successCount == 0)
-                                {
-                                    Selection.activeGameObject = go;
-                                    // Selection이 변경되었음을 Unity에 알림
-                                    EditorGUIUtility.PingObject(go);
-                                }
-                                #endif
-                                
-                                // 2. JSON의 Transform 정보를 OBJ에 적용
-                                go.transform.position = data.GetPosition();
-                                go.transform.eulerAngles = data.GetRotation();
-                                go.transform.localScale = data.GetScale();
-                                
-                                // 3. memo.txt에서 메모 읽기 및 스폰 (anchor 기반)
-                                try
-                                {
-                                    var memos = MemoUtils.FindAndParseMemoFile(objPath);
-                                    if (memos != null && memos.Length > 0)
-                                    {
-                                        float unitScale = MemoUtils.GetUnitScale();
-                                        // memo.txt의 anchor와 텍스트만 사용하여 스폰
-                                        MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
-                                    }
-                                }
-                                catch (Exception)
-                                {
-                                    // 메모 스폰 실패 시 무시
-                                }
-                                
-                                // 4. 메모가 아닌 children만 JSON에서 복원 (메모는 memo.txt 사용)
-                                if (data.children != null && data.children.Count > 0)
-                                {
-                                    int nonMemoChildrenCount = 0;
-                                    foreach (var childData in data.children)
-                                    {
-                                        // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
-                                        bool isMemoChild = false;
-                                        if (childData.components != null)
-                                        {
-                                            foreach (var compData in childData.components)
-                                            {
-                                                if (compData.componentType != null && 
-                                                    (compData.componentType.Contains("TextMesh") || 
-                                                     compData.componentType.Contains("UnityEngine.TextMesh")))
-                                                {
-                                                    isMemoChild = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        
-                                        // 메모가 아닌 children만 복원
-                                        if (!isMemoChild)
-                                        {
-                                            try
-                                            {
-                                                GameObject child = childData.CreateGameObject();
-                                                if (child != null)
-                                                {
-                                                    childData.ApplyToGameObject(child);
-                                                    child.transform.SetParent(go.transform, false);
-                                                    nonMemoChildrenCount++;
-                                                }
-                                            }
-                                            catch (Exception)
-                                            {
-                                                // 자식 복원 실패 시 무시
-                                            }
-                                        }
-                                    }
-                                    
-                                    if (nonMemoChildrenCount > 0)
-                                    {
-                                        // 자식 복원 완료
-                                    }
-                                }
-                                
-                                // 관리 목록에 추가
-                                _managedObjects.Add(new ManagedObjItem(go, objPath));
-                                Undo.RegisterCreatedObjectUndo(go, "Import OBJ");
-                                
-                                successCount++;
+                                // 새로운 구조: ObjectTransformData.CreateGameObject() 사용 (Original/Retouched 자동 처리)
+                                go = data.CreateGameObject();
                             }
                             else
                             {
-                                failCount++;
+                                // 기존 구조: 단일 파일 로드
+                                go = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
                             }
+                            
+                            if (go == null)
+                            {
+                                failCount++;
+                                continue;
+                            }
+                            
+                            go.name = data.objectName;
+                            
+                            // 경로 정보 저장 (루트와 children 모두)
+                            ObjPathInfo.SetPath(go, objPath);
+                            
+                            // 모든 children에도 경로 저장
+                            Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
+                            foreach (Transform child in allChildren)
+                            {
+                                if (child != null && child != go.transform && child.gameObject != null)
+                                {
+                                    ObjPathInfo.SetPath(child.gameObject, objPath);
+                                }
+                            }
+                            
+                            // MeshRenderer와 Material 확인 및 강제 설정
+                            // 루트와 children 모두 처리
+                            MeshRenderer[] allMeshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
+                            
+                            foreach (var meshRenderer in allMeshRenderers)
+                            {
+                                if (meshRenderer == null) continue;
+                                
+                                // Material이 제대로 할당되었는지 확인
+                                if (meshRenderer.sharedMaterials == null || meshRenderer.sharedMaterials.Length == 0)
+                                {
+                                    // Material이 없으면 기본 Material 생성
+                                    var defaultMat = new Material(Shader.Find("Standard"));
+                                    defaultMat.color = Color.white;
+                                    meshRenderer.sharedMaterial = defaultMat;
+                                }
+                                else
+                                {
+                                    // 기존 Material들의 renderQueue를 Geometry로 강제 설정 (Transparent 문제 해결)
+                                    var materials = meshRenderer.sharedMaterials;
+                                    bool materialFixed = false;
+                                    
+                                    for (int i = 0; i < materials.Length; i++)
+                                    {
+                                        if (materials[i] != null)
+                                        {
+                                            // Transparent renderQueue를 Geometry로 변경
+                                            if (materials[i].renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent)
+                                            {
+                                                materials[i].renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+                                                materialFixed = true;
+                                            }
+                                            
+                                            // URP/Lit shader의 Surface Type을 Opaque로 강제 설정
+                                            if (materials[i].HasProperty("_Surface"))
+                                            {
+                                                materials[i].SetFloat("_Surface", 0); // 0=Opaque, 1=Transparent
+                                                materialFixed = true;
+                                            }
+                                            
+                                            // 투명 관련 키워드 비활성화
+                                            if (materials[i].IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"))
+                                            {
+                                                materials[i].DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                                                materialFixed = true;
+                                            }
+                                            
+                                            // Alpha를 1.0으로 설정
+                                            Color matColor = materials[i].color;
+                                            if (matColor.a < 0.999f)
+                                            {
+                                                materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
+                                                materialFixed = true;
+                                            }
+                                            
+                                            #if UNITY_EDITOR
+                                            EditorUtility.SetDirty(materials[i]);
+                                            #endif
+                                        }
+                                    }
+                                    
+                                    if (materialFixed)
+                                    {
+                                        // Material 배열을 다시 할당하여 변경사항 적용
+                                        meshRenderer.sharedMaterials = materials;
+                                    }
+                                }
+                                
+                                // MeshRenderer 활성화 확인
+                                meshRenderer.enabled = true;
+                                
+                                #if UNITY_EDITOR
+                                EditorUtility.SetDirty(meshRenderer);
+                                #endif
+                            }
+                            
+                            // MeshFilter도 처리 (루트와 children 모두)
+                            MeshFilter[] allMeshFilters = go.GetComponentsInChildren<MeshFilter>(true);
+                            foreach (var meshFilter in allMeshFilters)
+                            {
+                                if (meshFilter != null && meshFilter.sharedMesh != null)
+                                {
+                                    #if UNITY_EDITOR
+                                    EditorUtility.SetDirty(meshFilter);
+                                    #endif
+                                }
+                            }
+                            
+                            // GameObject 활성화 확인
+                            go.SetActive(true);
+                            
+                            // Transform 강제 동기화
+                            go.transform.hasChanged = true;
+                            
+                            #if UNITY_EDITOR
+                            // Unity 에디터에서 즉시 반영
+                            EditorUtility.SetDirty(go);
+                            
+                            // Transform 컴포넌트도 강제 업데이트
+                            UnityEditorInternal.InternalEditorUtility.SetIsInspectorExpanded(go.transform, true);
+                            
+                            // SceneView 강제 업데이트
+                            SceneView.RepaintAll();
+                            
+                            // Selection 업데이트하여 Transform Gizmo가 제대로 표시되도록
+                            if (successCount == 0)
+                            {
+                                Selection.activeGameObject = go;
+                                // Selection이 변경되었음을 Unity에 알림
+                                EditorGUIUtility.PingObject(go);
+                            }
+                            #endif
+                            
+                            // 2. JSON의 Transform 정보를 OBJ에 적용
+                            go.transform.position = data.GetPosition();
+                            go.transform.eulerAngles = data.GetRotation();
+                            go.transform.localScale = data.GetScale();
+                            
+                            // 3. memo.txt에서 메모 읽기 및 스폰 (anchor 기반)
+                            // 새로운 구조에서는 Original 경로에서 메모 찾기
+                            try
+                            {
+                                string memoPath = useNewStructure && !string.IsNullOrEmpty(data.originalPath)
+                                    ? data.originalPath
+                                    : objPath;
+                                
+                                var memos = MemoUtils.FindAndParseMemoFile(memoPath);
+                                if (memos != null && memos.Length > 0)
+                                {
+                                    float unitScale = MemoUtils.GetUnitScale();
+                                    // memo.txt의 anchor와 텍스트만 사용하여 스폰
+                                    MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                                }
+                            }
+                            catch (Exception)
+                            {
+                                // 메모 스폰 실패 시 무시
+                            }
+                            
+                            // 4. 메모가 아닌 children만 JSON에서 복원 (메모는 memo.txt 사용)
+                            if (data.children != null && data.children.Count > 0)
+                            {
+                                int nonMemoChildrenCount = 0;
+                                foreach (var childData in data.children)
+                                {
+                                    // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
+                                    bool isMemoChild = false;
+                                    if (childData.components != null)
+                                    {
+                                        foreach (var compData in childData.components)
+                                        {
+                                            if (compData.componentType != null && 
+                                                (compData.componentType.Contains("TextMesh") || 
+                                                 compData.componentType.Contains("UnityEngine.TextMesh")))
+                                            {
+                                                isMemoChild = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 메모가 아닌 children만 복원
+                                    if (!isMemoChild)
+                                    {
+                                        try
+                                        {
+                                            GameObject child = childData.CreateGameObject();
+                                            if (child != null)
+                                            {
+                                                childData.ApplyToGameObject(child);
+                                                child.transform.SetParent(go.transform, false);
+                                                nonMemoChildrenCount++;
+                                            }
+                                        }
+                                        catch (Exception)
+                                        {
+                                            // 자식 복원 실패 시 무시
+                                        }
+                                    }
+                                }
+                                
+                                if (nonMemoChildrenCount > 0)
+                                {
+                                    // 자식 복원 완료
+                                }
+                            }
+                            
+                            // 관리 목록에 추가
+                            _managedObjects.Add(new ManagedObjItem(go, objPath));
+                            Undo.RegisterCreatedObjectUndo(go, "Import OBJ");
+                            
+                            successCount++;
                         }
                         catch (Exception)
                         {

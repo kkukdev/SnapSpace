@@ -23,7 +23,7 @@ namespace ObjDropWatcher.ExportImport
                 int exportedCount = 0;
                 
                 // 헤더 (하위 호환성을 위해 기존 필드 유지, 새로운 필드 추가)
-                sb.AppendLine("ObjectName,PositionX,PositionY,PositionZ,RotationX,RotationY,RotationZ,ScaleX,ScaleY,ScaleZ,ObjFilePath,ObjectType,PrimitiveType");
+                sb.AppendLine("ObjectName,PositionX,PositionY,PositionZ,RotationX,RotationY,RotationZ,ScaleX,ScaleY,ScaleZ,ObjFilePath,OriginalPath,RetouchedPath,IsUsingRetouched,ObjectType,PrimitiveType");
                 
                 foreach (var obj in objects)
                 {
@@ -50,6 +50,9 @@ namespace ObjDropWatcher.ExportImport
                     // CSV 이스케이프 처리
                     string name = EscapeCsvField(data.objectName);
                     string path = EscapeCsvField(data.objFilePath ?? "");
+                    string originalPath = EscapeCsvField(data.originalPath ?? "");
+                    string retouchedPath = EscapeCsvField(data.retouchedPath ?? "");
+                    string isUsingRetouched = data.isUsingRetouched ? "1" : "0";
                     string objType = ((int)data.objectType).ToString();
                     string primitive = EscapeCsvField(data.primitiveType ?? "");
                     
@@ -64,6 +67,9 @@ namespace ObjDropWatcher.ExportImport
                         $"{data.scaleY.ToString(CultureInfo.InvariantCulture)}," +
                         $"{data.scaleZ.ToString(CultureInfo.InvariantCulture)}," +
                         $"{path}," +
+                        $"{originalPath}," +
+                        $"{retouchedPath}," +
+                        $"{isUsingRetouched}," +
                         $"{objType}," +
                         $"{primitive}");
                     
@@ -138,8 +144,11 @@ namespace ObjDropWatcher.ExportImport
                             scaleZ = float.Parse(fields[9], CultureInfo.InvariantCulture),
                             objFilePath = fields.Length > 10 ? UnescapeCsvField(fields[10]) : null,
                             // 새로운 필드 (하위 호환성을 위해 기본값 사용)
-                            objectType = fields.Length > 11 && int.TryParse(fields[11], out int type) ? (ObjectType)type : ObjectType.Unknown,
-                            primitiveType = fields.Length > 12 ? UnescapeCsvField(fields[12]) : null
+                            originalPath = fields.Length > 11 ? UnescapeCsvField(fields[11]) : null,
+                            retouchedPath = fields.Length > 12 ? UnescapeCsvField(fields[12]) : null,
+                            isUsingRetouched = fields.Length > 13 && int.TryParse(fields[13], out int usingRetouched) && usingRetouched == 1,
+                            objectType = fields.Length > 14 && int.TryParse(fields[14], out int type) ? (ObjectType)type : ObjectType.Unknown,
+                            primitiveType = fields.Length > 15 ? UnescapeCsvField(fields[15]) : null
                         };
                         collection.objects.Add(data);
                     }

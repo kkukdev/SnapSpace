@@ -406,17 +406,33 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 EditorGUILayout.LabelField(it.label, EditorStyles.boldLabel);
                 EditorGUILayout.LabelField("Folder", it.folder);
                 
-                // Original 파일 정보 및 버튼
-                if (!string.IsNullOrEmpty(it.originalPath))
+                // Original과 Retouched 파일 정보 및 Import 버튼
+                bool hasOriginal = !string.IsNullOrEmpty(it.originalPath) && File.Exists(it.originalPath);
+                bool hasRetouched = !string.IsNullOrEmpty(it.retouchedPath) && File.Exists(it.retouchedPath);
+                
+                if (hasOriginal || hasRetouched)
                 {
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField("Original:", Path.GetFileName(it.originalPath), GUILayout.Width(200));
-                    if (GUILayout.Button("Import Original", GUILayout.Height(22), GUILayout.Width(120)))
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    
+                    // Original 파일 정보 표시
+                    if (hasOriginal)
                     {
-                        if (File.Exists(it.originalPath))
+                        EditorGUILayout.LabelField("Original:", Path.GetFileName(it.originalPath), EditorStyles.miniLabel);
+                    }
+                    
+                    // Retouched 파일 정보 표시
+                    if (hasRetouched)
+                    {
+                        EditorGUILayout.LabelField("Retouched:", Path.GetFileName(it.retouchedPath), EditorStyles.miniLabel);
+                    }
+                    
+                    // Import 버튼 (Original과 Retouched를 모두 로드)
+                    if (GUILayout.Button("Import", GUILayout.Height(24)))
+                    {
+                        if (hasOriginal)
                         {
-                            GameObject spawnedObj = Spawn(it.originalPath, it.memos);
-                            // ObjectTransformManagerWindow에 경로 정보 전달 (현재 로드된 경로: original)
+                            GameObject spawnedObj = SpawnWithBothVersions(it.originalPath, it.retouchedPath, it.memos);
+                            // ObjectTransformManagerWindow에 경로 정보 전달
                             if (spawnedObj != null)
                             {
                                 ObjectTransformManagerWindow.SetObjPaths(spawnedObj, it.originalPath, it.retouchedPath, it.originalPath);
@@ -424,34 +440,11 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                         }
                         else
                         {
-                            EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{it.originalPath}", "OK");
+                            EditorUtility.DisplayDialog("파일 없음", $"Original 파일을 찾을 수 없습니다:\n{it.originalPath}", "OK");
                         }
                     }
-                    EditorGUILayout.EndHorizontal();
-                }
-                
-                // Retouched 파일 정보 및 버튼
-                if (!string.IsNullOrEmpty(it.retouchedPath))
-                {
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField("Retouched:", Path.GetFileName(it.retouchedPath), GUILayout.Width(200));
-                    if (GUILayout.Button("Import Retouched", GUILayout.Height(22), GUILayout.Width(120)))
-                    {
-                        if (File.Exists(it.retouchedPath))
-                        {
-                            GameObject spawnedObj = Spawn(it.retouchedPath, it.memos);
-                            // ObjectTransformManagerWindow에 경로 정보 전달 (현재 로드된 경로: retouched)
-                            if (spawnedObj != null)
-                            {
-                                ObjectTransformManagerWindow.SetObjPaths(spawnedObj, it.originalPath, it.retouchedPath, it.retouchedPath);
-                            }
-                        }
-                        else
-                        {
-                            EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{it.retouchedPath}", "OK");
-                        }
-                    }
-                    EditorGUILayout.EndHorizontal();
+                    
+                    EditorGUILayout.EndVertical();
                 }
                 
                 // Memos 정보 표시
@@ -1155,197 +1148,188 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         return apiPath;
     }
 
+    /// <summary>
+    /// 메시 파일을 로드합니다. (단일 파일 버전 - 호환성 유지)
+    /// </summary>
     GameObject Spawn(string meshPath, MemoUtils.MemoData[] memos = null)
+    {
+        return SpawnWithBothVersions(meshPath, null, memos);
+    }
+    
+    /// <summary>
+    /// Original과 Retouched 버전을 모두 로드하여 하나의 root GameObject에 children으로 추가합니다.
+    /// Original은 보이는 상태, Retouched는 안보이는 상태로 설정됩니다.
+    /// </summary>
+    GameObject SpawnWithBothVersions(string originalPath, string retouchedPath = null, MemoUtils.MemoData[] memos = null)
     {
         try
         {
-            
-            if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
+            // Original 파일이 없으면 오류
+            if (string.IsNullOrEmpty(originalPath) || !File.Exists(originalPath))
             {
-                EditorUtility.DisplayDialog("파일 없음", $"파일을 찾을 수 없습니다:\n{meshPath}", "OK");
+                EditorUtility.DisplayDialog("파일 없음", $"Original 파일을 찾을 수 없습니다:\n{originalPath}", "OK");
                 return null;
             }
             
-            GameObject go = null;
-            string extension = Path.GetExtension(meshPath).ToLowerInvariant();
+            // Root GameObject 생성
+            string rootName = Path.GetFileNameWithoutExtension(originalPath);
+            GameObject rootGo = new GameObject($"{rootName}_Root");
+            Undo.RegisterCreatedObjectUndo(rootGo, "Spawn OBJ Root");
             
-            // 파일 확장자에 따라 적절한 로더 선택
-            switch (extension)
-            {
-                case ".obj":
-                    // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
-                    // 이렇게 하면 RuntimeObjLoader가 메시를 이동시키지 않고 원본 좌표를 그대로 유지합니다.
-                    // OBJ 파일에서 촬영 시작 지점(0,0,0)이 Unity의 원점과 일치합니다.
-                    go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
-                    if (go != null)
-                    {
-                        Undo.RegisterCreatedObjectUndo(go, "Spawn OBJ");
-                    }
-                    break;
-                    
-                case ".glb":
-                case ".gltf":
-                    // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
-                    go = LoadGlbOrGltf(meshPath);
-                    if (go != null)
-                    {
-                        Undo.RegisterCreatedObjectUndo(go, "Spawn GLB/GLTF");
-                    }
-                    break;
-                    
-                case ".fbx":
-                    // FBX 파일은 Unity의 기본 임포트 기능 사용
-                    go = LoadFbx(meshPath);
-                    if (go != null)
-                    {
-                        Undo.RegisterCreatedObjectUndo(go, "Spawn FBX");
-                    }
-                    break;
-                    
-                default:
-                    EditorUtility.DisplayDialog("지원하지 않는 형식", 
-                        $"지원하지 않는 파일 형식입니다: {extension}\n\n지원 형식: .obj, .glb, .gltf, .fbx", "OK");
-                    return null;
-            }
+            // Root를 Unity 원점에 배치
+            rootGo.transform.position = Vector3.zero;
+            rootGo.transform.rotation = Quaternion.identity;
+            rootGo.transform.localScale = Vector3.one;
             
-            if (go == null)
-            {
-                EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
-                return null;
-            }
-            
-            Selection.activeObject = go;
-
-            // 원본 좌표 시스템을 유지하므로, Unity 원점(0,0,0)에 배치
-            go.transform.position = Vector3.zero;
-            go.transform.rotation = Quaternion.identity;
-
-            // 단위 보정: config의 unitScale 사용 (기본값 1000f = mm → m 변환)
-            // 주의: 메시 파일의 좌표가 mm 단위라면, Unity의 m 단위로 변환하기 위해 스케일 적용
-            // 예: 좌표 (1000mm, 2000mm, 3000mm) → Unity 스케일 1000 적용 → (1m, 2m, 3m)
             float unitScale = config != null ? config.unitScale : 1000f;
             
-            // 메시의 모든 버텍스에서 Y 좌표 최솟값 찾기 (스케일 적용 전 로컬 좌표 기준)
-            // 스케일을 미리 알 수 있으므로 스케일 적용 후 값을 계산
-            float minY = FindMinimumY(go, unitScale);
+            // Original OBJ 로드 및 설정
+            GameObject originalGo = LoadMeshFile(originalPath);
+            if (originalGo == null)
+            {
+                GameObject.DestroyImmediate(rootGo);
+                return null;
+            }
             
-            // 스케일 적용
-            go.transform.localScale = Vector3.one * unitScale;
+            originalGo.name = "Original";
+            originalGo.transform.SetParent(rootGo.transform, false);
+            originalGo.transform.localPosition = Vector3.zero;
+            originalGo.transform.localRotation = Quaternion.identity;
             
-            // Y 좌표 최솟값이 0보다 작으면 그만큼 위로 올리기
+            // Original OBJ에 unitScale 적용 및 Y 오프셋 처리
+            float minY = FindMinimumY(originalGo, unitScale);
+            originalGo.transform.localScale = Vector3.one * unitScale;
+            
             if (minY < 0f)
             {
                 float offsetY = -minY;
-                go.transform.position = new Vector3(0f, offsetY, 0f);
+                rootGo.transform.position = new Vector3(0f, offsetY, 0f);
             }
-            else
+            
+            // Original OBJ를 보이는 상태로 설정
+            originalGo.SetActive(true);
+            
+            // Retouched OBJ 로드 및 설정 (있는 경우)
+            GameObject retouchedGo = null;
+            if (!string.IsNullOrEmpty(retouchedPath) && File.Exists(retouchedPath))
             {
+                retouchedGo = LoadMeshFile(retouchedPath);
+                if (retouchedGo != null)
+                {
+                    retouchedGo.name = "Retouched";
+                    retouchedGo.transform.SetParent(rootGo.transform, false);
+                    retouchedGo.transform.localPosition = Vector3.zero;
+                    retouchedGo.transform.localRotation = Quaternion.identity;
+                    retouchedGo.transform.localScale = Vector3.one * unitScale;
+                    
+                    // Retouched OBJ를 안보이는 상태로 설정
+                    retouchedGo.SetActive(false);
+                }
             }
-
             
-            // GameObject에 경로 정보 저장 (나중에 ObjectTransformManagerWindow에서 찾을 수 있도록)
-            // 주의: 모든 자식 오브젝트에도 경로를 저장해야 할 수 있음
-            
-            // GameObject가 여전히 유효한지 확인
-            if (go == null)
+            // Memos를 root GameObject의 자식으로 추가
+            // 메모의 anchor 좌표는 "스케일이 1일 때의 좌표" (unitScale = 1일 때의 Unity 월드 좌표계 기준)를 의미합니다.
+            // unitScale이 변경되면 OBJ 메시의 스케일이 변경되므로, 메모도 그에 맞춰 조정되어야 합니다.
+            // root의 localScale = 1이므로, 메모의 로컬 좌표는 anchor 좌표를 unitScale로 나눈 값입니다.
+            if (memos != null && memos.Length > 0)
             {
-                return null;
+                MemoUtils.SpawnMemosAsChildren(rootGo, memos, unitScale); // unitScale을 전달하여 스케일 보정
             }
             
+            // 경로 정보 저장
             try
             {
+                ObjPathInfo.SetPath(rootGo, originalPath);
                 
-                // 루트 GameObject에 경로 저장
-                try
+                // 모든 children에도 경로 저장
+                Transform[] allChildren = rootGo.GetComponentsInChildren<Transform>(true);
+                foreach (Transform child in allChildren)
                 {
-                    ObjPathInfo.SetPath(go, meshPath);
+                    if (child != null && child != rootGo.transform && child.gameObject != null)
+                    {
+                        ObjPathInfo.SetPath(child.gameObject, originalPath);
+                    }
                 }
-                catch (System.Exception)
-                {
-                }
-            
-                // Unity 에디터에서 변경사항 저장 (DontSaveInEditor 플래그가 없을 때만)
+                
                 #if UNITY_EDITOR
-                if (go != null)
+                if ((rootGo.hideFlags & HideFlags.DontSaveInEditor) == 0)
                 {
-                    try
-                    {
-                        // GameObject가 저장 가능한지 확인
-                        if ((go.hideFlags & HideFlags.DontSaveInEditor) == 0)
-                        {
-                            EditorUtility.SetDirty(go);
-                        }
-                    }
-                    catch (System.Exception)
-                    {
-                        // Assertion 오류는 무시 (경로는 이미 저장됨)
-                    }
+                    EditorUtility.SetDirty(rootGo);
                 }
                 #endif
-                
-                // 모든 자식 오브젝트에도 경로 저장 (GLB/GLTF/FBX의 경우 자식 오브젝트가 있을 수 있음)
-                if (go != null)
-                {
-                    Transform[] allChildren = go.GetComponentsInChildren<Transform>(true);
-                    foreach (Transform child in allChildren)
-                    {
-                        if (child != null && child != go.transform && child.gameObject != null)
-                        {
-                            ObjPathInfo.SetPath(child.gameObject, meshPath);
-                            #if UNITY_EDITOR
-                            try
-                            {
-                                // GameObject가 저장 가능한지 확인
-                                if (child.gameObject != null && (child.gameObject.hideFlags & HideFlags.DontSaveInEditor) == 0)
-                                {
-                                    EditorUtility.SetDirty(child.gameObject);
-                                }
-                            }
-                            catch (System.Exception)
-                            {
-                                // Assertion 오류는 무시 (경로는 이미 저장됨)
-                            }
-                            #endif
-                        }
-                    }
-                }
-                
-                // 경로 저장 확인 (루트만 확인)
-                if (go != null)
-                {
-                    string savedPath = ObjPathInfo.GetPath(go);
-                    
-                    // Component 확인
-                    var pathInfo = go.GetComponent<ObjPathInfo>();
-                    if (pathInfo != null)
-                    {
-                    }
-                    else
-                    {
-                    }
-                    
-                }
-                else
-                {
-                }
             }
             catch (System.Exception)
             {
+                // 경로 저장 실패 시 무시
             }
             
-            // memos가 있으면 GameObject의 자식으로 텍스트 표시
-            if (memos != null && memos.Length > 0)
-            {
-                MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
-            }
-            
-            return go;
+            Selection.activeObject = rootGo;
+            return rootGo;
         }
         catch (Exception ex)
         {
             EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             return null;
         }
+    }
+    
+    /// <summary>
+    /// 단일 메시 파일을 로드합니다. (내부 헬퍼 메서드)
+    /// </summary>
+    GameObject LoadMeshFile(string meshPath)
+    {
+        if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
+        {
+            return null;
+        }
+        
+        GameObject go = null;
+        string extension = Path.GetExtension(meshPath).ToLowerInvariant();
+        
+        // 파일 확장자에 따라 적절한 로더 선택
+        switch (extension)
+        {
+            case ".obj":
+                // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+                go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
+                if (go != null)
+                {
+                    Undo.RegisterCreatedObjectUndo(go, "Load OBJ");
+                }
+                break;
+                
+            case ".glb":
+            case ".gltf":
+                // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
+                go = LoadGlbOrGltf(meshPath);
+                if (go != null)
+                {
+                    Undo.RegisterCreatedObjectUndo(go, "Load GLB/GLTF");
+                }
+                break;
+                
+            case ".fbx":
+                // FBX 파일은 Unity의 기본 임포트 기능 사용
+                go = LoadFbx(meshPath);
+                if (go != null)
+                {
+                    Undo.RegisterCreatedObjectUndo(go, "Load FBX");
+                }
+                break;
+                
+            default:
+                EditorUtility.DisplayDialog("지원하지 않는 형식", 
+                    $"지원하지 않는 파일 형식입니다: {extension}\n\n지원 형식: .obj, .glb, .gltf, .fbx", "OK");
+                return null;
+        }
+        
+        if (go == null)
+        {
+            EditorUtility.DisplayDialog("로드 실패", $"파일을 로드할 수 없습니다:\n{meshPath}", "OK");
+            return null;
+        }
+        
+        return go;
     }
     
     /// <summary>
