@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--  정보 메시지  -->
+    <string name="jump">앱에서 모션 추적 데이터가 잘못되었습니다. 기기의 위치를 다시 잡고 녹화 아이콘을 눌러 스캔을 계속 진행해주세요.</string>
+
     <!--  서비스 로직  -->
     <string name="button_confirm">확인</string>
     <string name="button_cancel">취소</string>
     <string name="action_cancel">작업 취소</string>
+    <string name="scan_discard">지금까지 스캔한 결과물이 사라집니다.</string>
     <string name="continue_question">계속하시겠습니까?</string>
     <string name="scan_finish">저장하면 스캔이 완료됩니다.</string>
     <string name="data_saved">저장 완료:</string>
+    <string name="button_pause">일시정지</string>
+    <string name="button_record">녹화</string>
 
     <!--  서버 업로드  -->
     <string name="fastapi_dialog_title">Fastapi로 업로드</string>
@@ -20,7 +26,7 @@
         <item>서버 업로드</item>
     </string-array>
 
-    <string name="share_via">Share method</string>
+    <string name="share_via">공유</string>
 
     <!--  원본  -->
     <!-- File Manager !-->
@@ -33,7 +39,6 @@
     <string name="capture">Scan</string>
     <string name="settings">Settings</string>
     <string name="scene_res">Choose capturing resolution</string>
-    <string name="jump">The app detected invalid motion tracking data. Please check that device shows correct position and then click on record icon to continue scanning.</string>
     <string name="move">Move the device around to start scanning.</string>
     <string name="info">By using this app, you agree with our #BEGIN#privacy policy#END#.\n\nAll data is saved in the \"Models\" folder within your mobile device\'s internal storage.</string>
     <string name="postprocess">Postprocess</string>
@@ -176,7 +181,6 @@
     <string name="event_process">Processing model</string>
     <string name="event_simplify">Simplifying geometry</string>
     <string name="event_unwrap">Unwrapping textures</string>
-    <string name="scan_discard">This action will discard the scan progress.</string>
     <string name="scan_rewind">Rewind the scan process to a state from which you want to continue.</string>
 
     <!-- Scan dialog !-->

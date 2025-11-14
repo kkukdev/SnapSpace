@@ -77,6 +77,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private String mMemoContent = "";
 //  private ImageButton mViewButton;
   private ImageButton mToggleButton;
+  private TextView mToggleText;
 //  private ImageButton mUndoButton;
   private Button mEditorButton;
   private Button mThumbnailButton;
@@ -294,6 +295,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 //    mViewButton.setOnClickListener(this);
     mToggleButton = findViewById(R.id.toggle_button);
     mToggleButton.setOnClickListener(this);
+    mToggleText = findViewById(R.id.toggle_text);
 //    mUndoButton = findViewById(R.id.undo_button);
 //    mUndoButton.setOnClickListener(this);
 //    findViewById(R.id.undo_apply).setOnClickListener(this);
@@ -506,7 +508,8 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     }
 
     if (!mPhotoMode) {
-      mToggleButton.setImageResource(m3drRunning ? R.drawable.ic_pause : R.drawable.ic_record);
+      mToggleButton.setImageResource(m3drRunning ? R.drawable.icon_pause_circle : R.drawable.icon_record);
+      mToggleText.setText(m3drRunning ? R.string.button_pause : R.string.button_record);
     }
   }
 
@@ -645,7 +648,8 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       m3drRunning = false;
       JNI.onToggleButtonClicked(m3drRunning);
       runOnUiThread(() -> {
-        mToggleButton.setImageResource(m3drRunning ? R.drawable.ic_pause : R.drawable.ic_record);
+        mToggleButton.setImageResource(m3drRunning ? R.drawable.icon_pause_circle : R.drawable.icon_record);
+        mToggleText.setText(m3drRunning ? R.string.button_pause : R.string.button_record);
       });
     }
   }
@@ -668,7 +672,8 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     else if (mARBinded && !isFaceModeOn(this)) {
       m3drRunning = false;
       JNI.onToggleButtonClicked(m3drRunning);
-      mToggleButton.setImageResource(m3drRunning ? R.drawable.ic_pause : R.drawable.ic_record);
+      mToggleButton.setImageResource(m3drRunning ? R.drawable.icon_pause_circle : R.drawable.icon_record);
+      mToggleText.setText(m3drRunning ? R.string.button_pause : R.string.button_record);
       JNI.onPause();
     } else {
       System.exit(0);
@@ -882,7 +887,10 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     if (JNI.didARjump()) {
       m3drRunning = false;
       JNI.onToggleButtonClicked(false);
-      runOnUiThread(() -> mToggleButton.setImageResource(m3drRunning ? R.drawable.ic_pause : R.drawable.ic_record));
+      runOnUiThread(() -> {
+        mToggleButton.setImageResource(m3drRunning ? R.drawable.icon_pause_circle : R.drawable.icon_record);
+        mToggleText.setText(m3drRunning ? R.string.button_pause : R.string.button_record);
+      });
     }
 
     if (mRecording) {
