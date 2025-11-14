@@ -1,7 +1,7 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="wrap_content"
-                android:layout_height="wrap_content">
+    android:layout_height="wrap_content">
 
     <com.lvonasek.gles.GLESSurfaceView
         android:id="@+id/gl_surface_view"
@@ -333,7 +333,9 @@
         android:layout_alignParentStart="true"
         android:visibility="gone"
         android:text=""
-        android:textSize="20dp"/>
+        android:textSize="20dp"
+        android:textColor="#FFFFFF"
+        android:gravity="center" />
 
     <ProgressBar
         style="?android:attr/progressBarStyleLarge"
