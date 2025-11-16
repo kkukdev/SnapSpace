@@ -99,6 +99,23 @@ public class Exporter
       IO.copy(memoFile, newMemo);
     }
 
+    // 음성 파일 복사
+    if (file.getParent() != null) {
+      File[] voiceFiles = new File(file.getParent()).listFiles((dir, name) ->
+              name.startsWith("voice_") && name.endsWith(".3gp"));
+
+      if (voiceFiles != null) {
+        for (File voiceFile : voiceFiles) {
+          File newVoice = new File(AbstractActivity.getPath(false), voiceFile.getName());
+          if (newVoice.exists()) {
+            newVoice.delete();
+          }
+          IO.copy(voiceFile, newVoice);
+          Log.d(AbstractActivity.TAG, "Voice file " + voiceFile.getName() + " copied");
+        }
+      }
+    }
+
     return file2save;
   }
 
@@ -213,6 +230,16 @@ public class Exporter
       File memoFile = new File(modelParentPath, "memo.txt");
       if (memoFile.exists())
         res.add(memoFile.getName());
+
+      // 음성 파일 확인 추가
+      File[] voiceFiles = new File(modelParentPath).listFiles((dir, name) ->
+              name.startsWith("voice_") && name.endsWith(".3gp"));
+      if (voiceFiles != null) {
+        for (File voiceFile : voiceFiles) {
+          res.add(voiceFile.getName());
+          Log.d(AbstractActivity.TAG, "Voice file added to structure: " + voiceFile.getName());
+        }
+      }
       
       // obj 파일 확인 추가
       if (Exporter.FILE_EXT[getModelType(s)].compareTo(Exporter.EXT_OBJ) == 0) {

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
 import android.os.Build;
@@ -30,6 +31,7 @@ import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.EditText;
+import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
@@ -109,6 +111,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   boolean mPhotoMode = false;
   boolean mRecording = false;
   float mCameraRecordYaw = 0;
+
+  // 음성 메모 관련 필드
+  private VoiceRecorder mVoiceRecorder;
+  private boolean mIsVoiceRecording = false;
+  private Button mVoiceRecordButton;
+  private String mCurrentVoiceFileName = "";
 
   int getARMode() {
     int mode = getBackend(this) * 3; //0 = GOOGLE_SFM, 3 = HUAWEI_SFM
@@ -305,6 +313,10 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 //    findViewById(R.id.undo_fwd).setOnClickListener(this);
 //    findViewById(R.id.undo_fwd_fast).setOnClickListener(this);
 
+    // 음성 녹음 버튼 초기화
+    mVoiceRecordButton = findViewById(R.id.memo_voice_record);
+    mVoiceRecordButton.setOnClickListener(this);
+
     if (isFaceModeOn(this)) {
       findViewById(R.id.clear_button).setVisibility(View.GONE);
 //      findViewById(R.id.view_button).setVisibility(View.GONE);
@@ -411,6 +423,115 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   }
 
   @Override
+  protected void onDestroy() {
+    if (mVoiceRecorder != null) {
+      mVoiceRecorder.release();
+    }
+    super.onDestroy();
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+    if (requestCode == 100) {
+      if (grantResults.length > 0
+              && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        // 권한 승인됨 - 녹음 시작
+        startVoiceRecording();
+      } else {
+        // 권한 거부됨
+        Toast.makeText(this, "마이크 권한이 필요합니다", Toast.LENGTH_SHORT).show();
+      }
+    }
+  }
+
+  /**
+   * 현재 AR 카메라 위치 좌표를 문자열로 반환
+   * @return "[x:1.23,y:4.56,z:7.89]" 형식의 문자열
+   */
+  private String getCurrentPositionString() {
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+
+    return String.format("[x:%.2f,y:%.2f,z:%.2f]", x, y, z);
+  }
+
+  /**
+   * 안전한 파일명으로 좌표 변환 (파일시스템 호환성)
+   * @return "x1.23_y4.56_z7.89" 형식의 문자열
+   */
+  private String getPositionForFilename() {
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+
+    return String.format("x%.2f_y%.2f_z%.2f", x, y, z)
+            .replace(".", "_");  // 파일명에 점 제거
+  }
+
+  /**
+   * 음성 녹음 시작
+   */
+  private void startVoiceRecording() {
+    // 권한 확인 (Android 6.0+)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+              != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(
+                new String[]{android.Manifest.permission.RECORD_AUDIO},
+                100
+        );
+        return;
+      }
+    }
+
+    // 음성 파일 경로 생성 (좌표 기반 이름)
+    String positionStr = getPositionForFilename();
+    mCurrentVoiceFileName = "voice_" + positionStr + "_"
+            + System.currentTimeMillis() + ".3gp";
+    File voiceFile = new File(getTempPath(), mCurrentVoiceFileName);
+
+    // 음성 녹음 시작
+    mVoiceRecorder = new VoiceRecorder(voiceFile.getAbsolutePath());
+    mVoiceRecorder.startRecording();
+    mIsVoiceRecording = true;
+
+    // UI 업데이트 (버튼 텍스트 변경)
+    mVoiceRecordButton.setText("음성 중단");
+    mVoiceRecordButton.setBackgroundResource(R.drawable.background_button_normal_red);
+
+    Log.d("VoiceRecording", "Started: " + voiceFile.getAbsolutePath());
+  }
+
+  /**
+   * 음성 녹음 중단
+   */
+  private void stopVoiceRecording() {
+    if (mVoiceRecorder != null && mIsVoiceRecording) {
+      boolean success = mVoiceRecorder.stopRecording();
+      mIsVoiceRecording = false;
+
+      // UI 업데이트
+      mVoiceRecordButton.setText("음성 녹음");
+      mVoiceRecordButton.setBackgroundResource(R.drawable.background_button_normal_blue);
+
+      if (success) {
+        // 음성 메모 저장 완료 알림
+        String message = "음성 메모 저장됨: " + mCurrentVoiceFileName;
+        Log.d("VoiceRecording", message);
+
+        // 옵션: 토스트 메시지로 사용자 알림
+        // Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+      }
+
+      mVoiceRecorder.release();
+      mVoiceRecorder = null;
+    }
+  }
+
+  @Override
   public void onClick(View v) {
     int id = v.getId();
 
@@ -505,6 +626,15 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     }
     else if (id == R.id.memo_close_button) { // 메모 완료 버튼 클릭 시
       hideMemoDialog();
+    }
+    else if (id == R.id.memo_voice_record) {  // 음성 녹음 버튼 클릭 시
+      if (!mIsVoiceRecording) {
+        // 녹음 시작
+        startVoiceRecording();
+      } else {
+        // 녹음 중단
+        stopVoiceRecording();
+      }
     }
 
     if (!mPhotoMode) {
