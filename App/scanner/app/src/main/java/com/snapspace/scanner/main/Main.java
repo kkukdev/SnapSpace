@@ -36,7 +36,6 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 
 import com.snapspace.scanner.R;
-import com.snapspace.scanner.sketchfab.OAuth;
 import com.snapspace.scanner.ui.AbstractActivity;
 import com.snapspace.scanner.ui.CommonDialogs;
 import com.snapspace.scanner.ui.Service;
@@ -985,26 +984,6 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         dialog.setTitle(R.string.share_via);
         dialog.setItems(items, (dialog1, which) -> {
           switch (which) {
-            case 0:
-              mLayoutView.setVisibility(View.GONE);
-              mProgress.setVisibility(View.VISIBLE);
-              mEditorButton.setVisibility(View.GONE);
-              mThumbnailButton.setVisibility(View.GONE);
-              mIgnoreSaving = true;
-              new Thread(() -> {
-                File folder = new File(mOpenedFile).getParentFile();
-                if ((folder == null) || (folder.getAbsolutePath().length() <= getPath(false).length())) {
-                  folder = new File(getPath(false));
-                }
-                final String zip = Exporter.compressModel(folder);
-                runOnUiThread(() -> {
-                  Intent intent = new Intent(Main.this, OAuth.class);
-                  intent.putExtra(AbstractActivity.FILE_KEY, zip);
-                  startActivity(intent);
-                  finish();
-                });
-              }).start();
-              break;
             case 1:
               captureScreenshot();
               break;

@@ -17,7 +17,6 @@ public class Service extends android.app.Service
   public static final int SERVICE_NOT_RUNNING = 0;
   public static final int SERVICE_POSTPROCESS = 1;
   public static final int SERVICE_SAVE = 2;
-  public static final int SERVICE_SKETCHFAB = 3;
   public static final int SERVICE_PHOTOGRAMMETRY = 4;
 
   private static Runnable action;
