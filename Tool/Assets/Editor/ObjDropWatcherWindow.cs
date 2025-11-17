@@ -1532,15 +1532,45 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         {
             // Unity 에디터에서만 작동
             #if UNITY_EDITOR
+            // 파일 존재 확인
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            {
+                Debug.LogError($"GLB 파일을 찾을 수 없습니다: {filePath}");
+                EditorUtility.DisplayDialog("파일 없음", $"GLB 파일을 찾을 수 없습니다:\n{filePath}", "OK");
+                return null;
+            }
+            
             // 파일을 Assets 폴더로 복사하여 임포트
             string fileName = Path.GetFileName(filePath);
             string tempAssetPath = $"Assets/Temp_{fileName}";
             
+            // 기존 임시 파일이 있으면 삭제
+            if (File.Exists(tempAssetPath))
+            {
+                AssetDatabase.DeleteAsset(tempAssetPath);
+                AssetDatabase.Refresh();
+            }
+            
             // 파일 복사
-            File.Copy(filePath, tempAssetPath, true);
+            try
+            {
+                File.Copy(filePath, tempAssetPath, true);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"GLB 파일 복사 실패: {ex.Message}");
+                EditorUtility.DisplayDialog("파일 복사 실패", $"GLB 파일을 Assets 폴더로 복사할 수 없습니다:\n{ex.Message}", "OK");
+                return null;
+            }
+            
+            // AssetDatabase 새로고침
+            AssetDatabase.Refresh();
             
             // AssetDatabase를 통해 임포트
             AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
+            
+            // 임포트 완료 대기 (비동기 임포트 완료를 위해)
+            AssetDatabase.Refresh();
             
             // ModelImporter 설정 (필요시)
             ModelImporter importer = AssetImporter.GetAtPath(tempAssetPath) as ModelImporter;
@@ -1549,16 +1579,35 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 // 스케일을 1로 설정 (나중에 unitScale 적용)
                 importer.globalScale = 1.0f;
                 importer.SaveAndReimport();
+                
+                // 재임포트 완료 대기
+                AssetDatabase.Refresh();
+            }
+            else
+            {
+                Debug.LogWarning($"GLB 파일의 ModelImporter를 찾을 수 없습니다: {tempAssetPath}");
             }
             
-            // 임포트된 게임오브젝트 로드
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+            // 임포트된 게임오브젝트 로드 (여러 번 시도)
+            GameObject prefab = null;
+            for (int i = 0; i < 5; i++)
+            {
+                prefab = AssetDatabase.LoadAssetAtPath<GameObject>(tempAssetPath);
+                if (prefab != null)
+                    break;
+                
+                // 잠시 대기 후 재시도
+                System.Threading.Thread.Sleep(100);
+                AssetDatabase.Refresh();
+            }
+            
             if (prefab != null)
             {
                 // 씬에 인스턴스 생성 (프리팹이 아닐 수도 있으므로 GameObject.Instantiate 사용)
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
                 
+                Debug.Log($"GLB 파일 로드 성공: {filePath}");
                 
                 // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
@@ -1567,16 +1616,22 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             }
             else
             {
+                Debug.LogError($"GLB 파일을 GameObject로 로드할 수 없습니다: {tempAssetPath}");
+                EditorUtility.DisplayDialog("로드 실패", $"GLB 파일을 GameObject로 로드할 수 없습니다:\n{tempAssetPath}\n\n파일이 유효한 GLB/GLTF 형식인지 확인하세요.", "OK");
+                
                 // 임시 파일 삭제
                 AssetDatabase.DeleteAsset(tempAssetPath);
+                AssetDatabase.Refresh();
                 return null;
             }
             #else
             return null;
             #endif
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Debug.LogError($"GLB 파일 로드 중 오류 발생: {ex.Message}\n{ex.StackTrace}");
+            EditorUtility.DisplayDialog("로드 오류", $"GLB 파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             return null;
         }
     }
