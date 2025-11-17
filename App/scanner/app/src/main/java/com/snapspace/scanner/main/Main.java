@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
 import android.os.Build;
@@ -30,6 +31,7 @@ import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.EditText;
+import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
@@ -73,7 +75,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private LinearLayout mLayoutMemo;
   private EditText mMemoEditText;
   private Button mMemoCloseButton;
-  private Button mMemoPositionButton; 
+//  private Button mMemoPositionButton;
   private String mMemoContent = "";
 //  private ImageButton mViewButton;
   private ImageButton mToggleButton;
@@ -109,6 +111,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   boolean mPhotoMode = false;
   boolean mRecording = false;
   float mCameraRecordYaw = 0;
+
+  // 음성 메모 관련 필드
+  private VoiceRecorder mVoiceRecorder;
+  private boolean mIsVoiceRecording = false;
+  private Button mVoiceRecordButton;
+  private String mCurrentVoiceFileName = "";
+  private MemoManager mMemoManager;
+  private String mCurrentMemoAnchor = ""; // 메모 버튼 클릭 시점의 좌표
 
   int getARMode() {
     int mode = getBackend(this) * 3; //0 = GOOGLE_SFM, 3 = HUAWEI_SFM
@@ -284,12 +294,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     mLayoutMemo = findViewById(R.id.layout_memo_scroll);
     mMemoEditText = findViewById(R.id.memo_edit_text);
     mMemoCloseButton = findViewById(R.id.memo_close_button);
-    mMemoPositionButton = findViewById(R.id.memo_position_button);
+//    mMemoPositionButton = findViewById(R.id.memo_position_button);
     findViewById(R.id.clear_button).setOnClickListener(this);
     findViewById(R.id.save_button).setOnClickListener(this);
     findViewById(R.id.memo_button).setOnClickListener(this);
     mMemoCloseButton.setOnClickListener(this);
-    mMemoPositionButton.setOnClickListener(this);
+//    mMemoPositionButton.setOnClickListener(this);
 //    mViewButton = findViewById(R.id.view_button);
 //    mViewButton.setVisibility(View.GONE);
 //    mViewButton.setOnClickListener(this);
@@ -304,6 +314,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 //    findViewById(R.id.undo_back_fast).setOnClickListener(this);
 //    findViewById(R.id.undo_fwd).setOnClickListener(this);
 //    findViewById(R.id.undo_fwd_fast).setOnClickListener(this);
+
+    // 음성 녹음 버튼 초기화
+    mVoiceRecordButton = findViewById(R.id.memo_voice_record);
+    mVoiceRecordButton.setOnClickListener(this);
+
+    // 메모 관련 객체 초기화
+    mMemoManager = new MemoManager();
 
     if (isFaceModeOn(this)) {
       findViewById(R.id.clear_button).setVisibility(View.GONE);
@@ -411,6 +428,115 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   }
 
   @Override
+  protected void onDestroy() {
+    if (mVoiceRecorder != null) {
+      mVoiceRecorder.release();
+    }
+    super.onDestroy();
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+    if (requestCode == 100) {
+      if (grantResults.length > 0
+              && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        // 권한 승인됨 - 녹음 시작
+        startVoiceRecording();
+      } else {
+        // 권한 거부됨
+        Toast.makeText(this, "마이크 권한이 필요합니다", Toast.LENGTH_SHORT).show();
+      }
+    }
+  }
+
+  /**
+   * 현재 AR 카메라 위치 좌표를 문자열로 반환
+   * @return "[x:1.23,y:4.56,z:7.89]" 형식의 문자열
+   */
+  private String getCurrentPositionString() {
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+
+    return String.format("[x:%.2f,y:%.2f,z:%.2f]", x, y, z);
+  }
+
+  /**
+   * 안전한 파일명으로 좌표 변환 (파일시스템 호환성)
+   * @return "x1.23_y4.56_z7.89" 형식의 문자열
+   */
+  private String getPositionForFilename() {
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+
+    return String.format("x%.2f_y%.2f_z%.2f", x, y, z)
+            .replace(".", "_");  // 파일명에 점 제거
+  }
+
+  /**
+   * 음성 녹음 시작
+   */
+  private void startVoiceRecording() {
+    // 권한 확인 (Android 6.0+)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+              != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        requestPermissions(
+                new String[]{android.Manifest.permission.RECORD_AUDIO},
+                100
+        );
+        return;
+      }
+    }
+
+    // 파일명을 타임스탬프만으로 단순화
+    mCurrentVoiceFileName = "voice_" + System.currentTimeMillis() + ".3gp";
+    File voiceFile = new File(getTempPath(), mCurrentVoiceFileName);
+
+    // 음성 녹음 시작
+    mVoiceRecorder = new VoiceRecorder(voiceFile.getAbsolutePath());
+    mVoiceRecorder.startRecording();
+    mIsVoiceRecording = true;
+
+    // UI 업데이트 (버튼 텍스트 변경)
+    mVoiceRecordButton.setText("음성 중단");
+    mVoiceRecordButton.setBackgroundResource(R.drawable.background_button_normal_red);
+
+    Log.d("VoiceRecording", "Started: " + voiceFile.getAbsolutePath());
+  }
+
+  /**
+   * 음성 녹음 중단
+   */
+  private void stopVoiceRecording() {
+    if (mVoiceRecorder != null && mIsVoiceRecording) {
+      boolean success = mVoiceRecorder.stopRecording();
+      mIsVoiceRecording = false;
+
+      // UI 업데이트
+      mVoiceRecordButton.setText("음성 녹음");
+      mVoiceRecordButton.setBackgroundResource(R.drawable.background_button_normal_blue);
+
+      if (success) {
+        // MemoManager에 음성 메모 추가 (JSON 저장은 스캔 저장 시)
+        if (mMemoManager != null) {
+          mMemoManager.addAudioMemo(mCurrentMemoAnchor, mCurrentVoiceFileName);
+          Log.d("VoiceRecording", "음성 메모 추가됨: " + mCurrentVoiceFileName + " at " + mCurrentMemoAnchor);
+        }
+
+        // 옵션: 토스트 메시지로 사용자 알림
+        // Toast.makeText(this, "음성 메모가 추가되었습니다", Toast.LENGTH_SHORT).show();
+      }
+
+      mVoiceRecorder.release();
+      mVoiceRecorder = null;
+    }
+  }
+
+  @Override
   public void onClick(View v) {
     int id = v.getId();
 
@@ -425,7 +551,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     } else if (id == R.id.clear_button) {
       pauseScanning();
       if (JNI.getScanSize() > 0) {
-        CommonDialogs.confirmDialog(this, R.string.scan_discard, JNI::onClearButtonClicked);
+        CommonDialogs.confirmDialog(this, R.string.scan_discard, () -> {
+          JNI.onClearButtonClicked();
+          // 메모도 함께 초기화
+          if (mMemoManager != null) {
+            mMemoManager.clear();
+            Log.d(TAG, "Memos cleared");
+          }
+        });
       }
     }
 //    else if (id == R.id.view_button) {
@@ -487,24 +620,44 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       pauseScanning();
       showMemoDialog();
     }
-    else if (id == R.id.memo_position_button) { // 메모 위치 좌표 버튼 클릭 시
-      // 현재 AR 카메라 위치 좌표 가져오기 (GetPose 사용)
-      float x = JNI.getCameraPosition(0);
-      float y = JNI.getCameraPosition(1);
-      float z = JNI.getCameraPosition(2);
-      
-      // [x:1,y:1,z:1] 형식으로 좌표 문자열 생성
-      String positionText = String.format("[x:%.2f,y:%.2f,z:%.2f]\n", x, y, z);
-      
-      // 현재 메모 내용에 좌표 추가
-      String currentText = mMemoEditText.getText().toString();
-      mMemoEditText.setText(currentText + positionText);
-      
-      // 커서를 끝으로 이동
-      mMemoEditText.setSelection(mMemoEditText.getText().length());
-    }
+//    else if (id == R.id.memo_position_button) { // 메모 위치 좌표 버튼 클릭 시
+//      // 현재 AR 카메라 위치 좌표 가져오기 (GetPose 사용)
+//      float x = JNI.getCameraPosition(0);
+//      float y = JNI.getCameraPosition(1);
+//      float z = JNI.getCameraPosition(2);
+//
+//      // [x:1,y:1,z:1] 형식으로 좌표 문자열 생성
+//      String positionText = String.format("[x:%.2f,y:%.2f,z:%.2f]\n", x, y, z);
+//
+//      // 현재 메모 내용에 좌표 추가
+//      String currentText = mMemoEditText.getText().toString();
+//      mMemoEditText.setText(currentText + positionText);
+//
+//      // 커서를 끝으로 이동
+//      mMemoEditText.setSelection(mMemoEditText.getText().length());
+//    }
     else if (id == R.id.memo_close_button) { // 메모 완료 버튼 클릭 시
       hideMemoDialog();
+    }
+    else if (id == R.id.memo_voice_record) {  // 음성 녹음 버튼 클릭 시
+      if (!mIsVoiceRecording) {
+        // 녹음 시작
+        startVoiceRecording();
+      } else {
+        // 녹음 중단
+        stopVoiceRecording();
+      }
+    }
+    else if (id == R.id.memo_clear_button) {
+      pauseScanning();
+      if (JNI.getScanSize() > 0) {
+        CommonDialogs.confirmDialog(this, R.string.scan_discard, () -> {
+          JNI.onClearButtonClicked();
+          // ★ 메모도 함께 초기화
+          mMemoManager.clear();
+          Log.d("Main", "Memos cleared");
+        });
+      }
     }
 
     if (!mPhotoMode) {
@@ -514,6 +667,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   }
 
   private void showMemoDialog() {
+    // 메모 다이얼로그를 열 때 현재 좌표 저장
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+    mCurrentMemoAnchor = String.format("x:%.2f,y:%.2f,z:%.2f", x, y, z);
+    Log.d("MemoDialog", "Anchor saved: " + mCurrentMemoAnchor);
+
     // 전체 화면 해제
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     
@@ -975,15 +1135,31 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     }
     
     //save memo
-    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+//    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+//      try {
+//        File memoFile = new File(getTempPath(), "memo.txt");
+//        FileOutputStream fos = new FileOutputStream(memoFile);
+//        fos.write(mMemoContent.getBytes("UTF-8"));
+//        fos.flush();
+//        fos.close();
+//      } catch (Exception e) {
+//        Log.e(TAG, "Failed to save memo", e);
+//        e.printStackTrace();
+//      }
+//    }
+
+    //save memos JSON
+    if (mMemoManager != null && mMemoManager.getMemoCount() > 0) {
       try {
-        File memoFile = new File(getTempPath(), "memo.txt");
-        FileOutputStream fos = new FileOutputStream(memoFile);
-        fos.write(mMemoContent.getBytes("UTF-8"));
-        fos.flush();
-        fos.close();
+        String jsonPath = new File(getTempPath(), "memos.json").getAbsolutePath();
+        mMemoManager.setJsonFilePath(jsonPath);
+        if (mMemoManager.saveToJson()) {
+          Log.d(TAG, "Memos JSON saved successfully");
+        } else {
+          Log.e(TAG, "Failed to save memos JSON");
+        }
       } catch (Exception e) {
-        Log.e(TAG, "Failed to save memo", e);
+        Log.e(TAG, "Exception while saving memos JSON", e);
         e.printStackTrace();
       }
     }
