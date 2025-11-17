@@ -10,6 +10,7 @@ using ObjDropWatcher.ExportImport;
 public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
 {
     [SerializeField] private WatchConfig config;
+    [SerializeField] private string _configAssetPath; // DontSaveInEditor 플래그가 있을 때 사용
     private Vector2 _scroll;
     private Vector2 _folderScroll;
     private readonly List<Item> _items = new();
@@ -90,6 +91,67 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         var w = GetWindow<ObjDropWatcherWindow>("OBJ Drop Watcher");
         w.minSize = new Vector2(520, 400);
         w.Show();
+    }
+
+    private void OnEnable()
+    {
+        // 역직렬화 후 config 복원 (DontSaveInEditor 플래그가 있는 경우)
+        // config가 null이고 asset path가 있으면 복원 시도
+        if (config == null && !string.IsNullOrEmpty(_configAssetPath))
+        {
+            try
+            {
+                // 먼저 경로로 직접 로드 시도
+                config = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                
+                // 경로로 찾을 수 없으면 GUID로 시도
+                if (config == null)
+                {
+                    string guid = AssetDatabase.AssetPathToGUID(_configAssetPath);
+                    if (!string.IsNullOrEmpty(guid))
+                    {
+                        string path = AssetDatabase.GUIDToAssetPath(guid);
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            config = AssetDatabase.LoadAssetAtPath<WatchConfig>(path);
+                        }
+                    }
+                }
+                
+                // 복원 성공 시 asset path 업데이트 (경로가 변경되었을 수 있음)
+                if (config != null)
+                {
+                    string actualPath = AssetDatabase.GetAssetPath(config);
+                    if (!string.IsNullOrEmpty(actualPath))
+                    {
+                        _configAssetPath = actualPath;
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // 복원 실패 시 무시
+            }
+        }
+        // config가 이미 있지만 asset path가 없으면 path 업데이트
+        else if (config != null && string.IsNullOrEmpty(_configAssetPath))
+        {
+            try
+            {
+                if (AssetDatabase.Contains(config))
+                {
+                    string assetPath = AssetDatabase.GetAssetPath(config);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        _configAssetPath = assetPath;
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // 경로 업데이트 실패 시 무시
+            }
+        }
     }
 
     private void OnDisable()
@@ -175,10 +237,17 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 if (newConfig != null && AssetDatabase.Contains(newConfig))
                 {
                     config = newConfig;
+                    // asset path도 업데이트
+                    string assetPath = AssetDatabase.GetAssetPath(newConfig);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        _configAssetPath = assetPath;
+                    }
                 }
                 else if (newConfig == null)
                 {
                     config = null;
+                    _configAssetPath = null;
                 }
                 // newConfig가 null이 아니지만 AssetDatabase에 없는 경우는 무시
             }
@@ -1562,7 +1631,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     public void OnBeforeSerialize()
     {
         // 직렬화 전에 config가 직렬화 가능한지 확인
-        // DontSaveInEditor 플래그가 있는 경우 assertion 오류를 방지하기 위해 null로 설정
+        // DontSaveInEditor 플래그가 있는 경우 assertion 오류를 방지하기 위해 경로만 저장
         if (config != null)
         {
             try
@@ -1571,6 +1640,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 if (config.Equals(null))
                 {
                     config = null;
+                    _configAssetPath = null;
+                    return;
+                }
+                
+                // AssetDatabase에 있는 실제 에셋인지 확인
+                if (!AssetDatabase.Contains(config))
+                {
+                    // 에셋이 아니면 직렬화하지 않음
+                    config = null;
+                    _configAssetPath = null;
                     return;
                 }
                 
@@ -1579,8 +1658,23 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 HideFlags flags = config.hideFlags;
                 if ((flags & HideFlags.DontSaveInEditor) != 0)
                 {
-                    // DontSaveInEditor 플래그가 있으면 직렬화에서 제외
+                    // DontSaveInEditor 플래그가 있으면 경로만 저장하고 참조는 null로 설정
+                    string assetPath = AssetDatabase.GetAssetPath(config);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        _configAssetPath = assetPath;
+                    }
                     config = null;
+                }
+                else
+                {
+                    // 플래그가 없으면 정상적으로 직렬화 가능
+                    // 경로도 저장하여 복원 시 사용
+                    string assetPath = AssetDatabase.GetAssetPath(config);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        _configAssetPath = assetPath;
+                    }
                 }
             }
             catch (System.Exception)
@@ -1588,14 +1682,23 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 // 예외 발생 시 안전을 위해 config를 null로 설정
                 // 이렇게 하면 직렬화 오류를 방지할 수 있음
                 config = null;
+                _configAssetPath = null;
+            }
+        }
+        else
+        {
+            // config가 null이면 경로도 초기화
+            if (string.IsNullOrEmpty(_configAssetPath))
+            {
+                _configAssetPath = null;
             }
         }
     }
 
     public void OnAfterDeserialize()
     {
-        // 역직렬화 후 추가 검증은 필요시 수행
-        // 현재는 기본 동작에 의존
+        // 역직렬화 후 config 복원은 OnEnable()에서 수행
+        // 여기서는 추가 검증만 수행
     }
 
 }
