@@ -44,6 +44,10 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Scanner;
 
+import android.widget.RadioGroup;
+import android.widget.RadioButton;
+import android.widget.LinearLayout;
+
 // --- [추가] Retrofit 및 OkHttp import ---
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -471,81 +475,107 @@ class FileAdapter extends BaseAdapter
 
   private void promptForGroupName(String zipFilePath) {
     AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
-    builder.setTitle("그룹 이름 입력"); // 제목
+    builder.setTitle("업로드 정보 입력");
 
-    // EditText를 담을 컨테이너 레이아웃 생성
-    FrameLayout container = new FrameLayout(mContext);
-    final EditText input = new EditText(mContext);
-    input.setHint("그룹 이름 (예: A공장 B구역)");
-    input.setSingleLine(true);
+    // 커스텀 레이아웃 생성
+    LinearLayout container = new LinearLayout(mContext);
+    container.setOrientation(LinearLayout.VERTICAL);
 
-    // EditText에 여백(margin) 추가 (dialog_rename.xml 참고)
     float density = mContext.getResources().getDisplayMetrics().density;
-    int marginPx = (int)(20 * density); // 20dp
-    
-    FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    params.leftMargin = marginPx;
-    params.rightMargin = marginPx;
-    input.setLayoutParams(params);
-    
-    container.addView(input);
-    builder.setView(container); // 다이얼로그에 EditText 컨테이너 설정
+    int marginPx = (int)(20 * density);
+    container.setPadding(marginPx, marginPx/2, marginPx, marginPx/2);
 
-    // 확인 버튼 설정
+    // 1. 그룹 이름 입력
+    TextView groupLabel = new TextView(mContext);
+    groupLabel.setText("그룹 이름");
+    groupLabel.setTextSize(14);
+    groupLabel.setPadding(0, 0, 0, (int)(8 * density));
+    container.addView(groupLabel);
+
+    final EditText input = new EditText(mContext);
+    input.setHint("예: A공장 B구역");
+    input.setSingleLine(true);
+    container.addView(input);
+
+    // 2. 모델 타입 선택
+    TextView typeLabel = new TextView(mContext);
+    typeLabel.setText("모델 타입");
+    typeLabel.setTextSize(14);
+    typeLabel.setPadding(0, (int)(16 * density), 0, (int)(8 * density));
+    container.addView(typeLabel);
+
+    final RadioGroup radioGroup = new RadioGroup(mContext);
+    radioGroup.setOrientation(RadioGroup.VERTICAL);
+
+    RadioButton radioSpace = new RadioButton(mContext);
+    radioSpace.setText("공간 스캔 (space)");
+    radioSpace.setId(View.generateViewId());
+    radioGroup.addView(radioSpace);
+
+    RadioButton radioObject = new RadioButton(mContext);
+    radioObject.setText("오브젝트 스캔 (object)");
+    radioObject.setId(View.generateViewId());
+    radioObject.setChecked(true); // 기본값: object
+    radioGroup.addView(radioObject);
+
+    container.addView(radioGroup);
+
+    builder.setView(container);
+
+    // 확인 버튼
     builder.setPositiveButton(mContext.getString(android.R.string.ok), (dialog, which) -> {
-      String groupName = input.getText().toString();
-      if (groupName.trim().isEmpty()) {
-        // 이름이 비어있으면 토스트 메시지를 띄우고 작업을 취소
+      String groupName = input.getText().toString().trim();
+
+      if (groupName.isEmpty()) {
         Toast.makeText(mContext, "그룹 이름을 입력해야 합니다.", Toast.LENGTH_SHORT).show();
-        mContext.refreshUI(); // UI 초기화
-        deleteTempZip(zipFilePath); // 임시 파일 삭제
-      } else {
-        // groupName과 함께 업로드 메소드 호출
-        uploadToFastApi(zipFilePath, groupName);
+        mContext.refreshUI();
+        deleteTempZip(zipFilePath);
+        return;
       }
+
+      // 선택된 모델 타입 확인
+      int selectedId = radioGroup.getCheckedRadioButtonId();
+      String modelType = (selectedId == radioSpace.getId()) ? "space" : "object";
+
+      // 업로드 실행
+      uploadToFastApi(zipFilePath, groupName, modelType);
     });
 
-    // 취소 버튼 설정
+    // 취소 버튼
     builder.setNegativeButton(mContext.getString(android.R.string.cancel), (dialog, which) -> {
       dialog.cancel();
-      mContext.refreshUI(); // UI 초기화
-      deleteTempZip(zipFilePath); // 임시 파일 삭제
+      mContext.refreshUI();
+      deleteTempZip(zipFilePath);
     });
 
     AlertDialog d = builder.create();
-    // Dialog의 배경을 다른 다이얼로그와 통일
     if (d.getWindow() != null) {
-        d.getWindow().setBackgroundDrawable(mContext.getDrawable(R.drawable.background_dialog));
+      d.getWindow().setBackgroundDrawable(mContext.getDrawable(R.drawable.background_dialog));
     }
     d.show();
   }
 
-  private void uploadToFastApi(String zipFilePath, String groupName) {
-    Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath + ", 그룹: " + groupName);
+  private void uploadToFastApi(String zipFilePath, String groupName, String modelType) {
+    Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath + ", 그룹: " + groupName + ", 타입: " + modelType);
     mContext.showProgress();
 
-    // 1. FastApiService의 Retrofit 인스턴스와 인터페이스를 가져옵니다.
     FastApiService.FastApiInterface service =
             FastApiService.getRetrofitInstance().create(FastApiService.FastApiInterface.class);
 
-    // 2. 파일(File) 객체를 생성
     File file = new File(zipFilePath);
-
-    // 3. 파일을 MultipartBody.Part로 변환
     RequestBody requestFile = RequestBody.create(MediaType.parse("application/zip"), file);
-    // "file"은 FastApiInterface에서 @Part("file")에 설정한 '이름'과 일치해야 합니다.
     MultipartBody.Part filePart = MultipartBody.Part.createFormData("file", file.getName(), requestFile);
     MultipartBody.Part groupNamePart = MultipartBody.Part.createFormData("group_name", groupName);
-    MultipartBody.Part modelTypePart = MultipartBody.Part.createFormData("model_type", "object");
 
-    // 4. Retrofit Call 객체를 생성
+    // ★ modelType을 파라미터로 받아서 사용
+    MultipartBody.Part modelTypePart = MultipartBody.Part.createFormData("model_type", modelType);
+
     Call<FastApiService.FastSuccessResponse> call = service.uploadFile(modelTypePart, groupNamePart, filePart);
 
-    // 5. 요청을 비동기(Asynchronous)로 실행
     call.enqueue(new Callback<FastApiService.FastSuccessResponse>() {
       @Override
       public void onResponse(Call<FastApiService.FastSuccessResponse> call, Response<FastApiService.FastSuccessResponse> response) {
-        mContext.refreshUI(); 
+        mContext.refreshUI();
         deleteTempZip(zipFilePath);
 
         if (response.isSuccessful()) {
