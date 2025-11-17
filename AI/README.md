@@ -39,6 +39,18 @@ source install_requirements.sh
 
 # prompt 환경 (ex. Powershell)
 source install_requirements.bat
+
+# ----------------------------------------
+
+# 위의 코드 문제 발생 시, 아래와 같이 실행
+python -m venv venv
+source venv/Scripts/activate
+pip install -r requirements.txt
+pip install -r requirements-ai-inpaint.txt
+
+# pytorch 설치
+pip install -r requirements-pytorch.txt
+pip install -r requirements-pyg.txt
 ```
 
 ### 서버 실행
