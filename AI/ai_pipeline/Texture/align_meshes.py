@@ -2,14 +2,86 @@ import argparse
 import copy
 import json
 import os
+import sys
 from typing import Tuple
 
 import numpy as np
 import open3d as o3d
 
 
+def _get_windows_short_path(path: str) -> str:
+    """Get Windows short path (8.3 format) to avoid encoding issues with non-ASCII characters."""
+    if sys.platform != 'win32':
+        return path
+    
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # GetShortPathNameW is the Unicode version
+        GetShortPathNameW = ctypes.windll.kernel32.GetShortPathNameW
+        GetShortPathNameW.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        GetShortPathNameW.restype = wintypes.DWORD
+        
+        # Call with a buffer to get the short path
+        buffer = ctypes.create_unicode_buffer(260)  # MAX_PATH
+        result = GetShortPathNameW(path, buffer, 260)
+        
+        if result == 0:
+            # If GetShortPathName fails, return original path
+            return path
+        return buffer.value
+    except Exception:
+        # If anything fails, return original path
+        return path
+
+
 def _load_mesh(path: str) -> o3d.geometry.TriangleMesh:
-    mesh = o3d.io.read_triangle_mesh(path)
+    # Handle Windows path encoding issues with non-ASCII characters
+    import pathlib
+    
+    # Convert to pathlib.Path which handles encoding better on Windows
+    path_obj = pathlib.Path(path)
+    
+    # Ensure the path exists
+    if not path_obj.exists():
+        raise FileNotFoundError(f"Mesh file not found: {path}")
+    
+    # On Windows, handle path encoding issues when passing to C++ libraries
+    if sys.platform == 'win32':
+        try:
+            # Use resolve() to get absolute path, then convert to string
+            # This helps normalize the path encoding
+            normalized_path = str(path_obj.resolve())
+        except (OSError, ValueError):
+            # If resolve() fails, use the original path
+            normalized_path = str(path_obj)
+        
+        # Try to use the path as-is first
+        try:
+            mesh = o3d.io.read_triangle_mesh(normalized_path)
+        except (UnicodeDecodeError, UnicodeError) as e:
+            # If encoding fails, try using Windows short path (8.3 format)
+            # This avoids encoding issues with non-ASCII characters
+            try:
+                short_path = _get_windows_short_path(normalized_path)
+                if short_path != normalized_path:
+                    mesh = o3d.io.read_triangle_mesh(short_path)
+                else:
+                    # If short path is same, try with os.fsencode/fsdecode
+                    path_bytes = os.fsencode(normalized_path)
+                    fs_path = os.fsdecode(path_bytes)
+                    mesh = o3d.io.read_triangle_mesh(fs_path)
+            except Exception:
+                # Last resort: try with the original path
+                mesh = o3d.io.read_triangle_mesh(str(path_obj))
+        except Exception as e:
+            raise RuntimeError(f"Failed to load mesh from {path}: {str(e)}") from e
+    else:
+        # On non-Windows systems, use resolve() normally
+        normalized_path = str(path_obj.resolve())
+        mesh = o3d.io.read_triangle_mesh(normalized_path)
+    
     if mesh.is_empty():
         raise ValueError(f"Mesh is empty or unreadable: {path}")
     mesh.compute_vertex_normals()
@@ -110,7 +182,29 @@ def align(hi_path: str, lo_path: str, out_mesh: str, report_path: str, samples: 
     out_dir = os.path.dirname(out_mesh)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    success = o3d.io.write_triangle_mesh(out_mesh, aligned_mesh, write_triangle_uvs=True)
+    
+    # Handle Windows path encoding for write operation
+    write_path = out_mesh
+    if sys.platform == 'win32':
+        try:
+            # Try writing with the path as-is first
+            success = o3d.io.write_triangle_mesh(write_path, aligned_mesh, write_triangle_uvs=True)
+        except (UnicodeDecodeError, UnicodeError):
+            # If encoding fails, try using Windows short path
+            try:
+                short_path = _get_windows_short_path(write_path)
+                if short_path != write_path:
+                    write_path = short_path
+                success = o3d.io.write_triangle_mesh(write_path, aligned_mesh, write_triangle_uvs=True)
+            except Exception:
+                # Last resort: try with filesystem encoding
+                path_bytes = os.fsencode(write_path)
+                fs_path = os.fsdecode(path_bytes)
+                success = o3d.io.write_triangle_mesh(fs_path, aligned_mesh, write_triangle_uvs=True)
+                write_path = fs_path
+    else:
+        success = o3d.io.write_triangle_mesh(write_path, aligned_mesh, write_triangle_uvs=True)
+    
     if not success:
         raise RuntimeError(f"Failed to write aligned mesh: {out_mesh}")
 
