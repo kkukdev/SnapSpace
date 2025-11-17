@@ -106,7 +106,9 @@ def resolve_pipeline_paths(
             is_network_path=False,
         )
 
-    ensure_directories((texture_dir, optimized_dir, final_dir, temp_dir))
+    # texture_dir 생성 비활성화 (현재 필요 없음)
+    # ensure_directories((texture_dir, optimized_dir, final_dir, temp_dir))
+    ensure_directories((optimized_dir, final_dir, temp_dir))
 
     return PipelineContext(
         uploads_path=uploads_path,

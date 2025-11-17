@@ -633,8 +633,9 @@ class AIPipeline:
         local_out_dir.mkdir(parents=True, exist_ok=True)
         local_sanitized_dir = local_temp_dir / "sanitized_inputs"
         local_sanitized_dir.mkdir(parents=True, exist_ok=True)
-        texture_dir.mkdir(parents=True, exist_ok=True)
-        texture_output_path.parent.mkdir(parents=True, exist_ok=True)
+        # texture_dir 생성 비활성화 (현재 필요 없음)
+        # texture_dir.mkdir(parents=True, exist_ok=True)
+        # texture_output_path.parent.mkdir(parents=True, exist_ok=True)
         
         hi_path = hi_input_path if isinstance(hi_input_path, Path) else Path(hi_input_path)
         lo_path = lo_input_path if isinstance(lo_input_path, Path) else Path(lo_input_path)
@@ -812,18 +813,19 @@ class AIPipeline:
             temp_dir = directories.temp_dir
             optimized_dir = directories.optimized_dir
             final_dir = directories.final_dir
-            texture_dir = directories.texture_dir
+            # texture_dir 생성 비활성화 (현재 필요 없음)
+            # texture_dir = directories.texture_dir
 
             temp_dir_display = directories.temp_dir_str or str(temp_dir)
             optimized_dir_display = directories.optimized_dir_str or str(optimized_dir)
             final_dir_display = directories.final_dir_str or str(final_dir)
-            texture_dir_display = directories.texture_dir_str or str(texture_dir)
+            # texture_dir_display = directories.texture_dir_str or str(texture_dir)
 
             logger.info(f"[AIPipeline] outputs_base_dir: {outputs_base_dir}")
             logger.info(f"[AIPipeline] temp_dir: {temp_dir} (문자열: {temp_dir_display})")
             logger.info(f"[AIPipeline] optimized_dir: {optimized_dir} (문자열: {optimized_dir_display})")
             logger.info(f"[AIPipeline] final_dir: {final_dir} (문자열: {final_dir_display})")
-            logger.info(f"[AIPipeline] texture_dir: {texture_dir} (문자열: {texture_dir_display})")
+            # logger.info(f"[AIPipeline] texture_dir: {texture_dir} (문자열: {texture_dir_display})")
 
             model_type_key = (model_type or "space").strip().lower()
 
@@ -858,36 +860,39 @@ class AIPipeline:
             if not final_obj_path.exists():
                 raise FileNotFoundError(f"메쉬 파이프라인 최종 OBJ를 찾지 못했습니다: {final_obj_path}")
             
-            safe_folder_name = sanitize_filename(folder_name or final_obj_path.stem)
-            texture_output_filename = f"{safe_folder_name}_final.glb"
-            texture_output_path = texture_dir / texture_output_filename
-            
-            hi_input_path = uploads_path
-            texture_final_path = self.run_texture_pipeline(
-                hi_input_path=hi_input_path,
-                lo_input_path=final_obj_path,
-                texture_dir=texture_dir,
-                texture_output_path=texture_output_path,
-            )
-            
-            # 최종 경로 확인 및 검증
-            final_path_str = str(texture_final_path)
-            logger.info(f"[AIPipeline] 텍스처 최종 경로: {final_path_str}")
-            logger.info(f"[AIPipeline] 메쉬 보정 최종 OBJ: {final_obj_path}")
-            
-            # 파일 존재 확인
-            if not texture_final_path.exists():
-                logger.error(f"[AIPipeline] 경고: 텍스처 최종 파일이 존재하지 않습니다: {final_path_str}")
-                # 파일이 없어도 경로는 반환 (에러 처리 상위에서)
-            else:
-                file_size = texture_final_path.stat().st_size if texture_final_path.exists() else 0
-                logger.info(f"[AIPipeline] 텍스처 최종 파일 확인 - 경로: {final_path_str}, 크기: {file_size} bytes, 존재: {texture_final_path.exists()}")
+            # texture 파이프라인 실행 비활성화 (현재 필요 없음)
+            # safe_folder_name = sanitize_filename(folder_name or final_obj_path.stem)
+            # texture_output_filename = f"{safe_folder_name}_final.glb"
+            # texture_output_path = texture_dir / texture_output_filename
+            # 
+            # hi_input_path = uploads_path
+            # texture_final_path = self.run_texture_pipeline(
+            #     hi_input_path=hi_input_path,
+            #     lo_input_path=final_obj_path,
+            #     texture_dir=texture_dir,
+            #     texture_output_path=texture_output_path,
+            # )
+            # 
+            # # 최종 경로 확인 및 검증
+            # final_path_str = str(texture_final_path)
+            # logger.info(f"[AIPipeline] 텍스처 최종 경로: {final_path_str}")
+            # logger.info(f"[AIPipeline] 메쉬 보정 최종 OBJ: {final_obj_path}")
+            # 
+            # # 파일 존재 확인
+            # if not texture_final_path.exists():
+            #     logger.error(f"[AIPipeline] 경고: 텍스처 최종 파일이 존재하지 않습니다: {final_path_str}")
+            #     # 파일이 없어도 경로는 반환 (에러 처리 상위에서)
+            # else:
+            #     file_size = texture_final_path.stat().st_size if texture_final_path.exists() else 0
+            #     logger.info(f"[AIPipeline] 텍스처 최종 파일 확인 - 경로: {final_path_str}, 크기: {file_size} bytes, 존재: {texture_final_path.exists()}")
             
             if final_obj_path.exists():
                 obj_size = final_obj_path.stat().st_size
                 logger.info(f"[AIPipeline] 메쉬 보정 OBJ 확인 - 경로: {final_obj_path}, 크기: {obj_size} bytes")
             
-            self._update_progress(100, f"AI 파이프라인 완료 (OBJ & 텍스처 GLB 생성): {final_obj_path} | {final_path_str}")
+            # 최종 경로는 메쉬 보정 OBJ 경로로 반환
+            final_path_str = str(final_obj_path)
+            self._update_progress(100, f"AI 파이프라인 완료 (메쉬 보정 OBJ 생성): {final_obj_path}")
             return final_path_str
             
         except Exception as e:
