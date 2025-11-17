@@ -6,6 +6,8 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Networking;
 using ObjDropWatcher.ExportImport;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
 {
@@ -62,6 +64,17 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     // MemoData는 이제 MemoUtils.MemoData를 사용
 
     [Serializable]
+    class ApiMemoData
+    {
+        public string type;
+        public string content;
+        public string anchor;  // API 응답에서 anchor 문자열로 직접 제공됨 (예: "x:0.80,y:1.43,z:0.13")
+        public string source;
+        public string file_path;
+        public int file_size;
+    }
+    
+    [Serializable]
     class ScanData
     {
         public int scan_id;
@@ -71,7 +84,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         public string retouched_file_path;
         public string created_at;
         public string updated_at;
-        // memos는 파일에서 직접 읽어오므로 API 응답에서는 제외
+        // memos는 API 응답에서 가져옴 (JSON 배열)
+        // Unity JsonUtility는 List를 직접 지원하지 않으므로 별도로 파싱 필요
     }
 
     [Serializable]
@@ -550,7 +564,11 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     {
                         if (hasOriginal)
                         {
-                            GameObject spawnedObj = SpawnWithBothVersions(it.originalPath, it.retouchedPath, it.memos);
+                            // Import 시에는 로컬 파일 시스템에서 memos.json을 직접 읽음
+                            // API 응답의 memos는 목록 표시용일 뿐, 실제 import 시에는 파일에서 읽어야 함
+                            MemoUtils.MemoData[] memosFromFile = MemoUtils.FindAndParseMemoFile(it.originalPath);
+                            
+                            GameObject spawnedObj = SpawnWithBothVersions(it.originalPath, it.retouchedPath, memosFromFile);
                             // ObjectTransformManagerWindow에 경로 정보 전달
                             if (spawnedObj != null)
                             {
@@ -566,13 +584,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     EditorGUILayout.EndVertical();
                 }
                 
-                // Memos 정보 표시
+                // Memos 정보 표시 (API 응답에서 가져온 정보, 목록 표시용)
                 if (it.memos != null && it.memos.Length > 0)
                 {
                     int textMemosCount = it.memos.Count(m => m != null && m.type == "text");
                     if (textMemosCount > 0)
                     {
-                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. 메시를 Import하면 3D 공간에 표시됩니다.", MessageType.Info);
+                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. (API 응답)\nImport 시에는 로컬 파일 시스템의 memos.json을 읽어서 사용합니다.", MessageType.Info);
                     }
                 }
                 
@@ -949,15 +967,28 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 {
                     string jsonResponse = _pendingRequest.downloadHandler.text;
                     
-                    // 기본 응답 구조 파싱 (memos는 파일에서 직접 읽어옴)
+                    // 기본 응답 구조 파싱 (memos는 API 응답에서 가져옴)
                     GroupScansResponse response = JsonUtility.FromJson<GroupScansResponse>(jsonResponse);
+                    
+                    // 전체 JSON을 Newtonsoft.Json으로 파싱하여 memos 추출
+                    JObject jsonObj = null;
+                    try
+                    {
+                        jsonObj = JObject.Parse(jsonResponse);
+                    }
+                    catch (Exception)
+                    {
+                        // JSON 파싱 실패 시 무시
+                    }
                     
                     if (response != null && response.success && response.data != null)
                     {
                         _items.Clear();
                         
-                        foreach (var scan in response.data)
+                        for (int i = 0; i < response.data.Length; i++)
                         {
+                            var scan = response.data[i];
+                            
                             // original_file_path와 retouched_file_path는 파일 경로 또는 폴더 경로일 수 있음
                             // 파일 경로인 경우 그대로 사용, 폴더 경로인 경우 objPatterns 설정에 따라 메시 파일을 찾음
                             string originalPath = null;
@@ -984,12 +1015,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                         // 첫 번째 파일 사용
                                         originalPath = meshFiles[0];
                                     }
-                                    else
-                                    {
-                                    }
-                                }
-                                else
-                                {
                                 }
                             }
                             
@@ -1014,71 +1039,77 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                         // 첫 번째 파일 사용
                                         retouchedPath = meshFiles[0];
                                     }
-                                    else
-                                    {
-                                    }
-                                }
-                                else
-                                {
                                 }
                             }
                             
-                            // memos는 항상 original path의 파일에서 직접 읽어옴
+                            // memos는 API 응답에서 가져옴
                             MemoUtils.MemoData[] memos = new MemoUtils.MemoData[0];
                             
-                            // original path의 디렉토리에서 memos.json 파일 찾기
-                            string memoFolderPath = null;
-                            
-                            // 1. originalPath가 있으면 그 디렉토리 사용
-                            if (!string.IsNullOrEmpty(originalPath))
+                            if (jsonObj != null)
                             {
-                                if (File.Exists(originalPath))
+                                try
                                 {
-                                    memoFolderPath = Path.GetDirectoryName(originalPath);
-                                }
-                                else if (Directory.Exists(originalPath))
-                                {
-                                    memoFolderPath = originalPath;
-                                }
-                            }
-                            
-                            // 2. originalPath가 없으면 API 응답의 original_file_path에서 디렉토리 추출
-                            if (string.IsNullOrEmpty(memoFolderPath) && !string.IsNullOrEmpty(scan.original_file_path))
-                            {
-                                string convertedPath = ReplaceProjectRootInPath(scan.original_file_path);
-                                if (File.Exists(convertedPath))
-                                {
-                                    memoFolderPath = Path.GetDirectoryName(convertedPath);
-                                }
-                                else if (Directory.Exists(convertedPath))
-                                {
-                                    memoFolderPath = convertedPath;
-                                }
-                            }
-                            
-                            // memos.json 파일 찾기 및 파싱
-                            if (!string.IsNullOrEmpty(memoFolderPath) && Directory.Exists(memoFolderPath))
-                            {
-                                string memoFilePath = Path.Combine(memoFolderPath, "memos.json");
-                                if (File.Exists(memoFilePath))
-                                {
-                                    try
+                                    // data 배열에서 해당 scan의 memos 추출
+                                    JArray dataArray = jsonObj["data"] as JArray;
+                                    if (dataArray != null && i < dataArray.Count)
                                     {
-                                        memos = MemoUtils.ParseMemoFile(memoFilePath);
-                                        if (memos != null && memos.Length > 0)
+                                        JToken scanToken = dataArray[i];
+                                        JArray memosArray = scanToken["memos"] as JArray;
+                                        
+                                        if (memosArray != null && memosArray.Count > 0)
                                         {
+                                            List<MemoUtils.MemoData> memoList = new List<MemoUtils.MemoData>();
+                                            
+                                            foreach (JToken memoToken in memosArray)
+                                            {
+                                                try
+                                                {
+                                                    ApiMemoData apiMemo = memoToken.ToObject<ApiMemoData>();
+                                                    if (apiMemo != null)
+                                                    {
+                                                        // API 응답에서 anchor 문자열이 직접 제공됨
+                                                        if (string.IsNullOrWhiteSpace(apiMemo.anchor))
+                                                        {
+                                                            continue;
+                                                        }
+                                                        
+                                                        string anchor = apiMemo.anchor.Trim();
+                                                        
+                                                        // anchor 문자열 정규화 (소수점 정밀도 통일)
+                                                        string normalizedAnchor = MemoUtils.NormalizeAnchor(anchor);
+                                                        
+                                                        string content = apiMemo.content ?? "";
+                                                        
+                                                        // source, file_path, file_size 정보 사용 (API 응답에서 제공되는 경우)
+                                                        string source = !string.IsNullOrWhiteSpace(apiMemo.source) ? apiMemo.source : "API";
+                                                        string file_path = apiMemo.file_path ?? "";
+                                                        int file_size = apiMemo.file_size;
+                                                        
+                                                        memoList.Add(new MemoUtils.MemoData
+                                                        {
+                                                            type = apiMemo.type ?? "text",
+                                                            anchor = normalizedAnchor,
+                                                            content = content,
+                                                            source = source,
+                                                            file_path = file_path,
+                                                            file_size = file_size
+                                                        });
+                                                    }
+                                                }
+                                                catch (Exception)
+                                                {
+                                                    // Memo 파싱 실패 시 무시
+                                                }
+                                            }
+                                            
+                                            memos = memoList.ToArray();
                                         }
                                     }
-                                    catch (Exception)
-                                    {
-                                    }
                                 }
-                                else
+                                catch (Exception)
                                 {
+                                    // Memos 추출 실패 시 무시
                                 }
-                            }
-                            else if (string.IsNullOrEmpty(scan.original_file_path))
-                            {
                             }
                             
                             // original 또는 retouched 중 하나라도 있으면 Item 추가
