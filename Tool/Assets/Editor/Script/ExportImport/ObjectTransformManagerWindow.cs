@@ -7,14 +7,21 @@ using UnityEngine;
 using ObjDropWatcher.ExportImport;
 using Newtonsoft.Json;
 
-public class ObjectTransformManagerWindow : EditorWindow
+public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallbackReceiver
 {
     private enum ExportFormat { JSON, CSV, Binary }
     
     [Serializable]
     class ManagedObjItem
     {
+        // GameObject 참조는 직렬화하지 않음 (EditorWindow 직렬화 시 문제 발생 방지)
+        [System.NonSerialized]
         public GameObject gameObject;
+        
+        // GameObject를 찾기 위한 식별자 (인스턴스 ID)
+        [SerializeField]
+        private int _instanceId;
+        
         public string objPath;  // 현재 사용 중인 경로
         public string originalPath;  // 원본 OBJ 파일 경로
         public string retouchedPath;  // 리터치된 OBJ 파일 경로
@@ -26,7 +33,7 @@ public class ObjectTransformManagerWindow : EditorWindow
         
         public ManagedObjItem(GameObject obj, string path)
         {
-            gameObject = obj;
+            SetGameObject(obj);
             objPath = path;
             originalPath = path;  // 기본적으로 originalPath로 설정
             retouchedPath = null;
@@ -42,7 +49,7 @@ public class ObjectTransformManagerWindow : EditorWindow
         
         public ManagedObjItem(GameObject obj, string original, string retouched)
         {
-            gameObject = obj;
+            SetGameObject(obj);
             originalPath = original;
             retouchedPath = retouched;
             objPath = original;  // 기본적으로 originalPath 사용
@@ -56,14 +63,86 @@ public class ObjectTransformManagerWindow : EditorWindow
             }
         }
         
+        /// <summary>
+        /// 인스턴스 ID를 사용하여 GameObject를 찾아 반환합니다.
+        /// GameObject가 null이거나 삭제된 경우 null을 반환합니다.
+        /// </summary>
+        public GameObject GetGameObject()
+        {
+            // 이미 캐시된 GameObject가 있고 유효하면 반환
+            if (gameObject != null && !gameObject.Equals(null))
+            {
+                return gameObject;
+            }
+            
+            // 인스턴스 ID로 GameObject 찾기
+            if (_instanceId != 0)
+            {
+                try
+                {
+                    GameObject found = EditorUtility.InstanceIDToObject(_instanceId) as GameObject;
+                    if (found != null && !found.Equals(null))
+                    {
+                        gameObject = found;  // 캐시 업데이트
+                        return found;
+                    }
+                }
+                catch (System.Exception)
+                {
+                    // GameObject를 찾을 수 없음
+                }
+            }
+            
+            // 이름으로 찾기 시도 (마지막 수단)
+            if (!string.IsNullOrEmpty(objectName))
+            {
+                try
+                {
+                    GameObject[] allObjects = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None);
+                    foreach (GameObject obj in allObjects)
+                    {
+                        if (obj != null && obj.name == objectName)
+                        {
+                            // 경로 정보도 일치하는지 확인
+                            string objPathInfo = ObjPathInfo.GetPath(obj);
+                            if (!string.IsNullOrEmpty(objPathInfo) && 
+                                (objPathInfo == objPath || objPathInfo == originalPath))
+                            {
+                                gameObject = obj;  // 캐시 업데이트
+                                _instanceId = obj.GetInstanceID();  // 인스턴스 ID 업데이트
+                                return obj;
+                            }
+                        }
+                    }
+                }
+                catch (System.Exception)
+                {
+                    // 찾기 실패
+                }
+            }
+            
+            return null;
+        }
+        
+        /// <summary>
+        /// GameObject를 설정하고 인스턴스 ID를 업데이트합니다.
+        /// </summary>
+        public void SetGameObject(GameObject obj)
+        {
+            gameObject = obj;
+            _instanceId = obj != null ? obj.GetInstanceID() : 0;
+        }
+        
         public void UpdateTransform()
         {
-            if (gameObject != null)
+            GameObject obj = GetGameObject();
+            if (obj != null)
             {
-                objectName = gameObject.name;
-                position = gameObject.transform.position;
-                rotation = gameObject.transform.eulerAngles;
-                scale = gameObject.transform.localScale;
+                objectName = obj.name;
+                position = obj.transform.position;
+                rotation = obj.transform.eulerAngles;
+                scale = obj.transform.localScale;
+                _instanceId = obj.GetInstanceID();  // 인스턴스 ID 업데이트
             }
         }
         
@@ -299,9 +378,10 @@ public class ObjectTransformManagerWindow : EditorWindow
                 string foundPath = null;
                 
                 // GameObject가 있는 경우 GameObject에서 경로 찾기
-                if (item.gameObject != null)
+                GameObject obj = item.GetGameObject();
+                if (obj != null)
                 {
-                    foundPath = ObjPathFinder.FindObjPath(item.gameObject);
+                    foundPath = ObjPathFinder.FindObjPath(obj);
                 }
                 // GameObject가 없지만 이름이 있는 경우 이름으로 찾기
                 else if (!string.IsNullOrEmpty(item.objectName))
@@ -339,8 +419,8 @@ public class ObjectTransformManagerWindow : EditorWindow
                 for (int i = _managedObjects.Count - 1; i >= 0; i--)
                 {
                     var item = _managedObjects[i];
-                    // GameObject가 null이거나 삭제된 경우 (Unity의 오버로드된 == 연산자 사용)
-                    if (item.gameObject == null)
+                    // GameObject가 null이거나 삭제된 경우
+                    if (item.GetGameObject() == null)
                     {
                         _managedObjects.RemoveAt(i);
                         removed = true;
@@ -395,9 +475,12 @@ public class ObjectTransformManagerWindow : EditorWindow
             // 오브젝트 정보
             EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true));
             
-            if (item.gameObject != null)
+            // GameObject 접근 (인스턴스 ID를 통해 안전하게 로드)
+            GameObject safeGameObject = item.GetGameObject();
+            
+            if (safeGameObject != null)
             {
-                EditorGUILayout.LabelField($"오브젝트: {item.gameObject.name}", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField($"오브젝트: {safeGameObject.name}", EditorStyles.boldLabel);
                 
                 // 현재 사용 중인 경로 표시
                 string currentPath = item.GetCurrentPath();
@@ -468,12 +551,12 @@ public class ObjectTransformManagerWindow : EditorWindow
             // 버튼들
             EditorGUILayout.BeginVertical(GUILayout.Width(200));
             
-            if (item.gameObject != null)
+            if (safeGameObject != null)
             {
                 if (GUILayout.Button("선택", GUILayout.Height(22)))
                 {
-                    Selection.activeGameObject = item.gameObject;
-                    EditorGUIUtility.PingObject(item.gameObject);
+                    Selection.activeGameObject = safeGameObject;
+                    EditorGUIUtility.PingObject(safeGameObject);
                 }
                 
                 // Original/Retouched 토글 버튼
@@ -483,10 +566,10 @@ public class ObjectTransformManagerWindow : EditorWindow
                 bool hasRetouchedChild = false;
                 bool isCurrentlyUsingRetouched = item.isUsingRetouched;
                 
-                if (item.gameObject != null)
+                if (safeGameObject != null)
                 {
-                    Transform originalTransform = item.gameObject.transform.Find("Original");
-                    Transform retouchedTransform = item.gameObject.transform.Find("Retouched");
+                    Transform originalTransform = safeGameObject.transform.Find("Original");
+                    Transform retouchedTransform = safeGameObject.transform.Find("Retouched");
                     hasOriginalChild = originalTransform != null;
                     hasRetouchedChild = retouchedTransform != null;
                     hasNewStructure = hasOriginalChild || hasRetouchedChild;
@@ -554,7 +637,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                 {
                     // 먼저 자동으로 경로 찾기 시도
                     SetupSearchPaths();
-                    string foundPath = ObjPathFinder.FindObjPath(item.gameObject);
+                    string foundPath = safeGameObject != null ? ObjPathFinder.FindObjPath(safeGameObject) : null;
                     
                     // 경로를 찾았고 파일이 존재하면 사용
                     if (!string.IsNullOrEmpty(foundPath) && PathExists(foundPath))
@@ -630,9 +713,10 @@ public class ObjectTransformManagerWindow : EditorWindow
             if (GUILayout.Button("삭제", GUILayout.Height(22)))
             {
                 // GameObject가 있으면 Hierarchy에서도 삭제
-                if (item.gameObject != null)
+                GameObject obj = item.GetGameObject();
+                if (obj != null)
                 {
-                    Undo.DestroyObjectImmediate(item.gameObject);
+                    Undo.DestroyObjectImmediate(obj);
                 }
                 
                 // 관리 목록에서 제거
@@ -740,7 +824,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                 continue;
             
             // 이미 관리 중인지 확인
-            var existing = _managedObjects.FirstOrDefault(m => m.gameObject == obj);
+            var existing = _managedObjects.FirstOrDefault(m => m.GetGameObject() == obj);
             if (existing != null)
             {
                 // 기존 항목 업데이트
@@ -1084,7 +1168,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                 SceneView.RepaintAll();
                 #endif
                 
-                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memos.json 찾기)
                 try
                 {
                     var memos = MemoUtils.FindAndParseMemoFile(actualObjPath);
@@ -1261,7 +1345,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                 SceneView.RepaintAll();
                 #endif
                 
-                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memos.json 찾기)
                 try
                 {
                     var memos = MemoUtils.FindAndParseMemoFile(actualObjPath);
@@ -1276,7 +1360,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                     // 메모 스폰 실패 시 무시
                 }
                 
-                item.gameObject = go;
+                item.SetGameObject(go);
                 Undo.RegisterCreatedObjectUndo(go, "Load OBJ from Manager");
                 Selection.activeGameObject = go;
                 EditorGUIUtility.PingObject(go);
@@ -1508,7 +1592,7 @@ public class ObjectTransformManagerWindow : EditorWindow
         }
         
         // 해당 GameObject를 관리하는 항목 찾기
-        var item = window._managedObjects.FirstOrDefault(m => m.gameObject == obj);
+        var item = window._managedObjects.FirstOrDefault(m => m.GetGameObject() == obj);
         if (item != null)
         {
             // 경로 정보 업데이트 (폴더 경로로 저장, 존재하는 경우에만)
@@ -1618,13 +1702,12 @@ public class ObjectTransformManagerWindow : EditorWindow
     /// </summary>
     void ToggleObjVersion(ManagedObjItem item)
     {
-        if (item.gameObject == null)
+        GameObject rootGo = item.GetGameObject();
+        if (rootGo == null)
         {
             EditorUtility.DisplayDialog("오류", "씬에 오브젝트가 없습니다.", "OK");
             return;
         }
-        
-        GameObject rootGo = item.gameObject;
         
         // 새로운 구조: root GameObject의 children에서 "Original"과 "Retouched" 찾기
         Transform originalTransform = rootGo.transform.Find("Original");
@@ -1691,7 +1774,7 @@ public class ObjectTransformManagerWindow : EditorWindow
         {
             // 기존 구조 (하위 호환성): GameObject를 삭제하고 새로 로드
             // 현재 GameObject 참조 저장 (먼저 저장)
-            GameObject oldGameObject = item.gameObject;
+            GameObject oldGameObject = item.GetGameObject();
             
             // 토글할 경로 결정 (폴더 경로에서 .obj 파일 찾기)
             string targetPath = null;
@@ -1833,14 +1916,14 @@ public class ObjectTransformManagerWindow : EditorWindow
                     Undo.DestroyObjectImmediate(oldGameObject);
                 }
                 
-                // 메모를 children으로 생성 (OBJ 파일 경로에서 memo.txt 찾기)
+                // 메모를 children으로 생성 (OBJ 파일 경로에서 memos.json 찾기)
                 try
                 {
                     var memos = MemoUtils.FindAndParseMemoFile(targetPath);
                     if (memos != null && memos.Length > 0)
                     {
                         float unitScale = MemoUtils.GetUnitScale();
-                        // 기존 메모 children 제거 (memo.txt가 있으면 memo.txt 우선)
+                        // 기존 메모 children 제거 (memos.json이 있으면 memos.json 우선)
                         List<GameObject> memoChildrenToRemove = new List<GameObject>();
                         foreach (Transform child in newGo.transform)
                         {
@@ -1861,7 +1944,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                                 GameObject.DestroyImmediate(memoChild);
                             }
                         }
-                        // 새로운 memo.txt에서 메모 생성
+                        // 새로운 memos.json에서 메모 생성
                         MemoUtils.SpawnMemosAsChildren(newGo, memos, unitScale);
                     }
                 }
@@ -1871,7 +1954,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                 }
                 
                 // ManagedObjItem 업데이트
-                item.gameObject = newGo;
+                item.SetGameObject(newGo);
                 item.isUsingRetouched = newIsUsingRetouched;
                 // targetPath는 파일 경로이므로 폴더 경로로 변환하여 저장
                 item.objPath = GetFolderPath(targetPath);
@@ -2340,14 +2423,14 @@ public class ObjectTransformManagerWindow : EditorWindow
             // 관리 중인 오브젝트들의 Transform 정보 업데이트
             foreach (var item in _managedObjects)
             {
-                if (item.gameObject != null)
+                if (item.GetGameObject() != null)
                 {
                     item.UpdateTransform();
                 }
             }
             
             // GameObject 리스트 생성 (null이 아닌 것만)
-            var gameObjects = _managedObjects.Where(m => m.gameObject != null).Select(m => m.gameObject).ToList();
+            var gameObjects = _managedObjects.Select(m => m.GetGameObject()).Where(go => go != null).ToList();
             
             if (gameObjects.Count == 0)
             {
@@ -2407,7 +2490,7 @@ public class ObjectTransformManagerWindow : EditorWindow
         
         foreach (var obj in objects)
         {
-            var item = _managedObjects.FirstOrDefault(m => m.gameObject == obj);
+            var item = _managedObjects.FirstOrDefault(m => m.GetGameObject() == obj);
             
             // children 포함하여 export (메모 등 자식 오브젝트도 포함)
             // objPath는 하위 호환성을 위해 유지
@@ -2506,16 +2589,37 @@ public class ObjectTransformManagerWindow : EditorWindow
                 }
 
                 if (collection == null)
+                {
+                    Debug.LogWarning("[ObjectTransformManagerWindow.ImportObjects] Collection이 null입니다.");
                     return;
+                }
 
                 // Import 시 자동으로 OBJ 파일을 로드하고 배치
                 int successCount = 0;
                 int failCount = 0;
+                int skippedCount = 0;
+                
+                if (collection.objects == null)
+                {
+                    Debug.LogError("[ObjectTransformManagerWindow.ImportObjects] collection.objects가 null입니다!");
+                    EditorUtility.DisplayDialog("Import 실패", "Collection의 objects 리스트가 null입니다.", "OK");
+                    return;
+                }
                 
                 foreach (var data in collection.objects)
                 {
-                    if (data.objectType != ObjectType.ObjFile)
+                    // OBJ 파일 경로가 있거나 ObjFile 타입인 경우 처리
+                    // (export 파일에서 objectType이 Empty(3)이지만 objFilePath가 있는 경우 처리)
+                    bool hasObjPath = !string.IsNullOrEmpty(data.objFilePath) || 
+                                      !string.IsNullOrEmpty(data.originalPath) || 
+                                      !string.IsNullOrEmpty(data.retouchedPath);
+                    
+                    if (data.objectType != ObjectType.ObjFile && !hasObjPath)
+                    {
+                        // OBJ 파일 경로가 없고 ObjFile 타입도 아니면 건너뛰기
+                        skippedCount++;
                         continue;
+                    }
                     
                     // 경로로 OBJ 파일 로드
                     // 새로운 구조: originalPath와 retouchedPath가 있으면 ObjectTransformData.CreateGameObject()가 자동으로 처리
@@ -2558,10 +2662,10 @@ public class ObjectTransformManagerWindow : EditorWindow
                             
                             if (go == null)
                             {
+                                Debug.LogError($"[ObjectTransformManagerWindow.ImportObjects] GameObject 생성 실패: {data.objectName}");
                                 failCount++;
                                 continue;
                             }
-                            
                             go.name = data.objectName;
                             
                             // 경로 정보 저장 (루트와 children 모두)
@@ -2691,11 +2795,11 @@ public class ObjectTransformManagerWindow : EditorWindow
                             #endif
                             
                             // 2. JSON의 Transform 정보를 OBJ에 적용
-                            go.transform.position = data.GetPosition();
-                            go.transform.eulerAngles = data.GetRotation();
-                            go.transform.localScale = data.GetScale();
+                            // Note: CreateGameObject()에서 이미 Transform과 children이 모두 적용되었으므로
+                            // 여기서는 Transform만 다시 적용 (불필요할 수 있지만 일관성을 위해 유지)
+                            data.ApplyToGameObject(go);
                             
-                            // 3. memo.txt에서 메모 읽기 및 스폰 (anchor 기반)
+                            // 3. memos.json에서 메모 읽기 및 스폰 (anchor 기반)
                             // 새로운 구조에서는 Original 경로에서 메모 찾기
                             try
                             {
@@ -2707,7 +2811,7 @@ public class ObjectTransformManagerWindow : EditorWindow
                                 if (memos != null && memos.Length > 0)
                                 {
                                     float unitScale = MemoUtils.GetUnitScale();
-                                    // memo.txt의 anchor와 텍스트만 사용하여 스폰
+                                    // memos.json의 anchor와 텍스트만 사용하여 스폰
                                     MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
                                 }
                             }
@@ -2716,53 +2820,8 @@ public class ObjectTransformManagerWindow : EditorWindow
                                 // 메모 스폰 실패 시 무시
                             }
                             
-                            // 4. 메모가 아닌 children만 JSON에서 복원 (메모는 memo.txt 사용)
-                            if (data.children != null && data.children.Count > 0)
-                            {
-                                int nonMemoChildrenCount = 0;
-                                foreach (var childData in data.children)
-                                {
-                                    // 메모 children인지 확인 (TextMesh 컴포넌트로 식별)
-                                    bool isMemoChild = false;
-                                    if (childData.components != null)
-                                    {
-                                        foreach (var compData in childData.components)
-                                        {
-                                            if (compData.componentType != null && 
-                                                (compData.componentType.Contains("TextMesh") || 
-                                                 compData.componentType.Contains("UnityEngine.TextMesh")))
-                                            {
-                                                isMemoChild = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    
-                                    // 메모가 아닌 children만 복원
-                                    if (!isMemoChild)
-                                    {
-                                        try
-                                        {
-                                            GameObject child = childData.CreateGameObject();
-                                            if (child != null)
-                                            {
-                                                childData.ApplyToGameObject(child);
-                                                child.transform.SetParent(go.transform, false);
-                                                nonMemoChildrenCount++;
-                                            }
-                                        }
-                                        catch (Exception)
-                                        {
-                                            // 자식 복원 실패 시 무시
-                                        }
-                                    }
-                                }
-                                
-                                if (nonMemoChildrenCount > 0)
-                                {
-                                    // 자식 복원 완료
-                                }
-                            }
+                            // Note: Children은 CreateGameObject()에서 이미 복원되었으므로
+                            // 여기서는 children을 다시 생성하지 않음
                             
                             // 관리 목록에 추가
                             _managedObjects.Add(new ManagedObjItem(go, objPath));
@@ -2770,26 +2829,43 @@ public class ObjectTransformManagerWindow : EditorWindow
                             
                             successCount++;
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            Debug.LogError($"[ObjectTransformManagerWindow.ImportObjects] 오브젝트 처리 중 오류: {data.objectName}, 오류: {ex.Message}\n{ex.StackTrace}");
                             failCount++;
                         }
                     }
                     else
                     {
+                        Debug.LogWarning($"[ObjectTransformManagerWindow.ImportObjects] OBJ 파일 경로가 유효하지 않음: {data.objectName}, objPath: {objPath ?? "(null)"}");
                         failCount++;
                     }
                 }
                 
                 EditorUtility.DisplayDialog("Import 완료", 
-                    $"Import 완료:\n성공: {successCount}개\n실패: {failCount}개", "OK");
+                    $"Import 완료:\n성공: {successCount}개\n실패: {failCount}개\n건너뛰기: {skippedCount}개", "OK");
                 Repaint();
             }
             catch (Exception ex)
             {
+                Debug.LogError($"[ObjectTransformManagerWindow.ImportObjects] Import 중 예외 발생: {ex.Message}\n{ex.StackTrace}");
                 EditorUtility.DisplayDialog("Import 실패", $"Import 중 오류가 발생했습니다:\n{ex.Message}", "OK");
             }
         };
+    }
+
+    // ISerializationCallbackReceiver 구현: 직렬화 전/후 처리
+    public void OnBeforeSerialize()
+    {
+        // GameObject 참조는 [NonSerialized]로 마크되어 있으므로 직렬화되지 않음
+        // 인스턴스 ID만 직렬화되므로 추가 처리가 필요 없음
+    }
+
+    public void OnAfterDeserialize()
+    {
+        // 역직렬화 후 GameObject 참조는 null이 되므로
+        // GetGameObject()를 통해 인스턴스 ID로 복원됨
+        // 명시적인 복원 작업은 필요 없음 (lazy loading)
     }
 }
 

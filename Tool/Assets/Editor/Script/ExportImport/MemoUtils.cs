@@ -6,6 +6,7 @@ using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
+using Newtonsoft.Json;
 
 namespace ObjDropWatcher.ExportImport
 {
@@ -25,10 +26,24 @@ namespace ObjDropWatcher.ExportImport
             public int file_size;
         }
 
+        [Serializable]
+        private class MemosJsonData
+        {
+            public List<MemoJsonItem> memos;
+        }
+
+        [Serializable]
+        private class MemoJsonItem
+        {
+            public string type;
+            public string anchor;
+            public string content;
+        }
+
         /// <summary>
-        /// memo.txt 파일을 읽어서 파싱합니다.
-        /// 파일 형식: [anchor]content 형태
-        /// 예: [x:0.80,y:1.43,z:0.13]이용하
+        /// memos.json 파일을 읽어서 파싱합니다.
+        /// 파일 형식: JSON 형태
+        /// 예: {"memos": [{"type": "text", "anchor": "x:0.80,y:1.43,z:0.13", "content": "이용하"}]}
         /// </summary>
         public static MemoData[] ParseMemoFile(string filePath)
         {
@@ -37,114 +52,83 @@ namespace ObjDropWatcher.ExportImport
                 if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
                     return new MemoData[0];
 
-                // 파일 읽기 (UTF-8 또는 CP949 인코딩 시도)
-                string content = null;
+                // JSON 파일 읽기 (UTF-8)
+                string jsonContent = null;
                 try
                 {
-                    content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                    jsonContent = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        content = File.ReadAllText(filePath, System.Text.Encoding.GetEncoding(949)); // CP949
-                    }
-                    catch (Exception)
-                    {
-                        return new MemoData[0];
-                    }
+                    Debug.LogError($"[MemoUtils.ParseMemoFile] 파일 읽기 실패: {filePath}, 오류: {ex.Message}");
+                    return new MemoData[0];
                 }
 
-                if (string.IsNullOrEmpty(content))
+                if (string.IsNullOrEmpty(jsonContent))
                     return new MemoData[0];
 
-                content = content.Trim();
-                if (string.IsNullOrEmpty(content))
+                jsonContent = jsonContent.Trim();
+                if (string.IsNullOrEmpty(jsonContent))
                     return new MemoData[0];
 
-                // 백엔드와 동일한 파싱 로직: 대괄호 패턴 찾기 [anchor]content
+                // JSON 파싱
+                MemosJsonData jsonData = null;
+                try
+                {
+                    jsonData = JsonConvert.DeserializeObject<MemosJsonData>(jsonContent);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[MemoUtils.ParseMemoFile] JSON 파싱 실패: {filePath}, 오류: {ex.Message}");
+                    return new MemoData[0];
+                }
+
+                if (jsonData == null || jsonData.memos == null || jsonData.memos.Count == 0)
+                    return new MemoData[0];
+
+                // MemoJsonItem을 MemoData로 변환
                 List<MemoData> memos = new List<MemoData>();
-                System.Text.RegularExpressions.Regex pattern = new System.Text.RegularExpressions.Regex(@"\[([^\]]+)\]");
-                var matches = pattern.Matches(content);
-
-                if (matches.Count == 0)
+                FileInfo fileInfo = new FileInfo(filePath);
+                
+                foreach (var jsonItem in jsonData.memos)
                 {
-                    // 대괄호가 없으면 전체 내용을 빈 anchor로 저장
-                    if (!string.IsNullOrEmpty(content.Trim()))
+                    if (jsonItem == null)
+                        continue;
+
+                    memos.Add(new MemoData
                     {
-                        memos.Add(new MemoData
-                        {
-                            type = "text",
-                            anchor = "",
-                            content = content.Trim(),
-                            source = Path.GetFileName(filePath),
-                            file_path = filePath,
-                            file_size = (int)new FileInfo(filePath).Length
-                        });
-                    }
-                }
-                else
-                {
-                    // 각 대괄호 구간 처리
-                    for (int i = 0; i < matches.Count; i++)
-                    {
-                        var match = matches[i];
-                        string anchor = match.Groups[1].Value.Trim();
-
-                        // 현재 대괄호의 끝 위치
-                        int startPos = match.Index + match.Length;
-
-                        // 다음 대괄호의 시작 위치 (마지막이면 파일 끝)
-                        int endPos = (i + 1 < matches.Count) 
-                            ? matches[i + 1].Index 
-                            : content.Length;
-
-                        // value 추출 (대괄호 다음부터 다음 대괄호 전까지)
-                        string value = content.Substring(startPos, endPos - startPos).Trim();
-
-                        // 같은 anchor가 이미 있으면 기존 content 뒤에 추가
-                        var existingMemo = memos.FirstOrDefault(m => m.anchor == anchor);
-                        if (existingMemo != null)
-                        {
-                            existingMemo.content += "\n\n" + value;
-                        }
-                        else
-                        {
-                            memos.Add(new MemoData
-                            {
-                                type = "text",
-                                anchor = anchor,
-                                content = value,
-                                source = Path.GetFileName(filePath),
-                                file_path = filePath,
-                                file_size = (int)new FileInfo(filePath).Length
-                            });
-                        }
-                    }
+                        type = jsonItem.type ?? "text",
+                        anchor = jsonItem.anchor ?? "",
+                        content = jsonItem.content ?? "",
+                        source = Path.GetFileName(filePath),
+                        file_path = filePath,
+                        file_size = (int)fileInfo.Length
+                    });
                 }
 
                 return memos.ToArray();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.LogError($"[MemoUtils.ParseMemoFile] 예외 발생: {filePath}, 오류: {ex.Message}");
                 return new MemoData[0];
             }
         }
 
         /// <summary>
-        /// OBJ 파일 경로에서 memo.txt 파일을 찾아서 파싱합니다.
+        /// OBJ 파일 경로에서 memos.json 파일을 찾아서 파싱합니다.
         /// </summary>
         public static MemoData[] FindAndParseMemoFile(string objFilePath)
         {
             if (string.IsNullOrEmpty(objFilePath) || !File.Exists(objFilePath))
                 return new MemoData[0];
 
-            // OBJ 파일의 디렉토리에서 memo.txt 찾기
+            // OBJ 파일의 디렉토리에서 memos.json 찾기
             string objDir = Path.GetDirectoryName(objFilePath);
             if (string.IsNullOrEmpty(objDir) || !Directory.Exists(objDir))
                 return new MemoData[0];
 
-            string memoFilePath = Path.Combine(objDir, "memo.txt");
+            string memoFilePath = Path.Combine(objDir, "memos.json");
             if (!File.Exists(memoFilePath))
                 return new MemoData[0];
 
@@ -358,6 +342,10 @@ namespace ObjDropWatcher.ExportImport
                 // 메모 루트 오브젝트 생성 (마커와 패널의 부모)
                 string objectName = $"Memo_{text.Substring(0, Math.Min(text.Length, designConfig.maxNameLength))}";
                 GameObject memoRoot = new GameObject(objectName);
+                
+                // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+                memoRoot.hideFlags = HideFlags.None;
+                
                 #if UNITY_EDITOR
                 Undo.RegisterCreatedObjectUndo(memoRoot, "Create 3D Memo");
                 #endif
@@ -395,6 +383,10 @@ namespace ObjDropWatcher.ExportImport
         {
             GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             marker.name = "Marker";
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            marker.hideFlags = HideFlags.None;
+            
             marker.transform.SetParent(parent.transform, false);
             marker.transform.localPosition = Vector3.zero;
             marker.transform.localScale = Vector3.one * (config.markerRadius * 2f);
@@ -414,6 +406,10 @@ namespace ObjDropWatcher.ExportImport
                 if (shader != null)
                 {
                     Material mat = new Material(shader);
+                    
+                    // Material의 HideFlags도 명시적으로 설정
+                    mat.hideFlags = HideFlags.None;
+                    
                     mat.color = config.markerColor;
                     if (shader.name == "Standard")
                     {
@@ -436,6 +432,10 @@ namespace ObjDropWatcher.ExportImport
         {
             GameObject line = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             line.name = "Line";
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            line.hideFlags = HideFlags.None;
+            
             line.transform.SetParent(parent.transform, false);
             
             // Cylinder는 기본적으로 Y축이 up이므로 회전 불필요
@@ -465,6 +465,10 @@ namespace ObjDropWatcher.ExportImport
                 if (shader != null)
                 {
                     Material mat = new Material(shader);
+                    
+                    // Material의 HideFlags도 명시적으로 설정
+                    mat.hideFlags = HideFlags.None;
+                    
                     mat.color = config.lineColor;
                     if (shader.name == "Standard")
                     {
@@ -489,23 +493,33 @@ namespace ObjDropWatcher.ExportImport
             Vector2 textSize = CalculateTextSize(text, config);
             
             // 패널 크기 = 텍스트 크기 + 여백 (양쪽)
-            float panelWidth = textSize.x + config.panelPadding * 2f;
-            float panelHeight = textSize.y + config.panelPadding * 2f;
+            // 텍스트가 길수록 더 많은 여백 확보하여 가독성 향상
+            float paddingMultiplier = Mathf.Max(1.0f, textSize.x / config.panelWidth); // 텍스트가 길수록 여백 증가
+            // 창 크기 확대를 위해 패딩과 크기에 추가 배율 적용
+            float sizeMultiplier = 1.5f; // 전체 크기 50% 증가 (테두리 제거로 더 크게)
+            float widthMultiplier = 1.5f; // 너비만 추가로 50% 더 증가 (텍스트가 삐져나오지 않도록 적절한 여유 확보)
+            float panelWidth = (textSize.x + config.panelPadding * 2f * paddingMultiplier) * sizeMultiplier * widthMultiplier;
+            float panelHeight = (textSize.y + config.panelPadding * 2f) * sizeMultiplier;
             
-            // 최소 크기 보장
-            panelWidth = Mathf.Max(panelWidth, config.panelWidth);
-            panelHeight = Mathf.Max(panelHeight, config.panelHeight);
+            // 기본 크기와 비교하여 크기가 변경되었는지 확인 (로그 제거)
+            float defaultWidth = config.panelWidth;
+            float defaultHeight = config.panelHeight;
+            bool sizeChanged = Mathf.Abs(panelWidth - defaultWidth) > 0.01f || Mathf.Abs(panelHeight - defaultHeight) > 0.01f;
             
             // 네모창 메인 (배경)
             GameObject panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
             panel.name = "Panel";
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            panel.hideFlags = HideFlags.None;
+            
             panel.transform.SetParent(parent.transform, false);
             
             // 네모창 위치 (선 끝 위)
             float panelY = config.lineHeight + panelHeight / 2f;
             panel.transform.localPosition = new Vector3(0, panelY, 0);
             
-            // 네모창이 카메라를 향하도록 회전 (Billboard 효과)
+            // 네모창 회전 설정
             panel.transform.localRotation = Quaternion.identity;
             
             // 네모창 크기 (동적으로 계산된 크기 사용)
@@ -554,6 +568,10 @@ namespace ObjDropWatcher.ExportImport
                 if (shader != null)
                 {
                     Material mat = new Material(shader);
+                    
+                    // Material의 HideFlags도 명시적으로 설정
+                    mat.hideFlags = HideFlags.None;
+                    
                     mat.color = config.panelBackgroundColor;
                     
                     // Standard shader인 경우에만 추가 설정
@@ -567,8 +585,8 @@ namespace ObjDropWatcher.ExportImport
                 }
             }
             
-            // 테두리 생성 (동적 크기 사용)
-            CreatePanelBorder(panel, tempConfig);
+            // 테두리 생성 제거 (사용자 요청에 따라)
+            // CreatePanelBorder(panel, tempConfig);
             
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(panel, "Create Panel");
@@ -578,7 +596,7 @@ namespace ObjDropWatcher.ExportImport
         }
         
         /// <summary>
-        /// 텍스트의 예상 크기를 계산합니다.
+        /// 텍스트의 예상 크기를 계산합니다. (텍스트 개수에 따라 동적 조정)
         /// </summary>
         private static Vector2 CalculateTextSize(string text, MemoDesignConfig config)
         {
@@ -599,19 +617,22 @@ namespace ObjDropWatcher.ExportImport
             
             // TextMesh의 문자 크기와 폰트 크기를 기반으로 크기 추정
             // characterSize는 월드 단위의 문자 크기
-            // fontSize는 폰트의 포인트 크기
-            float charWidth = config.characterSize * 0.6f; // 대략적인 문자 너비 (비율)
-            float charHeight = config.characterSize * 1.2f; // 대략적인 문자 높이 (비율)
+            // 한글/영문 혼합을 고려하여 더 정확한 계산
+            // 한글은 영문보다 약 1.2배 넓음
+            float charWidth = config.characterSize * 0.85f; // 문자 너비 (한글 고려하여 증가, 창 크기 확대)
+            float charHeight = config.characterSize * 1.5f; // 문자 높이 (줄 간격 포함, 창 크기 확대)
             
             // 텍스트 너비 = 가장 긴 줄의 문자 수 * 문자 너비
+            // 텍스트 개수에 따라 가로 사이즈를 충분히 확보
             float textWidth = maxLineLength * charWidth;
             
-            // 텍스트 높이 = 줄 수 * 문자 높이
-            float textHeight = lineCount * charHeight;
+            // 텍스트 높이 = 줄 수 * 문자 높이 + 줄 간격
+            float lineSpacing = config.characterSize * 0.2f; // 줄 간격 증가
+            float textHeight = lineCount * charHeight + (lineCount > 1 ? (lineCount - 1) * lineSpacing : 0f);
             
-            // 최소 크기 보장
-            textWidth = Mathf.Max(textWidth, 0.3f);
-            textHeight = Mathf.Max(textHeight, 0.2f);
+            // 최소 크기 보장 (너무 작으면 가독성 저하, 창 크기 확대)
+            textWidth = Mathf.Max(textWidth, 0.5f);
+            textHeight = Mathf.Max(textHeight, 0.3f);
             
             return new Vector2(textWidth, textHeight);
         }
@@ -640,6 +661,10 @@ namespace ObjDropWatcher.ExportImport
             {
                 GameObject border = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 border.name = $"Border_{borderNames[i]}";
+                
+                // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+                border.hideFlags = HideFlags.None;
+                
                 border.transform.SetParent(panel.transform, false);
                 border.transform.localPosition = positions[i];
                 border.transform.localScale = scales[i];
@@ -658,6 +683,10 @@ namespace ObjDropWatcher.ExportImport
                     if (shader != null)
                     {
                         Material mat = new Material(shader);
+                        
+                        // Material의 HideFlags도 명시적으로 설정
+                        mat.hideFlags = HideFlags.None;
+                        
                         mat.color = config.panelBorderColor;
                         if (shader.name == "Standard")
                         {
@@ -680,17 +709,30 @@ namespace ObjDropWatcher.ExportImport
         private static void CreateTextInPanel(GameObject panelObj, string text, MemoDesignConfig config)
         {
             GameObject textObject = new GameObject("Text");
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            textObject.hideFlags = HideFlags.None;
+            
             textObject.transform.SetParent(panelObj.transform, false);
             // 패널보다 훨씬 앞에 위치 (Z-fighting 방지)
             textObject.transform.localPosition = new Vector3(0, 0, -0.2f);
             textObject.transform.localRotation = Quaternion.identity;
-            textObject.transform.localScale = Vector3.one;
+            
+            // 패널 크기 정보 가져오기
+            Vector3 panelScale = panelObj.transform.localScale;
+            float panelWidth = panelScale.x;
+            float panelHeight = panelScale.y;
+            
+            // 부모 패널의 scale 영향을 상쇄하기 위해 텍스트의 localScale을 부모의 역수로 설정
+            // 패널이 (2.742, 0.750, 1)로 스케일되면, 텍스트는 (1/2.742, 1/0.750, 1)로 설정하여 원래 크기 유지
+            Vector3 inverseScale = new Vector3(1f / panelWidth, 1f / panelHeight, 1f);
+            textObject.transform.localScale = inverseScale;
             
             // TextMesh 컴포넌트 추가 및 디자인 설정 적용
             TextMesh textMesh = textObject.AddComponent<TextMesh>();
             textMesh.text = text;
             textMesh.fontSize = config.fontSize;
-            textMesh.characterSize = config.characterSize;
+            textMesh.characterSize = config.characterSize; // 원래 크기 사용 (패널 밖으로 나가지 않도록)
             textMesh.anchor = config.anchor;
             textMesh.alignment = config.alignment;
             textMesh.color = config.textColor;
@@ -710,6 +752,9 @@ namespace ObjDropWatcher.ExportImport
                 {
                     // 새 Material 인스턴스 생성 (원본 Material 수정 방지)
                     Material newMaterial = new Material(sharedMaterial);
+                    
+                    // Material의 HideFlags도 명시적으로 설정
+                    newMaterial.hideFlags = HideFlags.None;
                     
                     // 렌더 큐를 더 높게 설정하여 항상 앞에 렌더링
                     newMaterial.renderQueue = 4000; // Transparent보다 높은 큐

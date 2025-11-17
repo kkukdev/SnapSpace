@@ -991,15 +991,29 @@ namespace ObjDropWatcher.ExportImport
 
         /// <summary>
         /// GameObject를 생성하고 모든 정보를 복원합니다.
+        /// Transform, Components, Children을 한 곳에서 통합 처리합니다.
         /// </summary>
         public GameObject CreateGameObject()
         {
             GameObject obj = CreateBaseGameObject();
-            if (obj == null) return null;
+            if (obj == null)
+            {
+                Debug.LogError($"[CreateGameObject] CreateBaseGameObject 실패: {objectName}");
+                return null;
+            }
 
+            // GameObject 기본 설정 (이름, Material 등)
             SetupGameObject(obj);
+            
+            // Transform 적용
+            ApplyToGameObject(obj);
+            
+            // Components 복원
             RestoreAllComponents(obj);
+            
+            // Children 복원
             RestoreChildren(obj);
+            
             RegisterUndo(obj);
 
             return obj;
@@ -1010,12 +1024,24 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         GameObject CreateBaseGameObject()
         {
-            return objectType switch
+            // OBJ 파일 경로가 있으면 OBJ 파일로 처리 (objectType이 Empty여도)
+            bool hasObjPath = !string.IsNullOrEmpty(objFilePath) || 
+                              !string.IsNullOrEmpty(originalPath) || 
+                              !string.IsNullOrEmpty(retouchedPath);
+            
+            if (hasObjPath)
+            {
+                return LoadObjFile();
+            }
+            
+            GameObject result = objectType switch
             {
                 ObjectType.Primitive => CreatePrimitiveObject(),
                 ObjectType.ObjFile => LoadObjFile(),
                 _ => new GameObject(objectName)
             };
+            
+            return result;
         }
 
         /// <summary>
@@ -1039,15 +1065,18 @@ namespace ObjDropWatcher.ExportImport
 
             if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
             {
+                Debug.LogWarning($"[LoadObjFile] OBJ 파일을 찾을 수 없음: {objectName}, 경로: {objPath ?? "(null)"}");
                 return new GameObject(objectName);
             }
 
             try
             {
-                return RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
+                GameObject result = RuntimeObjLoader.LoadObj(objPath, preserveOriginalCoordinates: true);
+                return result;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.LogError($"[LoadObjFile] OBJ 파일 로드 실패: {objPath}, 오류: {ex.Message}");
                 return new GameObject(objectName);
             }
         }
@@ -1074,6 +1103,7 @@ namespace ObjDropWatcher.ExportImport
                 if (string.IsNullOrEmpty(actualOriginalPath) || !File.Exists(actualOriginalPath))
                 {
                     // Original을 찾지 못하면 기존 방식으로 단일 파일 로드
+                    Debug.LogWarning($"[LoadObjFileWithBothVersions] Original 파일을 찾지 못함, 단일 파일 로드로 전환: {objectName}");
                     return LoadObjFile();
                 }
                 
@@ -1081,6 +1111,7 @@ namespace ObjDropWatcher.ExportImport
                 string rootName = Path.GetFileNameWithoutExtension(actualOriginalPath);
                 if (string.IsNullOrEmpty(rootName))
                     rootName = objectName;
+                
                 GameObject rootGo = new GameObject($"{rootName}_Root");
                 #if UNITY_EDITOR
                 Undo.RegisterCreatedObjectUndo(rootGo, "Load OBJ Root");
@@ -1098,10 +1129,10 @@ namespace ObjDropWatcher.ExportImport
                 GameObject originalGo = LoadSingleMeshFile(actualOriginalPath);
                 if (originalGo == null)
                 {
+                    Debug.LogError($"[LoadObjFileWithBothVersions] Original OBJ 로드 실패: {actualOriginalPath}");
                     GameObject.DestroyImmediate(rootGo);
                     return null;
                 }
-                
                 originalGo.name = "Original";
                 originalGo.transform.SetParent(rootGo.transform, false);
                 originalGo.transform.localPosition = Vector3.zero;
@@ -1140,6 +1171,10 @@ namespace ObjDropWatcher.ExportImport
                         // Retouched OBJ를 안보이는 상태로 설정 (isUsingRetouched에 따라)
                         retouchedGo.SetActive(isUsingRetouched);
                     }
+                    else
+                    {
+                        Debug.LogWarning($"[LoadObjFileWithBothVersions] Retouched OBJ 로드 실패: {actualRetouchedPath}");
+                    }
                 }
                 
                 // 경로 정보 저장
@@ -1164,15 +1199,16 @@ namespace ObjDropWatcher.ExportImport
                     }
                     #endif
                 }
-                catch (System.Exception)
+                catch (System.Exception ex)
                 {
                     // 경로 저장 실패 시 무시
+                    Debug.LogWarning($"[LoadObjFileWithBothVersions] 경로 저장 실패: {ex.Message}");
                 }
-                
                 return rootGo;
             }
             catch (Exception ex)
             {
+                Debug.LogError($"[LoadObjFileWithBothVersions] 오류 발생: {ex.Message}\n{ex.StackTrace}");
                 #if UNITY_EDITOR
                 EditorUtility.DisplayDialog("로드 오류", $"파일 로드 중 오류가 발생했습니다:\n{ex.Message}", "OK");
                 #endif
@@ -1531,7 +1567,8 @@ namespace ObjDropWatcher.ExportImport
             }
             #endif
             
-            ApplyToGameObject(obj);
+            // Note: Transform 적용은 CreateGameObject()에서 직접 호출하므로
+            // SetupGameObject()에서는 이름과 Material 설정만 수행
         }
 
         /// <summary>
@@ -1663,21 +1700,61 @@ namespace ObjDropWatcher.ExportImport
         public void RestoreChildrenToParent(GameObject parent)
         {
             if (parent == null || children == null || children.Count == 0)
+            {
                 return;
+            }
 
             foreach (var childData in children)
             {
                 try
                 {
+                    // 메모 관련 children은 JSON에서 복원하지 않음 (memos.json에서 생성됨)
+                    // 메모는 이름이 "Memo_"로 시작하거나 TextMesh 컴포넌트를 가진 경우
+                    bool isMemoChild = childData.objectName.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase);
+                    if (!isMemoChild && childData.components != null)
+                    {
+                        foreach (var compData in childData.components)
+                        {
+                            if (compData.componentType != null && 
+                                (compData.componentType.Contains("TextMesh") || 
+                                 compData.componentType.Contains("UnityEngine.TextMesh")))
+                            {
+                                isMemoChild = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (isMemoChild)
+                    {
+                        continue;
+                    }
+                    
+                    // 이미 같은 이름의 child가 존재하는지 확인
+                    // LoadObjFileWithBothVersions()에서 이미 "Original", "Retouched" 등을 생성했을 수 있음
+                    Transform existingChild = parent.transform.Find(childData.objectName);
+                    if (existingChild != null)
+                    {
+                        // 이미 존재하는 경우 Transform만 적용
+                        childData.ApplyToGameObject(existingChild.gameObject);
+                        continue;
+                    }
+
+                    // 존재하지 않는 경우 새로 생성
                     GameObject child = childData.CreateGameObject();
                     if (child != null)
                     {
                         child.transform.SetParent(parent.transform, false);
                     }
+                    else
+                    {
+                        Debug.LogError($"[RestoreChildrenToParent] Child 생성 실패: {childData.objectName}, parent: {parent.name}");
+                    }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     // 자식 복원 실패 시 건너뛰기
+                    Debug.LogError($"[RestoreChildrenToParent] Child 복원 중 오류: {childData.objectName}, parent: {parent.name}, 오류: {ex.Message}");
                 }
             }
         }
@@ -1693,10 +1770,16 @@ namespace ObjDropWatcher.ExportImport
             }
 
             // createNew가 true일 때는 항상 새로 생성 (같은 모델을 여러 번 import 가능하도록)
-            // OBJ 파일 경로 업데이트 (필요한 경우)
-            if (!UpdateObjFilePathIfNeeded())
+            // OBJ 파일 경로 업데이트 (필요한 경우만 - 루트 오브젝트나 OBJ 파일을 가진 오브젝트만)
+            bool needsPathUpdate = !string.IsNullOrEmpty(objFilePath) || 
+                                   !string.IsNullOrEmpty(originalPath) || 
+                                   !string.IsNullOrEmpty(retouchedPath) ||
+                                   objectType == ObjectType.ObjFile;
+            
+            if (needsPathUpdate && !UpdateObjFilePathIfNeeded())
             {
                 // 경로를 찾지 못한 경우 null 반환 (ApplyCollection에서 처리)
+                Debug.LogError($"[FindOrCreateGameObject] 경로 업데이트 실패: {objectName}");
                 return null;
             }
 
@@ -1719,6 +1802,10 @@ namespace ObjDropWatcher.ExportImport
                     newObj.name = uniqueName;
                 }
             }
+            else
+            {
+                Debug.LogError($"[FindOrCreateGameObject] GameObject 생성 실패: {objectName}");
+            }
 
             return newObj;
         }
@@ -1729,8 +1816,15 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         bool UpdateObjFilePathIfNeeded()
         {
-            if (objectType != ObjectType.ObjFile)
-                return true; // OBJ 파일이 아니면 경로 업데이트 불필요
+            // OBJ 파일 경로가 없으면 경로 업데이트 불필요
+            bool hasObjPath = !string.IsNullOrEmpty(objFilePath) || 
+                              !string.IsNullOrEmpty(originalPath) || 
+                              !string.IsNullOrEmpty(retouchedPath);
+            
+            if (!hasObjPath && objectType != ObjectType.ObjFile)
+            {
+                return true; // OBJ 파일 경로가 없고 ObjFile 타입도 아니면 경로 업데이트 불필요
+            }
 
             // 이미 경로가 있고 파일이 존재하면 OK
             if (!string.IsNullOrEmpty(objFilePath) && File.Exists(objFilePath))
@@ -1780,11 +1874,13 @@ namespace ObjDropWatcher.ExportImport
                 }
                 else
                 {
+                    Debug.LogError($"[UpdateObjFilePathIfNeeded] 사용자가 지정한 경로가 유효하지 않음: {selectedPath ?? "(null)"}");
                     return false;
                 }
             }
             #endif
 
+            Debug.LogWarning($"[UpdateObjFilePathIfNeeded] 경로를 찾지 못함: {objectName}");
             return false; // 경로를 찾지 못함
         }
 
@@ -1814,10 +1910,487 @@ namespace ObjDropWatcher.ExportImport
             if (!primitiveTypeEnum.HasValue)
                 return new GameObject(objectName);
 
-            var primitive = GameObject.CreatePrimitive(primitiveTypeEnum.Value);
-            SetPrimitiveHideFlags(primitive);
+            GameObject primitive = null;
+            
+            // Unity 6에서는 CreatePrimitive가 직렬화 문제를 일으킬 수 있으므로
+            // Unity 버전을 확인하여 처리 방식 결정
+            bool useCreatePrimitive = true;
+            
+            #if UNITY_EDITOR
+            // Unity 버전 파싱 (예: "6000.0.60f1" -> 6000)
+            string unityVersion = Application.unityVersion;
+            if (!string.IsNullOrEmpty(unityVersion))
+            {
+                string[] versionParts = unityVersion.Split('.');
+                if (versionParts.Length > 0 && int.TryParse(versionParts[0], out int majorVersion))
+                {
+                    // Unity 6 이상에서는 CreatePrimitive가 직렬화 문제를 일으킬 수 있음
+                    if (majorVersion >= 6000)
+                    {
+                        useCreatePrimitive = false;
+                    }
+                }
+            }
+            #endif
+
+            if (useCreatePrimitive)
+            {
+                // Unity 5 이하에서는 CreatePrimitive 사용
+                try
+                {
+                    primitive = GameObject.CreatePrimitive(primitiveTypeEnum.Value);
+                    
+                    // 즉시 HideFlags 설정 (Unity가 직렬화를 시도하기 전에)
+                    #if UNITY_EDITOR
+                    if (primitive != null)
+                    {
+                        primitive.hideFlags = HideFlags.None;
+                    }
+                    #endif
+                    
+                    // 이름 설정
+                    if (primitive != null && !string.IsNullOrEmpty(objectName))
+                    {
+                        primitive.name = objectName;
+                    }
+                    
+                    // 추가 HideFlags 설정 (Mesh, Material 등)
+                    SetPrimitiveHideFlags(primitive);
+                }
+                catch (System.Exception ex)
+                {
+                    // CreatePrimitive 실패 시 수동 생성으로 전환
+                    Debug.LogWarning($"[CreatePrimitiveObject] CreatePrimitive 실패: {primitiveType}, 오류: {ex.Message}");
+                    useCreatePrimitive = false;
+                }
+            }
+            
+            // Unity 6이거나 CreatePrimitive 실패 시 수동 생성
+            if (!useCreatePrimitive || primitive == null)
+            {
+                primitive = CreatePrimitiveMeshManually(primitiveTypeEnum.Value);
+                if (primitive != null && !string.IsNullOrEmpty(objectName))
+                {
+                    primitive.name = objectName;
+                }
+            }
             
             return primitive;
+        }
+        
+        /// <summary>
+        /// Unity 6에서 CreatePrimitive가 직렬화 문제를 일으킬 때 사용하는 수동 primitive 생성 메서드
+        /// </summary>
+        GameObject CreatePrimitiveMeshManually(PrimitiveType primitiveType)
+        {
+            GameObject obj = new GameObject(objectName);
+            #if UNITY_EDITOR
+            obj.hideFlags = HideFlags.None;
+            #endif
+            
+            MeshFilter meshFilter = obj.AddComponent<MeshFilter>();
+            MeshRenderer meshRenderer = obj.AddComponent<MeshRenderer>();
+            
+            Mesh mesh = null;
+            Collider collider = null;
+            
+            switch (primitiveType)
+            {
+                case PrimitiveType.Sphere:
+                    mesh = CreateSphereMesh();
+                    collider = obj.AddComponent<SphereCollider>();
+                    break;
+                case PrimitiveType.Cube:
+                    mesh = CreateCubeMesh();
+                    collider = obj.AddComponent<BoxCollider>();
+                    break;
+                case PrimitiveType.Cylinder:
+                    mesh = CreateCylinderMesh();
+                    var capsuleCollider = obj.AddComponent<CapsuleCollider>();
+                    collider = capsuleCollider;
+                    if (capsuleCollider != null)
+                    {
+                        // Cylinder는 CapsuleCollider를 사용하되 방향 조정
+                        capsuleCollider.direction = 1; // Y축
+                    }
+                    break;
+                case PrimitiveType.Capsule:
+                    mesh = CreateCapsuleMesh();
+                    collider = obj.AddComponent<CapsuleCollider>();
+                    break;
+                case PrimitiveType.Plane:
+                    mesh = CreatePlaneMesh();
+                    collider = obj.AddComponent<MeshCollider>();
+                    break;
+                default:
+                    // 알 수 없는 타입은 빈 GameObject 반환
+                    return obj;
+            }
+            
+            if (mesh != null)
+            {
+                meshFilter.sharedMesh = mesh;
+                #if UNITY_EDITOR
+                mesh.hideFlags = HideFlags.None;
+                #endif
+            }
+            
+            // 기본 Material 할당
+            Material material = new Material(Shader.Find("Standard"));
+            meshRenderer.sharedMaterial = material;
+            #if UNITY_EDITOR
+            material.hideFlags = HideFlags.None;
+            #endif
+            
+            return obj;
+        }
+        
+        /// <summary>
+        /// Sphere 메시를 수동으로 생성합니다.
+        /// </summary>
+        Mesh CreateSphereMesh()
+        {
+            // 간단한 구면 메시 생성 (세그먼트 수: 16)
+            int segments = 16;
+            int rings = 16;
+            
+            Mesh mesh = new Mesh();
+            mesh.name = "Sphere";
+            
+            List<Vector3> vertices = new List<Vector3>();
+            List<int> triangles = new List<int>();
+            List<Vector2> uvs = new List<Vector2>();
+            
+            // 정점 생성
+            for (int ring = 0; ring <= rings; ring++)
+            {
+                float phi = Mathf.PI * ring / rings;
+                float y = Mathf.Cos(phi);
+                float radius = Mathf.Sin(phi);
+                
+                for (int seg = 0; seg <= segments; seg++)
+                {
+                    float theta = 2f * Mathf.PI * seg / segments;
+                    float x = radius * Mathf.Cos(theta);
+                    float z = radius * Mathf.Sin(theta);
+                    
+                    vertices.Add(new Vector3(x * 0.5f, y * 0.5f, z * 0.5f));
+                    uvs.Add(new Vector2((float)seg / segments, (float)ring / rings));
+                }
+            }
+            
+            // 삼각형 생성
+            for (int ring = 0; ring < rings; ring++)
+            {
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    int current = ring * (segments + 1) + seg;
+                    int next = current + segments + 1;
+                    
+                    triangles.Add(current);
+                    triangles.Add(next);
+                    triangles.Add(current + 1);
+                    
+                    triangles.Add(current + 1);
+                    triangles.Add(next);
+                    triangles.Add(next + 1);
+                }
+            }
+            
+            mesh.vertices = vertices.ToArray();
+            mesh.triangles = triangles.ToArray();
+            mesh.uv = uvs.ToArray();
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
+        }
+        
+        /// <summary>
+        /// Cube 메시를 수동으로 생성합니다.
+        /// </summary>
+        Mesh CreateCubeMesh()
+        {
+            Mesh mesh = new Mesh();
+            mesh.name = "Cube";
+            
+            // 8개 정점 (각 면마다 4개씩, 총 24개 정점 - 중복 허용)
+            Vector3[] vertices = new Vector3[]
+            {
+                // 앞면
+                new Vector3(-0.5f, -0.5f, 0.5f), new Vector3(0.5f, -0.5f, 0.5f),
+                new Vector3(0.5f, 0.5f, 0.5f), new Vector3(-0.5f, 0.5f, 0.5f),
+                // 뒷면
+                new Vector3(0.5f, -0.5f, -0.5f), new Vector3(-0.5f, -0.5f, -0.5f),
+                new Vector3(-0.5f, 0.5f, -0.5f), new Vector3(0.5f, 0.5f, -0.5f),
+                // 위면
+                new Vector3(-0.5f, 0.5f, 0.5f), new Vector3(0.5f, 0.5f, 0.5f),
+                new Vector3(0.5f, 0.5f, -0.5f), new Vector3(-0.5f, 0.5f, -0.5f),
+                // 아래면
+                new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(0.5f, -0.5f, -0.5f),
+                new Vector3(0.5f, -0.5f, 0.5f), new Vector3(-0.5f, -0.5f, 0.5f),
+                // 오른쪽면
+                new Vector3(0.5f, -0.5f, 0.5f), new Vector3(0.5f, -0.5f, -0.5f),
+                new Vector3(0.5f, 0.5f, -0.5f), new Vector3(0.5f, 0.5f, 0.5f),
+                // 왼쪽면
+                new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(-0.5f, -0.5f, 0.5f),
+                new Vector3(-0.5f, 0.5f, 0.5f), new Vector3(-0.5f, 0.5f, -0.5f)
+            };
+            
+            // UV 좌표
+            Vector2[] uvs = new Vector2[]
+            {
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1)
+            };
+            
+            // 삼각형 인덱스 (각 면마다 2개 삼각형)
+            int[] triangles = new int[]
+            {
+                0, 2, 1, 0, 3, 2,      // 앞면
+                4, 6, 5, 4, 7, 6,      // 뒷면
+                8, 10, 9, 8, 11, 10,   // 위면
+                12, 14, 13, 12, 15, 14, // 아래면
+                16, 18, 17, 16, 19, 18, // 오른쪽면
+                20, 22, 21, 20, 23, 22  // 왼쪽면
+            };
+            
+            mesh.vertices = vertices;
+            mesh.uv = uvs;
+            mesh.triangles = triangles;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
+        }
+        
+        /// <summary>
+        /// Cylinder 메시를 수동으로 생성합니다.
+        /// </summary>
+        Mesh CreateCylinderMesh()
+        {
+            int segments = 16;
+            float height = 2f;
+            float radius = 0.5f;
+            
+            Mesh mesh = new Mesh();
+            mesh.name = "Cylinder";
+            
+            List<Vector3> vertices = new List<Vector3>();
+            List<int> triangles = new List<int>();
+            List<Vector2> uvs = new List<Vector2>();
+            
+            // 상단 원
+            vertices.Add(new Vector3(0, height / 2f, 0));
+            uvs.Add(new Vector2(0.5f, 0.5f));
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = 2f * Mathf.PI * i / segments;
+                float x = Mathf.Cos(angle) * radius;
+                float z = Mathf.Sin(angle) * radius;
+                vertices.Add(new Vector3(x, height / 2f, z));
+                uvs.Add(new Vector2(0.5f + x / (2f * radius), 0.5f + z / (2f * radius)));
+            }
+            
+            // 하단 원
+            vertices.Add(new Vector3(0, -height / 2f, 0));
+            uvs.Add(new Vector2(0.5f, 0.5f));
+            int bottomCenterIndex = vertices.Count - 1;
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = 2f * Mathf.PI * i / segments;
+                float x = Mathf.Cos(angle) * radius;
+                float z = Mathf.Sin(angle) * radius;
+                vertices.Add(new Vector3(x, -height / 2f, z));
+                uvs.Add(new Vector2(0.5f + x / (2f * radius), 0.5f + z / (2f * radius)));
+            }
+            
+            // 측면 정점
+            for (int i = 0; i <= segments; i++)
+            {
+                float angle = 2f * Mathf.PI * i / segments;
+                float x = Mathf.Cos(angle) * radius;
+                float z = Mathf.Sin(angle) * radius;
+                vertices.Add(new Vector3(x, height / 2f, z));
+                uvs.Add(new Vector2((float)i / segments, 1f));
+                vertices.Add(new Vector3(x, -height / 2f, z));
+                uvs.Add(new Vector2((float)i / segments, 0f));
+            }
+            
+            // 상단 원 삼각형
+            for (int i = 1; i <= segments; i++)
+            {
+                triangles.Add(0);
+                triangles.Add(i + 1);
+                triangles.Add(i);
+            }
+            
+            // 하단 원 삼각형
+            int bottomStart = segments + 2;
+            for (int i = 1; i <= segments; i++)
+            {
+                triangles.Add(bottomCenterIndex);
+                triangles.Add(bottomStart + i - 1);
+                triangles.Add(bottomStart + i);
+            }
+            
+            // 측면 삼각형
+            int sideStart = bottomStart + segments + 1;
+            for (int i = 0; i < segments; i++)
+            {
+                int baseIndex = sideStart + i * 2;
+                triangles.Add(baseIndex);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 2);
+                triangles.Add(baseIndex + 1);
+                triangles.Add(baseIndex + 3);
+            }
+            
+            mesh.vertices = vertices.ToArray();
+            mesh.triangles = triangles.ToArray();
+            mesh.uv = uvs.ToArray();
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
+        }
+        
+        /// <summary>
+        /// Capsule 메시를 수동으로 생성합니다.
+        /// </summary>
+        Mesh CreateCapsuleMesh()
+        {
+            // Capsule은 상하 반구 + 중간 실린더로 구성
+            int segments = 16;
+            float height = 2f;
+            float radius = 0.5f;
+            
+            Mesh mesh = new Mesh();
+            mesh.name = "Capsule";
+            
+            List<Vector3> vertices = new List<Vector3>();
+            List<int> triangles = new List<int>();
+            List<Vector2> uvs = new List<Vector2>();
+            
+            // 상단 반구
+            for (int ring = 0; ring <= segments / 2; ring++)
+            {
+                float phi = Mathf.PI / 2f * ring / (segments / 2);
+                float y = Mathf.Sin(phi) * radius + height / 2f;
+                float ringRadius = Mathf.Cos(phi) * radius;
+                
+                for (int seg = 0; seg <= segments; seg++)
+                {
+                    float theta = 2f * Mathf.PI * seg / segments;
+                    float x = Mathf.Cos(theta) * ringRadius;
+                    float z = Mathf.Sin(theta) * ringRadius;
+                    vertices.Add(new Vector3(x, y, z));
+                    uvs.Add(new Vector2((float)seg / segments, (float)ring / (segments / 2)));
+                }
+            }
+            
+            // 하단 반구
+            for (int ring = 0; ring <= segments / 2; ring++)
+            {
+                float phi = Mathf.PI / 2f * (1f + (float)ring / (segments / 2));
+                float y = Mathf.Sin(phi) * radius - height / 2f;
+                float ringRadius = Mathf.Cos(phi) * radius;
+                
+                for (int seg = 0; seg <= segments; seg++)
+                {
+                    float theta = 2f * Mathf.PI * seg / segments;
+                    float x = Mathf.Cos(theta) * ringRadius;
+                    float z = Mathf.Sin(theta) * ringRadius;
+                    vertices.Add(new Vector3(x, y, z));
+                    uvs.Add(new Vector2((float)seg / segments, 1f - (float)ring / (segments / 2)));
+                }
+            }
+            
+            // 삼각형 생성
+            for (int ring = 0; ring < segments / 2; ring++)
+            {
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    int current = ring * (segments + 1) + seg;
+                    int next = current + segments + 1;
+                    
+                    triangles.Add(current);
+                    triangles.Add(next);
+                    triangles.Add(current + 1);
+                    triangles.Add(current + 1);
+                    triangles.Add(next);
+                    triangles.Add(next + 1);
+                }
+            }
+            
+            // 하단 반구 삼각형
+            int bottomStart = (segments / 2 + 1) * (segments + 1);
+            for (int ring = 0; ring < segments / 2; ring++)
+            {
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    int current = bottomStart + ring * (segments + 1) + seg;
+                    int next = current + segments + 1;
+                    
+                    triangles.Add(current);
+                    triangles.Add(current + 1);
+                    triangles.Add(next);
+                    triangles.Add(current + 1);
+                    triangles.Add(next + 1);
+                    triangles.Add(next);
+                }
+            }
+            
+            mesh.vertices = vertices.ToArray();
+            mesh.triangles = triangles.ToArray();
+            mesh.uv = uvs.ToArray();
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
+        }
+        
+        /// <summary>
+        /// Plane 메시를 수동으로 생성합니다.
+        /// </summary>
+        Mesh CreatePlaneMesh()
+        {
+            Mesh mesh = new Mesh();
+            mesh.name = "Plane";
+            
+            // Plane은 10x10 단위 크기
+            float size = 10f;
+            
+            Vector3[] vertices = new Vector3[]
+            {
+                new Vector3(-size / 2f, 0, -size / 2f),
+                new Vector3(size / 2f, 0, -size / 2f),
+                new Vector3(size / 2f, 0, size / 2f),
+                new Vector3(-size / 2f, 0, size / 2f)
+            };
+            
+            Vector2[] uvs = new Vector2[]
+            {
+                new Vector2(0, 0),
+                new Vector2(1, 0),
+                new Vector2(1, 1),
+                new Vector2(0, 1)
+            };
+            
+            int[] triangles = new int[] { 0, 2, 1, 0, 3, 2 };
+            
+            mesh.vertices = vertices;
+            mesh.uv = uvs;
+            mesh.triangles = triangles;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            
+            return mesh;
         }
 
         /// <summary>
@@ -1838,6 +2411,7 @@ namespace ObjDropWatcher.ExportImport
 
         /// <summary>
         /// Quad 오브젝트를 생성합니다. (Unity는 Quad를 CreatePrimitive로 생성할 수 없음)
+        /// Unity 6에서는 내장 리소스 접근이 실패할 수 있으므로 수동 생성 사용
         /// </summary>
         GameObject CreateQuadObject()
         {
@@ -1845,22 +2419,58 @@ namespace ObjDropWatcher.ExportImport
             var meshFilter = quad.AddComponent<MeshFilter>();
             var meshRenderer = quad.AddComponent<MeshRenderer>();
 
-            // Unity의 기본 Quad 메시 사용
-            var quadMesh = Resources.GetBuiltinResource<Mesh>("Quad");
-            if (quadMesh != null)
+            // Unity 6 (6000.0.0 이상)에서는 GetBuiltinResource가 실패할 수 있으므로
+            // Unity 버전을 확인하여 처리 방식 결정
+            bool useBuiltinResource = true;
+            
+            #if UNITY_EDITOR
+            // Unity 버전 파싱 (예: "6000.0.60f1" -> 6000)
+            string unityVersion = Application.unityVersion;
+            if (!string.IsNullOrEmpty(unityVersion))
             {
-                meshFilter.sharedMesh = quadMesh;
-                #if UNITY_EDITOR
-                quadMesh.hideFlags = HideFlags.None;
-                #endif
+                string[] versionParts = unityVersion.Split('.');
+                if (versionParts.Length > 0 && int.TryParse(versionParts[0], out int majorVersion))
+                {
+                    // Unity 6 이상에서는 내장 리소스 접근이 불안정할 수 있음
+                    if (majorVersion >= 6000)
+                    {
+                        useBuiltinResource = false;
+                    }
+                }
             }
-            else
+            #endif
+
+            Mesh quadMesh = null;
+            
+            if (useBuiltinResource)
             {
-                // Quad 메시를 찾을 수 없으면 수동 생성
+                // Unity 5 이하에서는 내장 리소스 사용 시도
+                try
+                {
+                    quadMesh = Resources.GetBuiltinResource<Mesh>("Quad");
+                }
+                catch (System.Exception)
+                {
+                    // 내장 리소스 접근 실패 시 수동 생성으로 전환
+                    useBuiltinResource = false;
+                }
+            }
+            
+            // 내장 리소스를 사용할 수 없는 경우 수동 생성
+            if (!useBuiltinResource || quadMesh == null)
+            {
+                // Quad 메시를 수동 생성 (Unity 6 호환)
                 var createdMesh = CreateQuadMesh();
                 meshFilter.sharedMesh = createdMesh;
                 #if UNITY_EDITOR
                 createdMesh.hideFlags = HideFlags.None;
+                #endif
+            }
+            else
+            {
+                meshFilter.sharedMesh = quadMesh;
+                #if UNITY_EDITOR
+                quadMesh.hideFlags = HideFlags.None;
                 #endif
             }
 
@@ -1917,10 +2527,19 @@ namespace ObjDropWatcher.ExportImport
 
         public void ApplyToGameObject(GameObject obj)
         {
-            if (obj == null) return;
+            if (obj == null)
+            {
+                Debug.LogError($"[ApplyToGameObject] GameObject가 null: {objectName}");
+                return;
+            }
+            
+            // Transform 적용
             obj.transform.localPosition = GetPosition();
             obj.transform.localEulerAngles = GetRotation();
             obj.transform.localScale = GetScale();
+            
+            // Note: Children은 CreateGameObject()에서 이미 복원되므로 여기서는 복원하지 않음
+            // ApplyToGameObject()는 주로 Import 시 Transform만 적용하는 용도로 사용됨
         }
 
         /// <summary>
@@ -1985,8 +2604,13 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         public static ImportResult ApplyCollection(ObjectTransformCollection collection, bool createNew, string logPrefix)
         {
+            string prefix = string.IsNullOrEmpty(logPrefix) ? "[Import]" : logPrefix;
+            
             if (collection == null || collection.objects == null)
+            {
+                Debug.LogWarning($"{prefix} Collection이 null이거나 objects가 null입니다.");
                 return new ImportResult { successCount = 0, failCount = 0 };
+            }
 
             int successCount = 0;
             int failCount = 0;
@@ -1994,9 +2618,15 @@ namespace ObjDropWatcher.ExportImport
 
             foreach (var data in collection.objects)
             {
-                // OBJ 파일만 처리 (다른 타입은 건너뛰기)
-                if (data.objectType != ObjectType.ObjFile)
+                // OBJ 파일 경로가 있거나 ObjFile 타입인 경우 처리
+                // (export 파일에서 objectType이 Empty(3)이지만 objFilePath가 있는 경우 처리)
+                bool hasObjPath = !string.IsNullOrEmpty(data.objFilePath) || 
+                                  !string.IsNullOrEmpty(data.originalPath) || 
+                                  !string.IsNullOrEmpty(data.retouchedPath);
+                
+                if (data.objectType != ObjectType.ObjFile && !hasObjPath)
                 {
+                    // OBJ 파일 경로가 없고 ObjFile 타입도 아니면 건너뛰기
                     skippedCount++;
                     continue;
                 }
@@ -2005,15 +2635,18 @@ namespace ObjDropWatcher.ExportImport
                 
                 if (obj != null)
                 {
-                    data.ApplyToGameObject(obj);
+                    // CreateGameObject()에서 이미 Transform과 Children이 모두 적용되므로
+                    // ApplyToGameObject()를 별도로 호출할 필요 없음
                     successCount++;
                 }
                 else
                 {
+                    Debug.LogError($"{prefix} [GameObject 생성 실패] {data.objectName}");
                     failCount++;
                 }
             }
 
+            Debug.Log($"{prefix} Import 완료: 성공 {successCount}개, 실패 {failCount}개, 건너뛰기 {skippedCount}개");
             return new ImportResult { successCount = successCount, failCount = failCount };
         }
 

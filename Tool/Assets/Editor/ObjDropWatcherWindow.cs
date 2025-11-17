@@ -170,47 +170,62 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     {
         EditorGUILayout.Space();
         
-        // DontSaveInEditor 플래그가 있는 config는 ObjectField에서 문제를 일으킬 수 있으므로
-        // 안전하게 처리
+        // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
+        // 매 프레임 config에 접근하면 Unity가 직렬화를 시도하여 assertion 오류 발생
         WatchConfig safeConfig = null;
-        bool hasDontSaveFlag = false;
+        bool isConfigSerializable = false;
+        string configName = null;
         
-        if (config != null)
+        // config가 null이 아니면 직렬화 가능한지 확인 (하지만 config에 직접 접근하지 않음)
+        if (!string.IsNullOrEmpty(_configAssetPath))
         {
             try
             {
-                // Unity 객체가 파괴되었는지 확인
-                if (!config.Equals(null))
+                // 경로를 통해 안전하게 로드하여 체크
+                WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                if (tempConfig != null)
                 {
-                    // DontSaveInEditor 플래그 확인
-                    HideFlags flags = config.hideFlags;
-                    hasDontSaveFlag = (flags & HideFlags.DontSaveInEditor) != 0;
+                    // 직렬화 가능한지 확인
+                    isConfigSerializable = IsConfigSerializable(tempConfig);
                     
-                    if (!hasDontSaveFlag)
+                    if (isConfigSerializable)
                     {
-                        // 플래그가 없으면 안전하게 사용 가능
-                        safeConfig = config;
+                        // 직렬화 가능하면 안전하게 사용 가능
+                        safeConfig = tempConfig;
+                        configName = tempConfig.name;
+                    }
+                    else
+                    {
+                        // 직렬화 불가능하면 이름만 가져오기
+                        try
+                        {
+                            configName = tempConfig.name;
+                        }
+                        catch (System.Exception)
+                        {
+                            configName = System.IO.Path.GetFileNameWithoutExtension(_configAssetPath);
+                        }
                     }
                 }
             }
             catch (System.Exception)
             {
-                // config 접근 실패 시 무시
-                safeConfig = null;
+                // 로드 실패 시 경로에서 이름 추출
+                configName = System.IO.Path.GetFileNameWithoutExtension(_configAssetPath);
             }
         }
         
         WatchConfig newConfig = null;
         bool configChanged = false;
         
-        if (hasDontSaveFlag && config != null)
+        if (!isConfigSerializable && !string.IsNullOrEmpty(_configAssetPath))
         {
-            // DontSaveInEditor 플래그가 있으면 ObjectField 대신 텍스트로만 표시
+            // 직렬화 불가능한 플래그가 있으면 ObjectField 대신 텍스트로만 표시
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("WatchConfig", GUILayout.Width(EditorGUIUtility.labelWidth));
-            EditorGUILayout.LabelField(config.name, EditorStyles.label);
+            EditorGUILayout.LabelField(configName ?? "(직렬화 불가능)", EditorStyles.label);
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.HelpBox("현재 WatchConfig는 DontSaveInEditor 플래그가 설정되어 있어 ObjectField에서 표시할 수 없습니다.", MessageType.Info);
+            EditorGUILayout.HelpBox("현재 WatchConfig는 직렬화 불가능한 HideFlags가 설정되어 있어 ObjectField에서 표시할 수 없습니다.", MessageType.Info);
         }
         else
         {
@@ -234,14 +249,32 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // 단, 유효성 검사를 통해 안전하게 처리
             try
             {
-                if (newConfig != null && AssetDatabase.Contains(newConfig))
+                if (newConfig != null)
                 {
-                    config = newConfig;
-                    // asset path도 업데이트
-                    string assetPath = AssetDatabase.GetAssetPath(newConfig);
-                    if (!string.IsNullOrEmpty(assetPath))
+                    // 새로운 config가 직렬화 가능한지 확인
+                    // ObjectField에서 반환된 config도 HideFlags가 변경되었을 수 있음
+                    if (IsConfigSerializable(newConfig) && AssetDatabase.Contains(newConfig))
                     {
-                        _configAssetPath = assetPath;
+                        config = newConfig;
+                        // asset path도 업데이트
+                        string assetPath = AssetDatabase.GetAssetPath(newConfig);
+                        if (!string.IsNullOrEmpty(assetPath))
+                        {
+                            _configAssetPath = assetPath;
+                        }
+                    }
+                    else
+                    {
+                        // 직렬화 불가능한 config는 경로만 저장
+                        if (AssetDatabase.Contains(newConfig))
+                        {
+                            string assetPath = AssetDatabase.GetAssetPath(newConfig);
+                            if (!string.IsNullOrEmpty(assetPath))
+                            {
+                                _configAssetPath = assetPath;
+                            }
+                        }
+                        config = null;
                     }
                 }
                 else if (newConfig == null)
@@ -256,7 +289,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             }
         }
 
-        if (config != null)
+        // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
+        // 매 프레임 config에 접근하면 Unity가 직렬화를 시도하여 assertion 오류 발생
+        if (!string.IsNullOrEmpty(_configAssetPath))
         {
             // config 값들을 안전하게 캐시하여 반복 접근 방지
             string cachedApiUrl = null;
@@ -266,11 +301,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             try
             {
-                // DontSaveInEditor 플래그가 있어도 값 읽기는 가능
-                cachedApiUrl = config.apiServerUrl;
-                cachedScanDebounce = config.scanDebounceMs;
-                cachedObjPatterns = config.objPatterns;
-                cachedUnitScale = config.unitScale;
+                // 경로를 통해 안전하게 로드 (직접 참조하지 않음)
+                WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                if (tempConfig != null)
+                {
+                    // 값 읽기 (읽기만 하면 일반적으로 문제 없음)
+                    cachedApiUrl = tempConfig.apiServerUrl;
+                    cachedScanDebounce = tempConfig.scanDebounceMs;
+                    cachedObjPatterns = tempConfig.objPatterns;
+                    cachedUnitScale = tempConfig.unitScale;
+                }
             }
             catch (System.Exception ex)
             {
@@ -292,15 +332,20 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             {
                 // GUI 이벤트 처리 중 직렬화를 피하기 위해 지연 실행
                 string apiUrlToSet = apiUrl;
+                string configPath = _configAssetPath; // 클로저를 위해 복사
                 EditorApplication.delayCall += () =>
                 {
                     try
                     {
-                        if (config != null)
+                        if (!string.IsNullOrEmpty(configPath))
                         {
-                            config.apiServerUrl = apiUrlToSet;
-                            MarkConfigDirty();
-                            Repaint();
+                            WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(configPath);
+                            if (tempConfig != null)
+                            {
+                                tempConfig.apiServerUrl = apiUrlToSet;
+                                MarkConfigDirty(tempConfig);
+                                Repaint();
+                            }
                         }
                     }
                     catch (System.Exception)
@@ -434,18 +479,23 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 int scanDebounceToSet = scanDebounce;
                 string objPatternsToSet = objPatterns;
                 float unitScaleToSet = unitScale;
+                string configPath = _configAssetPath; // 클로저를 위해 복사
                 
                 EditorApplication.delayCall += () =>
                 {
                     try
                     {
-                        if (config != null)
+                        if (!string.IsNullOrEmpty(configPath))
                         {
-                            config.scanDebounceMs = scanDebounceToSet;
-                            config.objPatterns = objPatternsToSet;
-                            config.unitScale = unitScaleToSet;
-                            MarkConfigDirty();
-                            Repaint();
+                            WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(configPath);
+                            if (tempConfig != null)
+                            {
+                                tempConfig.scanDebounceMs = scanDebounceToSet;
+                                tempConfig.objPatterns = objPatternsToSet;
+                                tempConfig.unitScale = unitScaleToSet;
+                                MarkConfigDirty(tempConfig);
+                                Repaint();
+                            }
                         }
                     }
                     catch (System.Exception)
@@ -547,7 +597,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
 
     void RefreshGroupList()
     {
-        if (config == null)
+        // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
+        if (string.IsNullOrEmpty(_configAssetPath))
         {
             ScheduleRepaint();
             return;
@@ -555,9 +606,15 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         
         // config 접근을 안전하게 처리
         string apiUrl = null;
+        string groupsEndpointPath = "/api/v1/groups/";
         try
         {
-            apiUrl = config.apiServerUrl;
+            WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+            if (tempConfig != null)
+            {
+                apiUrl = tempConfig.apiServerUrl;
+                groupsEndpointPath = tempConfig.groupsEndpoint ?? "/api/v1/groups/";
+            }
         }
         catch (System.Exception)
         {
@@ -593,8 +650,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // 또는 CertificateHandler를 설정하여 HTTP 연결 허용 (보안 위험, 개발용)
         }
         
-        // WatchConfig에서 엔드포인트 경로 가져오기
-        string groupsEndpointPath = config.groupsEndpoint ?? "/api/v1/groups/";
+        // WatchConfig에서 엔드포인트 경로 가져오기 (이미 위에서 로드됨)
         if (!groupsEndpointPath.StartsWith("/"))
             groupsEndpointPath = "/" + groupsEndpointPath;
         
@@ -664,7 +720,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     
     void RefreshGroupScans(int groupId)
     {
-        if (config == null)
+        // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
+        if (string.IsNullOrEmpty(_configAssetPath))
         {
             ScheduleRepaint();
             return;
@@ -672,9 +729,15 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         
         // config 접근을 안전하게 처리
         string apiUrl = null;
+        string groupScansEndpointPath = "/api/v1/groups/{group_id}/scans";
         try
         {
-            apiUrl = config.apiServerUrl;
+            WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+            if (tempConfig != null)
+            {
+                apiUrl = tempConfig.apiServerUrl;
+                groupScansEndpointPath = tempConfig.groupScansEndpoint ?? "/api/v1/groups/{group_id}/scans";
+            }
         }
         catch (System.Exception)
         {
@@ -704,8 +767,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         // HTTP URL인 경우 Unity의 보안 설정 확인
         bool isHttp = apiUrl.StartsWith("http://", System.StringComparison.OrdinalIgnoreCase);
         
-        // WatchConfig에서 엔드포인트 경로 가져오기
-        string groupScansEndpointPath = config.groupScansEndpoint ?? "/api/v1/groups/{group_id}/scans";
+        // WatchConfig에서 엔드포인트 경로 가져오기 (이미 위에서 로드됨)
         if (!groupScansEndpointPath.StartsWith("/"))
             groupScansEndpointPath = "/" + groupScansEndpointPath;
         
@@ -825,9 +887,13 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     string apiUrl = "";
                     try
                     {
-                        if (config != null)
+                        if (!string.IsNullOrEmpty(_configAssetPath))
                         {
-                            apiUrl = config.apiServerUrl ?? "";
+                            WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                            if (tempConfig != null)
+                            {
+                                apiUrl = tempConfig.apiServerUrl ?? "";
+                            }
                         }
                     }
                     catch (System.Exception)
@@ -960,7 +1026,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             // memos는 항상 original path의 파일에서 직접 읽어옴
                             MemoUtils.MemoData[] memos = new MemoUtils.MemoData[0];
                             
-                            // original path의 디렉토리에서 memo.txt 파일 찾기
+                            // original path의 디렉토리에서 memos.json 파일 찾기
                             string memoFolderPath = null;
                             
                             // 1. originalPath가 있으면 그 디렉토리 사용
@@ -990,10 +1056,10 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                                 }
                             }
                             
-                            // memo.txt 파일 찾기 및 파싱
+                            // memos.json 파일 찾기 및 파싱
                             if (!string.IsNullOrEmpty(memoFolderPath) && Directory.Exists(memoFolderPath))
                             {
-                                string memoFilePath = Path.Combine(memoFolderPath, "memo.txt");
+                                string memoFilePath = Path.Combine(memoFolderPath, "memos.json");
                                 if (File.Exists(memoFilePath))
                                 {
                                     try
@@ -1098,11 +1164,15 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         
         // objPatterns 설정 가져오기
         string patternsStr = "*.obj"; // 기본값
-        if (config != null)
+        if (!string.IsNullOrEmpty(_configAssetPath))
         {
             try
             {
-                patternsStr = config.objPatterns ?? "*.obj";
+                WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                if (tempConfig != null)
+                {
+                    patternsStr = tempConfig.objPatterns ?? "*.obj";
+                }
             }
             catch (System.Exception)
             {
@@ -1145,22 +1215,26 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     /// </summary>
     string GetProjectRoot()
     {
-        if (config != null)
+        if (!string.IsNullOrEmpty(_configAssetPath))
         {
             try
             {
-                string projectRoot = config.projectRoot;
-                if (!string.IsNullOrWhiteSpace(projectRoot))
+                WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                if (tempConfig != null)
                 {
-                    // 절대 경로로 변환
-                    if (Path.IsPathRooted(projectRoot))
+                    string projectRoot = tempConfig.projectRoot;
+                    if (!string.IsNullOrWhiteSpace(projectRoot))
                     {
-                        return projectRoot;
-                    }
-                    else
-                    {
-                        // 상대 경로인 경우 Application.dataPath 기준으로 변환
-                        return Path.GetFullPath(Path.Combine(Application.dataPath, "..", projectRoot));
+                        // 절대 경로로 변환
+                        if (Path.IsPathRooted(projectRoot))
+                        {
+                            return projectRoot;
+                        }
+                        else
+                        {
+                            // 상대 경로인 경우 Application.dataPath 기준으로 변환
+                            return Path.GetFullPath(Path.Combine(Application.dataPath, "..", projectRoot));
+                        }
                     }
                 }
             }
@@ -1250,7 +1324,23 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             rootGo.transform.rotation = Quaternion.identity;
             rootGo.transform.localScale = Vector3.one;
             
-            float unitScale = config != null ? config.unitScale : 1000f;
+            // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
+            float unitScale = 1000f; // 기본값
+            if (!string.IsNullOrEmpty(_configAssetPath))
+            {
+                try
+                {
+                    WatchConfig tempConfig = AssetDatabase.LoadAssetAtPath<WatchConfig>(_configAssetPath);
+                    if (tempConfig != null)
+                    {
+                        unitScale = tempConfig.unitScale;
+                    }
+                }
+                catch (System.Exception)
+                {
+                    // config 접근 실패 시 기본값 사용
+                }
+            }
             
             // Original OBJ 로드 및 설정
             GameObject originalGo = LoadMeshFile(originalPath);
@@ -1591,31 +1681,48 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     // Create3DTextAsChild는 이제 MemoUtils.Create3DTextAsChild를 사용
 
 
-    void MarkConfigDirty()
+    void MarkConfigDirty(WatchConfig cfg = null)
     {
-        if (config == null)
+        // 파라미터가 없으면 기존 방식 (하위 호환성)
+        WatchConfig targetConfig = cfg ?? config;
+        
+        if (targetConfig == null)
             return;
 
         // DontSaveInEditor 플래그가 설정되어 있으면 저장하지 않음
-        if ((config.hideFlags & HideFlags.DontSaveInEditor) != 0)
+        try
+        {
+            if ((targetConfig.hideFlags & HideFlags.DontSaveInEditor) != 0)
+                return;
+        }
+        catch (System.Exception)
+        {
             return;
+        }
 
         // AssetDatabase를 사용하여 더 안전하게 체크
-        if (!AssetDatabase.Contains(config))
+        if (!AssetDatabase.Contains(targetConfig))
             return;
 
         // 객체가 파괴되었는지 체크 (Unity 특수 케이스)
-        if (config.Equals(null))
+        try
+        {
+            if (targetConfig.Equals(null))
+                return;
+        }
+        catch (System.Exception)
+        {
             return;
+        }
 
         try
         {
             // 객체가 실제로 Unity 에셋인지 확인
-            string assetPath = AssetDatabase.GetAssetPath(config);
+            string assetPath = AssetDatabase.GetAssetPath(targetConfig);
             if (string.IsNullOrEmpty(assetPath))
                 return;
 
-            EditorUtility.SetDirty(config);
+            EditorUtility.SetDirty(targetConfig);
         }
         catch (System.ArgumentException)
         {
@@ -1627,54 +1734,90 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         }
     }
 
+    // 직렬화 가능한지 확인하는 헬퍼 메서드
+    // Unity의 assertion 오류를 방지하기 위해 직렬화 불가능한 HideFlags를 체크
+    private bool IsConfigSerializable(WatchConfig cfg)
+    {
+        if (cfg == null)
+            return false;
+        
+        try
+        {
+            // Unity 객체가 파괴되었는지 확인
+            if (cfg.Equals(null))
+                return false;
+            
+            // AssetDatabase에 있는 실제 에셋인지 확인
+            if (!AssetDatabase.Contains(cfg))
+                return false;
+            
+            // 문제가 될 수 있는 HideFlags 체크
+            // Unity의 assertion: (ptr->GetHideFlags() & m_RequiredHideFlags) == m_RequiredHideFlags
+            // 이 assertion은 특정 HideFlags 조합에서 실패할 수 있음
+            HideFlags flags = cfg.hideFlags;
+            
+            // 직렬화 시 문제를 일으킬 수 있는 HideFlags
+            // DontSaveInEditor: 에디터에서 저장하지 않음 (가장 흔한 원인)
+            // DontSave: 저장하지 않음
+            // HideAndDontSave: 숨기고 저장하지 않음
+            // 이 플래그들이 있으면 Unity가 직렬화 시 assertion 오류를 발생시킴
+            HideFlags problematicFlags = HideFlags.DontSaveInEditor | 
+                                         HideFlags.DontSave | 
+                                         HideFlags.HideAndDontSave;
+            
+            if ((flags & problematicFlags) != 0)
+            {
+                return false;
+            }
+            
+            // 일반적으로 None 또는 NotEditable만 허용
+            // NotEditable은 일반적으로 문제가 되지 않음
+            // 다른 플래그가 있으면 추가 검증 (안전을 위해)
+            if (flags != HideFlags.None && flags != HideFlags.NotEditable)
+            {
+                // NotEditable만 있는 경우는 허용
+                if ((flags & ~HideFlags.NotEditable) != HideFlags.None)
+                {
+                    // NotEditable 외의 다른 플래그가 있으면 직렬화 불가능
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
     // ISerializationCallbackReceiver 구현: 직렬화 전/후 config 유효성 검사
     public void OnBeforeSerialize()
     {
         // 직렬화 전에 config가 직렬화 가능한지 확인
-        // DontSaveInEditor 플래그가 있는 경우 assertion 오류를 방지하기 위해 경로만 저장
+        // 문제가 될 수 있는 HideFlags가 있는 경우 assertion 오류를 방지하기 위해 경로만 저장
         if (config != null)
         {
             try
             {
-                // Unity 객체가 파괴되었는지 확인
-                if (config.Equals(null))
+                // 직렬화 가능한지 확인
+                if (!IsConfigSerializable(config))
                 {
-                    config = null;
-                    _configAssetPath = null;
-                    return;
-                }
-                
-                // AssetDatabase에 있는 실제 에셋인지 확인
-                if (!AssetDatabase.Contains(config))
-                {
-                    // 에셋이 아니면 직렬화하지 않음
-                    config = null;
-                    _configAssetPath = null;
-                    return;
-                }
-                
-                // DontSaveInEditor 플래그 확인
-                // 이 플래그가 있으면 Unity가 직렬화 시 assertion 오류를 발생시킴
-                HideFlags flags = config.hideFlags;
-                if ((flags & HideFlags.DontSaveInEditor) != 0)
-                {
-                    // DontSaveInEditor 플래그가 있으면 경로만 저장하고 참조는 null로 설정
+                    // 직렬화 불가능하면 경로만 저장하고 참조는 null로 설정
                     string assetPath = AssetDatabase.GetAssetPath(config);
                     if (!string.IsNullOrEmpty(assetPath))
                     {
                         _configAssetPath = assetPath;
                     }
                     config = null;
+                    return;
                 }
-                else
+                
+                // 직렬화 가능하면 경로도 저장하여 복원 시 사용
+                string path = AssetDatabase.GetAssetPath(config);
+                if (!string.IsNullOrEmpty(path))
                 {
-                    // 플래그가 없으면 정상적으로 직렬화 가능
-                    // 경로도 저장하여 복원 시 사용
-                    string assetPath = AssetDatabase.GetAssetPath(config);
-                    if (!string.IsNullOrEmpty(assetPath))
-                    {
-                        _configAssetPath = assetPath;
-                    }
+                    _configAssetPath = path;
                 }
             }
             catch (System.Exception)

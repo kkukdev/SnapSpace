@@ -75,19 +75,38 @@ namespace ObjDropWatcher.ExportImport
         {
             try
             {
+                Debug.Log($"[JsonExporter.ImportFromJson] 시작: {filePath}");
+                
                 if (!File.Exists(filePath))
                 {
+                    Debug.LogError($"[JsonExporter.ImportFromJson] 파일을 찾을 수 없음: {filePath}");
                     EditorUtility.DisplayDialog("Import 실패", $"파일을 찾을 수 없습니다:\n{filePath}", "OK");
                     return null;
                 }
 
+                Debug.Log($"[JsonExporter.ImportFromJson] JSON 파일 읽기 시작: {filePath}");
                 string json = File.ReadAllText(filePath);
+                Debug.Log($"[JsonExporter.ImportFromJson] JSON 파일 크기: {json.Length} bytes");
+                
+                Debug.Log($"[JsonExporter.ImportFromJson] JSON 역직렬화 시작");
                 var collection = JsonConvert.DeserializeObject<ObjectTransformCollection>(json);
+                
+                if (collection == null)
+                {
+                    Debug.LogError($"[JsonExporter.ImportFromJson] 역직렬화 결과가 null");
+                    return null;
+                }
+                
+                Debug.Log($"[JsonExporter.ImportFromJson] 역직렬화 완료: " +
+                         $"exportDate={collection.exportDate}, " +
+                         $"unityVersion={collection.unityVersion}, " +
+                         $"objects 수={collection.objects?.Count ?? 0}");
                 
                 return collection;
             }
             catch (Exception ex)
             {
+                Debug.LogError($"[JsonExporter.ImportFromJson] 오류 발생: {ex.Message}\n{ex.StackTrace}");
                 EditorUtility.DisplayDialog("Import 실패", $"JSON import 실패:\n{ex.Message}", "OK");
                 return null;
             }
@@ -95,9 +114,22 @@ namespace ObjDropWatcher.ExportImport
 
         public static void ApplyImportedData(ObjectTransformCollection collection, bool createNewObjects = false)
         {
-            if (collection == null || collection.objects == null) return;
+            Debug.Log($"[JsonExporter.ApplyImportedData] 시작: createNewObjects={createNewObjects}");
+            
+            if (collection == null || collection.objects == null)
+            {
+                Debug.LogWarning($"[JsonExporter.ApplyImportedData] Collection이 null이거나 objects가 null");
+                return;
+            }
 
+            Debug.Log($"[JsonExporter.ApplyImportedData] Collection 정보: " +
+                     $"exportDate={collection.exportDate}, " +
+                     $"unityVersion={collection.unityVersion}, " +
+                     $"objects 수={collection.objects.Count}");
+            
             var result = ObjectTransformData.ApplyCollection(collection, createNewObjects, "[JSON Import]");
+            
+            Debug.Log($"[JsonExporter.ApplyImportedData] 완료: 성공 {result.successCount}개, 실패 {result.failCount}개");
             
             EditorUtility.DisplayDialog("Import 완료", 
                 $"성공: {result.successCount}개\n실패: {result.failCount}개", "OK");
