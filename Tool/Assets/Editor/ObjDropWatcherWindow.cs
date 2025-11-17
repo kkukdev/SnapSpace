@@ -1417,6 +1417,16 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 }
             }
             
+            // 경로 정보 저장 (메모 생성 전에 root에 경로를 설정하여 MemoUtils가 참조할 수 있도록 함)
+            try
+            {
+                ObjPathInfo.SetPath(rootGo, originalPath);
+            }
+            catch (System.Exception)
+            {
+                // 경로 설정 실패 시 무시 (이후 children 처리 시 다시 시도)
+            }
+            
             // Memos를 root GameObject의 자식으로 추가
             // 메모의 anchor 좌표는 "스케일이 1일 때의 좌표" (unitScale = 1일 때의 Unity 월드 좌표계 기준)를 의미합니다.
             // unitScale이 변경되면 OBJ 메시의 스케일이 변경되므로, 메모도 그에 맞춰 조정되어야 합니다.
@@ -1426,10 +1436,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 MemoUtils.SpawnMemosAsChildren(rootGo, memos, unitScale); // unitScale을 전달하여 스케일 보정
             }
             
-            // 경로 정보 저장
+            // 경로 정보 저장 (children 포함)
             try
             {
-                ObjPathInfo.SetPath(rootGo, originalPath);
                 
                 // 모든 children에도 경로 저장
                 Transform[] allChildren = rootGo.GetComponentsInChildren<Transform>(true);

@@ -300,7 +300,7 @@ public static class RuntimeObjLoader
             // 메터리얼이 어떤 MTL 정의를 사용하는지 확인
             
             #if UNITY_EDITOR
-            UnityEditor.EditorUtility.SetDirty(mats[i]);
+            SafeSetDirty(mats[i]);
             #endif
         }
         
@@ -308,9 +308,9 @@ public static class RuntimeObjLoader
         
         // Unity 에디터에서 즉시 반영되도록 강제 업데이트
         #if UNITY_EDITOR
-        UnityEditor.EditorUtility.SetDirty(mr);
-        UnityEditor.EditorUtility.SetDirty(mf);
-        UnityEditor.EditorUtility.SetDirty(go);
+        SafeSetDirty(mr);
+        SafeSetDirty(mf);
+        SafeSetDirty(go);
         UnityEditor.SceneView.RepaintAll();
         #endif
         
@@ -486,6 +486,28 @@ public static class RuntimeObjLoader
     }
 
     // -------------------------
+    // Helpers for Unity Editor
+    // -------------------------
+    static void SafeSetDirty(UnityEngine.Object obj)
+    {
+        if (obj == null) return;
+        #if UNITY_EDITOR
+        try
+        {
+            // DontSaveInEditor 플래그가 있으면 SetDirty 호출하지 않음 (assertion 오류 방지)
+            if ((obj.hideFlags & HideFlags.DontSaveInEditor) == 0)
+            {
+                UnityEditor.EditorUtility.SetDirty(obj);
+            }
+        }
+        catch (System.Exception)
+        {
+            // SetDirty 실패 시 무시 (이미 파괴된 오브젝트 등)
+        }
+        #endif
+    }
+
+    // -------------------------
     // Material / Texture
     // -------------------------
     static Material CreateUnityMaterial(string matName, Dictionary<string, MtlDef> mtlDict)
@@ -585,7 +607,7 @@ public static class RuntimeObjLoader
                         
                         // Unity 에디터에서 즉시 반영
                         #if UNITY_EDITOR
-                        UnityEditor.EditorUtility.SetDirty(std);
+                        SafeSetDirty(std);
                         #endif
                     }
                     catch (Exception)

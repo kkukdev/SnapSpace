@@ -217,6 +217,72 @@ namespace ObjDropWatcher.ExportImport
         }
 
         /// <summary>
+        /// OBJ 파일 경로에서 오디오 파일을 찾습니다.
+        /// content의 제목을 가진 오디오 파일을 찾습니다.
+        /// </summary>
+        public static string FindAudioFile(string objFilePath, string audioTitle)
+        {
+            if (string.IsNullOrEmpty(objFilePath) || string.IsNullOrEmpty(audioTitle))
+                return null;
+
+            // OBJ 파일의 디렉토리에서 오디오 파일 찾기
+            string objDir = Path.GetDirectoryName(objFilePath);
+            if (string.IsNullOrEmpty(objDir) || !Directory.Exists(objDir))
+                return null;
+
+            // 지원하는 오디오 확장자
+            string[] audioExtensions = { ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".3gp" };
+
+            // content 제목과 정확히 일치하는 파일 찾기
+            foreach (string ext in audioExtensions)
+            {
+                string audioPath = Path.Combine(objDir, audioTitle + ext);
+                if (File.Exists(audioPath))
+                    return audioPath;
+            }
+
+            // content 자체에 확장자가 포함된 경우 직접 시도
+            string trimmedTitle = audioTitle?.Trim();
+            if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
+            {
+                string directPath = Path.Combine(objDir, trimmedTitle);
+                if (File.Exists(directPath))
+                    return directPath;
+            }
+
+            // 대소문자 구분 없이 찾기
+            try
+            {
+                string[] allFiles = Directory.GetFiles(objDir, "*", SearchOption.TopDirectoryOnly);
+                foreach (string file in allFiles)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string fileExt = Path.GetExtension(file).ToLowerInvariant();
+                    
+                    // 제목에 확장자가 이미 포함되었으면 전체 파일명 비교
+                    if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
+                    {
+                        if (string.Equals(Path.GetFileName(trimmedTitle), Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+                        {
+                            return file;
+                        }
+                    }
+                    else if (audioExtensions.Contains(fileExt) && 
+                        string.Equals(fileName, audioTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return file;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // 파일 검색 실패 시 무시
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// memos를 메시 GameObject의 자식으로 생성합니다.
         /// 메모의 좌표는 메시의 로컬 좌표계를 사용합니다.
         /// </summary>
@@ -235,13 +301,22 @@ namespace ObjDropWatcher.ExportImport
                 return;
 
             int memoCount = 0;
+            
+            // OBJ 파일 경로 찾기 (parentObj에서)
+            string objFilePath = null;
+            try
+            {
+                // ObjPathInfo를 통해 경로 가져오기
+                objFilePath = ObjPathInfo.GetPath(parentObj);
+            }
+            catch (Exception)
+            {
+                // 경로 가져오기 실패 시 무시
+            }
+            
             foreach (var memo in memos)
             {
                 if (memo == null)
-                    continue;
-                
-                // type이 "text"인 경우만 표시
-                if (memo.type != "text")
                     continue;
                 
                 // anchor 좌표 파싱 (스케일이 1일 때의 좌표, 즉 Unity 월드 좌표계 기준)
@@ -281,9 +356,39 @@ namespace ObjDropWatcher.ExportImport
                 // 메모의 스케일에도 unitScale을 적용
                 localScale = localScale * unitScale;
                 
-                // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
-                Create3DTextAsChild(parentObj, memo.content, localPosition, localRotation, localScale);
-                memoCount++;
+                // type이 "text"인 경우 텍스트 메모 생성
+                if (memo.type == "text")
+                {
+                    // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
+                    Create3DTextAsChild(parentObj, memo.content, localPosition, localRotation, localScale);
+                    memoCount++;
+                }
+                // type이 "audio"인 경우 오디오 메모 생성
+                else if (memo.type == "audio")
+                {
+                    if (string.IsNullOrEmpty(objFilePath))
+                    {
+                        Debug.LogWarning($"[MemoUtils] Audio memo detected but OBJ path is missing. title={memo.content}");
+                        continue;
+                    }
+                    
+                    // 오디오 파일 찾기
+                    string audioPath = FindAudioFile(objFilePath, memo.content);
+                    
+                    if (!string.IsNullOrEmpty(audioPath))
+                    {
+                        Debug.Log($"[MemoUtils] Audio memo detected. title={memo.content}, path={audioPath}");
+                        // 오디오 메모 생성
+                        CreateAudioMemoAsChild(parentObj, memo.content, audioPath, localPosition, localRotation, localScale);
+                        memoCount++;
+                    }
+                    else
+                    {
+                        string objDir = Path.GetDirectoryName(objFilePath);
+                        Debug.LogWarning($"[MemoUtils] Audio memo file not found. title={memo.content}, searchDir={objDir}");
+                    }
+                }
+                // 다른 타입은 건너뛰기
             }
         }
 
@@ -773,6 +878,58 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(textObject, "Create Text");
             #endif
+        }
+
+        /// <summary>
+        /// 메시 GameObject의 자식으로 오디오 메모를 생성합니다.
+        /// 위치는 부모 객체의 로컬 좌표계를 사용합니다.
+        /// </summary>
+        public static void CreateAudioMemoAsChild(GameObject parentObj, string audioTitle, string audioPath, Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
+        {
+            try
+            {
+                // 오디오 메모 루트 오브젝트 생성
+                string objectName = $"AudioMemo_{audioTitle.Substring(0, Math.Min(audioTitle.Length, 10))}";
+                GameObject audioMemoRoot = new GameObject(objectName);
+                
+                // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+                audioMemoRoot.hideFlags = HideFlags.None;
+                
+                #if UNITY_EDITOR
+                Undo.RegisterCreatedObjectUndo(audioMemoRoot, "Create Audio Memo");
+                #endif
+                
+                // 부모 객체의 자식으로 설정
+                audioMemoRoot.transform.SetParent(parentObj.transform, false);
+                
+                // 로컬 Transform 설정
+                audioMemoRoot.transform.localPosition = localPosition;
+                audioMemoRoot.transform.localRotation = localRotation;
+                audioMemoRoot.transform.localScale = localScale;
+                
+                // 1. 동그라미 마커 생성 (텍스트 메모와 동일한 스타일)
+                CreateMarker(audioMemoRoot, _currentDesignConfig);
+                
+                // 2. 수직선 생성
+                CreateVerticalLine(audioMemoRoot, _currentDesignConfig);
+                
+                // 3. 네모창 생성 (오디오 제목 표시)
+                GameObject panelObj = CreatePanel(audioMemoRoot, _currentDesignConfig, audioTitle);
+                
+                // 4. 텍스트 생성 (오디오 제목)
+                CreateTextInPanel(panelObj, audioTitle, _currentDesignConfig);
+                
+                // 5. 오디오 재생 컴포넌트 추가
+                #if UNITY_EDITOR
+                AudioMemoPlayer audioPlayer = audioMemoRoot.AddComponent<AudioMemoPlayer>();
+                audioPlayer.audioFilePath = audioPath;
+                audioPlayer.audioTitle = audioTitle;
+                #endif
+            }
+            catch (Exception)
+            {
+                // 오디오 메모 생성 실패 시 무시
+            }
         }
 
         /// <summary>
