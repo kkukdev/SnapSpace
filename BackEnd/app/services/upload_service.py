@@ -4,6 +4,7 @@ import logging
 import zipfile
 import shutil
 import re
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, AsyncGenerator, List
@@ -212,12 +213,12 @@ class UploadService(BaseService):
             for root, dirs, files in os.walk(directory):
                 for file in files:
                     file_ext = Path(file).suffix.lower()
-                    # 텍스트 파일만 확인
-                    if file_ext in [".txt"]:
+                    # JSON 파일만 확인
+                    if file_ext in [".json"]:
                         file_path = Path(root) / file
                         # 파일명에 메모 관련 키워드가 포함되어 있는지 확인
                         file_stem = Path(file).stem.lower()
-                        memo_keywords = ["memo", "note", "note_memo", "memo_note"]
+                        memo_keywords = ["memo", "memos", "note", "note_memo", "memo_note"]
                         if any(keyword in file_stem for keyword in memo_keywords):
                             return file_path
         except Exception as e:
@@ -225,100 +226,49 @@ class UploadService(BaseService):
         
         return None
 
-    async def read_text_memo_file(self, memo_path: Path) -> Optional[str]:
-        """텍스트 메모 파일 읽기 (비동기)"""
+    async def read_json_memo_file(self, memo_path: Path) -> Optional[Dict[str, Any]]:
+        """JSON 메모 파일 읽기 (비동기)"""
         try:
             async with aiofiles.open(memo_path, 'r', encoding='utf-8') as f:
                 content = await f.read()
-                return content.strip() if content else None
-        except UnicodeDecodeError:
-            # UTF-8로 읽기 실패 시 다른 인코딩 시도
-            try:
-                async with aiofiles.open(memo_path, 'r', encoding='cp949') as f:
-                    content = await f.read()
-                    return content.strip() if content else None
-            except Exception as e:
-                logger.error(f"텍스트 메모 파일 읽기 실패 (인코딩 오류): {str(e)}")
-                return None
+                if not content or not content.strip():
+                    return None
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON 메모 파일 파싱 실패: {str(e)}")
+            return None
         except Exception as e:
-            logger.error(f"텍스트 메모 파일 읽기 중 오류 발생: {str(e)}")
+            logger.error(f"JSON 메모 파일 읽기 중 오류 발생: {str(e)}")
             return None
 
-    def parse_memo_content(self, content: str) -> Dict[str, str]:
-        """
-        메모 파일 내용을 파싱하여 key-value 쌍으로 변환
-        
-        형식:
-        [key1]
-        value1
-        
-        [key2]
-        value2
-        
-        같은 key가 여러 번 나오면 value를 연결
-        
-        Returns:
-            Dict[str, str]: key-value 쌍 딕셔너리
-        """
-        parsed_data = {}
-        
-        # 대괄호 패턴 찾기: [...]
-        pattern = r'\[([^\]]+)\]'
-        matches = list(re.finditer(pattern, content))
-        
-        if not matches:
-            # 대괄호가 없으면 전체 내용을 빈 key로 저장
-            if content.strip():
-                parsed_data[""] = content.strip()
-            return parsed_data
-        
-        # 각 대괄호 구간 처리
-        for i, match in enumerate(matches):
-            key = match.group(1).strip()
-            
-            # 현재 대괄호의 끝 위치
-            start_pos = match.end()
-            
-            # 다음 대괄호의 시작 위치 (마지막이면 파일 끝)
-            if i + 1 < len(matches):
-                end_pos = matches[i + 1].start()
-            else:
-                end_pos = len(content)
-            
-            # value 추출 (대괄호 다음부터 다음 대괄호 전까지)
-            value = content[start_pos:end_pos].strip()
-            
-            # 같은 key가 이미 있으면 기존 value 뒤에 추가
-            if key in parsed_data:
-                # 기존 value와 새 value를 연결 (줄바꿈으로 구분)
-                parsed_data[key] = parsed_data[key] + "\n\n" + value
-            else:
-                parsed_data[key] = value
-        
-        return parsed_data
-
-    async def process_text_memo_file(self, memo_path: Path) -> List[Dict[str, Any]]:
-        """텍스트 메모 파일을 읽고 파싱하여 memos 형식으로 변환"""
-        memo_content = await self.read_text_memo_file(memo_path)
-        if not memo_content:
+    async def process_json_memo_file(self, memo_path: Path) -> List[Dict[str, Any]]:
+        """JSON 메모 파일을 읽고 파싱하여 memos 형식으로 변환"""
+        json_data = await self.read_json_memo_file(memo_path)
+        if not json_data:
             return []
         
-        # 메모 내용 파싱
-        parsed_data = self.parse_memo_content(memo_content)
+        # JSON에서 memos 배열 추출
+        memos = json_data.get("memos", [])
+        if not isinstance(memos, list):
+            logger.warning(f"JSON 파일의 memos 필드가 배열이 아닙니다: {memo_path}")
+            return []
         
-        # 파싱된 데이터를 리스트로 변환 (각 key-value 쌍을 하나의 메모로)
-        memos = []
-        for key, value in parsed_data.items():
-            memos.append({
-                "type": "text",
-                "key": key,
-                "content": value,
-                "source": memo_path.name,
-                "file_path": str(memo_path.absolute()),
-                "file_size": memo_path.stat().st_size if memo_path.exists() else 0
-            })
+        # 각 메모 항목에서 source, file_path, file_size 제거하고 필요한 필드만 유지
+        processed_memos = []
+        for memo in memos:
+            if not isinstance(memo, dict):
+                logger.warning(f"메모 항목이 딕셔너리가 아닙니다: {memo}")
+                continue
+            
+            # type, anchor, content만 유지
+            processed_memo = {
+                "type": memo.get("type", "text"),
+                "anchor": memo.get("anchor", ""),
+                "content": memo.get("content", "")
+            }
+            processed_memos.append(processed_memo)
         
-        return memos
+        return processed_memos
 
     async def process_all_memo_files(self, directory: Path) -> List[Dict[str, Any]]:
         """
@@ -331,7 +281,7 @@ class UploadService(BaseService):
         
         if memo_file:
             try:
-                memos = await self.process_text_memo_file(memo_file)
+                memos = await self.process_json_memo_file(memo_file)
                 if memos:
                     logger.info(f"메모 파일 처리 완료: {memo_file}, {len(memos)}개의 메모 항목")
                     return memos
@@ -720,6 +670,13 @@ class UploadService(BaseService):
 
     async def _upload_zip_file(self, file: UploadFile, group_upload_dir: Path, group_id: Optional[str] = None, group_name: Optional[str] = None, model_type: Optional[str] = None) -> Dict[str, Any]:
         """zip 파일 업로드 및 압축 해제 처리"""
+
+        # 개발자용
+        if group_name == 'object':
+            model_type = 'object'
+        elif group_name == 'space':
+            model_type = 'space'
+
         # 업로드 폴더 생성: storage/uploads/{group_name}/{날짜_파일명}
         folder_name = self.generate_folder_name(file.filename)
         upload_folder = group_upload_dir / folder_name

@@ -332,7 +332,7 @@ function ApiTester() {
                 />
               </div>
               <div className="api-actions">
-                <ApiButton apiKey="groups-list" url="/api/v1/groups/?skip=0&limit=10">
+                <ApiButton apiKey="groups-list" url="/api/v1/groups/?skip=0">
                   GET /api/v1/groups/
                 </ApiButton>
                 <ApiButton apiKey="groups-get" url={`/api/v1/groups/${formData.groupId}`}>
@@ -425,7 +425,7 @@ function ApiTester() {
                 />
               </div>
               <div className="api-actions">
-                <ApiButton apiKey="scans-list" url="/api/v1/scans/?skip=0&limit=10">
+                <ApiButton apiKey="scans-list" url="/api/v1/scans/?skip=0">
                   GET /api/v1/scans/
                 </ApiButton>
                 <ApiButton apiKey="scans-get" url={`/api/v1/scans/${formData.scanId}`}>
@@ -509,7 +509,7 @@ function ApiTester() {
                     className="api-button"
                     onClick={async () => {
                       try {
-                        const response = await axios.get(`${currentApiUrl}/api/v1/groups/?skip=0&limit=100`)
+                        const response = await axios.get(`${currentApiUrl}/api/v1/groups/?skip=0`)
                         if (response.data?.success && response.data?.data?.groups) {
                           setFormData(prev => ({
                             ...prev,

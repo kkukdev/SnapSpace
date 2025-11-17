@@ -32,9 +32,19 @@ public static class RuntimeObjLoader
     static readonly Dictionary<string, Texture2D> _texCache = new();
 
     // -------------------------
+    // Internal data structures for object/group handling
+    // -------------------------
+    class ObjectGroup
+    {
+        public string name;
+        public List<Face> faces = new();
+        public string currentMtl;
+    }
+
+    // -------------------------
     // Public entry
     // -------------------------
-    public static GameObject LoadObj(string objPath)
+    public static GameObject LoadObj(string objPath, bool preserveOriginalCoordinates = false)
     {
         if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
             throw new FileNotFoundException("OBJ not found", objPath);
@@ -45,7 +55,10 @@ public static class RuntimeObjLoader
         var V = new List<Vector3>();
         var VT = new List<Vector2>();
         var VN = new List<Vector3>();
-        var faces = new List<Face>();
+        
+        // 객체/그룹별로 faces를 분리하여 저장
+        var objectGroups = new List<ObjectGroup>();
+        ObjectGroup currentGroup = null;
 
         var mtlLibPaths = new List<string>();
         string currentMtl = null;
@@ -75,8 +88,18 @@ public static class RuntimeObjLoader
                 }
                 case "usemtl":
                     currentMtl = tail.Trim().Trim('"');
-                    Debug.Log($"[OBJ] usemtl: '{currentMtl}'");
+                    if (currentGroup != null) currentGroup.currentMtl = currentMtl;
                     break;
+
+                case "o":  // object 명령어
+                case "g":  // group 명령어
+                {
+                    // 새로운 객체/그룹 시작
+                    string groupName = string.IsNullOrEmpty(tail) ? "default" : tail.Trim();
+                    currentGroup = new ObjectGroup { name = groupName, currentMtl = currentMtl };
+                    objectGroups.Add(currentGroup);
+                    break;
+                }
 
                 case "v":
                 {
@@ -103,7 +126,14 @@ public static class RuntimeObjLoader
                 }
                 case "f":
                 {
-                    var f = new Face { mat = currentMtl };
+                    // 현재 그룹이 없으면 기본 그룹 생성
+                    if (currentGroup == null)
+                    {
+                        currentGroup = new ObjectGroup { name = "default", currentMtl = currentMtl };
+                        objectGroups.Add(currentGroup);
+                    }
+                    
+                    var f = new Face { mat = currentGroup.currentMtl ?? currentMtl };
                     var tokens = tail.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var tok in tokens)
                     {
@@ -115,23 +145,34 @@ public static class RuntimeObjLoader
                         if (fields.Length >= 3 && !string.IsNullOrEmpty(fields[2])) vn = ParseIndex(fields[2], VN.Count);
                         f.poly.Add(new Idx { v = v, vt = vt, vn = vn });
                     }
-                    if (f.poly.Count >= 3) faces.Add(f);
+                    if (f.poly.Count >= 3) currentGroup.faces.Add(f);
                     break;
                 }
             }
         }
+        
+        // 객체/그룹이 없으면 모든 faces를 기본 그룹으로 처리 (하위 호환성)
+        // 주의: currentGroup이 null이면 faces가 파싱되지 않았을 수 있음
+        // 하지만 파싱 중에 currentGroup이 null이면 자동으로 생성되므로, 
+        // objectGroups가 비어있다는 것은 faces도 없다는 의미일 수 있음
 
-        var facesWithMat = faces.FindAll(f => !string.IsNullOrEmpty(f.mat));
-        Debug.Log($"[OBJ] Total faces: {faces.Count}, mtllib count: {mtlLibPaths.Count}, faces with usemtl: {facesWithMat.Count}");
+        // 전체 faces 수집 (로깅용)
+        var allFaces = new List<Face>();
+        foreach (var group in objectGroups)
+        {
+            allFaces.AddRange(group.faces);
+        }
+        
+        var facesWithMat = allFaces.FindAll(f => !string.IsNullOrEmpty(f.mat));
+        int totalFaces = allFaces.Count;
         
         // usemtl 사용된 메터리얼 이름 목록
         var usedMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in faces)
+        foreach (var f in allFaces)
         {
             if (!string.IsNullOrEmpty(f.mat))
                 usedMaterials.Add(f.mat);
         }
-        Debug.Log($"[OBJ] Unique materials used in faces: [{string.Join(", ", usedMaterials)}]");
 
         // -------- Parse MTL(s) --------
         var mtlDict = new Dictionary<string, MtlDef>(StringComparer.OrdinalIgnoreCase);
@@ -147,15 +188,18 @@ public static class RuntimeObjLoader
         }
 
         // -------- Fallback material when no 'usemtl' --------
-        bool anyUseMtl = faces.Exists(f => !string.IsNullOrEmpty(f.mat));
+        bool anyUseMtl = allFaces.Exists(f => !string.IsNullOrEmpty(f.mat));
         if (!anyUseMtl && mtlDict.Count > 0)
         {
             string fallback = PickFallbackMaterialName(mtlDict);
-            foreach (var f in faces) f.mat = fallback;
-            Debug.Log($"[OBJ] No usemtl → applied fallback material '{fallback}' to all faces.");
+            foreach (var group in objectGroups)
+            {
+                foreach (var f in group.faces) f.mat = fallback;
+            }
         }
 
         // -------- Build Mesh (submeshes by material) --------
+        // 모든 그룹의 faces를 하나의 메시로 통합 (기존 동작 유지)
         var outVerts = new List<Vector3>();
         var outUVs = new List<Vector2>();
         var outNorms = new List<Vector3>();
@@ -170,41 +214,45 @@ public static class RuntimeObjLoader
             {
                 submeshTris[key] = new List<int>();
                 matOrder.Add(key);
-                Debug.Log($"[Submesh] Added material '{key}' as submesh index {matOrder.Count - 1}");
             }
         }
 
-        foreach (var face in faces)
+        // 모든 그룹의 faces를 하나로 통합
+        foreach (var group in objectGroups)
         {
-            EnsureMat(face.mat);
-            var tris = submeshTris[string.IsNullOrEmpty(face.mat) ? "_default" : face.mat];
-
-            // fan-triangulation: (0, i, i+1)
-            // Z축 뒤집기로 인해 와인딩 순서 반전 필요
-            for (int i = 1; i < face.poly.Count - 1; i++)
+            foreach (var face in group.faces)
             {
-                // 순서 반전: [0, i+1, i]
-                var tri = new[] { face.poly[0], face.poly[i + 1], face.poly[i] };
-                foreach (var idx in tri)
+                EnsureMat(face.mat);
+                var tris = submeshTris[string.IsNullOrEmpty(face.mat) ? "_default" : face.mat];
+
+                // fan-triangulation: (0, i, i+1)
+                // Z축 뒤집기로 인해 와인딩 순서 반전 필요
+                for (int i = 1; i < face.poly.Count - 1; i++)
                 {
-                    int ni = outVerts.Count;
-                    outVerts.Add(V[idx.v]);
+                    // 순서 반전: [0, i+1, i]
+                    var tri = new[] { face.poly[0], face.poly[i + 1], face.poly[i] };
+                    foreach (var idx in tri)
+                    {
+                        int ni = outVerts.Count;
+                        outVerts.Add(V[idx.v]);
 
-                    // UV 안전 처리
-                    if (idx.vt >= 0 && idx.vt < VT.Count) outUVs.Add(VT[idx.vt]);
-                    else outUVs.Add(Vector2.zero);
+                        // UV 안전 처리
+                        if (idx.vt >= 0 && idx.vt < VT.Count) outUVs.Add(VT[idx.vt]);
+                        else outUVs.Add(Vector2.zero);
 
-                    // Normal 안전 처리
-                    if (idx.vn >= 0 && idx.vn < VN.Count) outNorms.Add(VN[idx.vn]);
-                    else outNorms.Add(Vector3.zero);
+                        // Normal 안전 처리
+                        if (idx.vn >= 0 && idx.vn < VN.Count) outNorms.Add(VN[idx.vn]);
+                        else outNorms.Add(Vector3.zero);
 
-                    tris.Add(ni);
+                        tris.Add(ni);
+                    }
                 }
             }
         }
 
         // -------- Pivot Adjustment (align lowest Y to 0) --------
-        if (outVerts.Count > 0)
+        // preserveOriginalCoordinates가 true이면 원본 좌표 시스템을 유지 (pivot adjustment 비활성화)
+        if (!preserveOriginalCoordinates && outVerts.Count > 0)
         {
             float minY = float.PositiveInfinity;
             for (int i = 0; i < outVerts.Count; i++)
@@ -215,8 +263,6 @@ public static class RuntimeObjLoader
                 var offset = new Vector3(0f, -minY, 0f);
                 for (int i = 0; i < outVerts.Count; i++)
                     outVerts[i] += offset;
-
-                Debug.Log($"[Pivot] Shifted vertices by {offset} to align lowest Y ({minY}) with 0.");
             }
         }
 
@@ -240,28 +286,18 @@ public static class RuntimeObjLoader
         {
             var triCount = submeshTris[matOrder[i]].Count;
             mesh.SetTriangles(submeshTris[matOrder[i]], i, true);
-            Debug.Log($"[Submesh] Submesh[{i}] '{matOrder[i]}' → {triCount / 3} triangles");
         }
 
         mesh.RecalculateBounds();
         mf.sharedMesh = mesh;
 
         var mats = new Material[matOrder.Count];
-        Debug.Log($"[Mesh] Creating {matOrder.Count} materials in order: [{string.Join(", ", matOrder)}]");
         for (int i = 0; i < matOrder.Count; i++)
         {
             var matName = matOrder[i];
             mats[i] = CreateUnityMaterial(matName, mtlDict);
             
             // 메터리얼이 어떤 MTL 정의를 사용하는지 확인
-            if (mtlDict.TryGetValue(matName, out var mtlDef))
-            {
-                Debug.Log($"[Mesh] Material[{i}] '{matName}' → MTL texture: {mtlDef.mapKdPath ?? "NONE"}");
-            }
-            else
-            {
-                Debug.LogWarning($"[Mesh] Material[{i}] '{matName}' → MTL definition NOT FOUND");
-            }
             
             #if UNITY_EDITOR
             UnityEditor.EditorUtility.SetDirty(mats[i]);
@@ -277,9 +313,6 @@ public static class RuntimeObjLoader
         UnityEditor.EditorUtility.SetDirty(go);
         UnityEditor.SceneView.RepaintAll();
         #endif
-
-        Debug.Log($"[Mesh] submeshes={mesh.subMeshCount}, mats={mats.Length}, order=[{string.Join(", ", matOrder)}]");
-        Debug.Log($"[UV] outUVs={outUVs.Count}, VT(src)={VT.Count}");
         
         // 메터리얼 할당 확인 및 최종 검증
         for (int i = 0; i < mats.Length; i++)
@@ -289,18 +322,7 @@ public static class RuntimeObjLoader
                 var hasTex = mats[i].mainTexture != null;
                 var mainTex = mats[i].GetTexture("_MainTex");
                 var texName = hasTex ? $"{mats[i].mainTexture.name} ({mats[i].mainTexture.width}x{mats[i].mainTexture.height})" : "NONE";
-                var mainTexName = mainTex != null ? $"{mainTex.name} ({mainTex.width}x{mainTex.height})" : "NONE";
-                Debug.Log($"[Mesh] Material[{i}] '{mats[i].name}' texture: {texName}, _MainTex: {mainTexName}, shader: {mats[i].shader.name}, color: {mats[i].color}");
-                
                 // 메터리얼이 제대로 설정되었는지 최종 확인
-                if (hasTex && mats[i].mainTexture.width > 0 && mats[i].mainTexture.height > 0)
-                {
-                    Debug.Log($"[Mesh] Material[{i}] texture validated successfully");
-                }
-                else if (!hasTex)
-                {
-                    Debug.LogWarning($"[Mesh] Material[{i}] has no texture - will use color only");
-                }
             }
         }
 
@@ -325,8 +347,6 @@ public static class RuntimeObjLoader
             var ci = CultureInfo.InvariantCulture;
             MtlDef cur = null;
             var dir = Path.GetDirectoryName(mtlPath);
-            
-            Debug.Log($"[MTL] Parsing MTL file: '{mtlPath}', directory: '{dir}'");
 
             foreach (var raw in File.ReadLines(mtlPath))
             {
@@ -391,7 +411,6 @@ public static class RuntimeObjLoader
                             // 상대 경로 - MTL 파일의 디렉토리 기준
                             if (string.IsNullOrEmpty(dir))
                             {
-                                Debug.LogWarning($"[MTL] map_kd: MTL directory is null, cannot resolve relative path: {last}");
                                 finalPath = last; // 경고만 하고 원본 경로 사용
                             }
                             else
@@ -417,26 +436,18 @@ public static class RuntimeObjLoader
                             catch
                             {
                                 // GetFullPath 실패 시 원본 경로 사용
-                                Debug.LogWarning($"[MTL] Path.GetFullPath failed for: {finalPath}");
                             }
                         }
                         
                         cur.mapKdPath = finalPath;
-                        Debug.Log($"[MTL] map_kd parsed: '{tail}' → '{last}' (rel: {!Path.IsPathRooted(last)}, dir: '{dir}') → '{finalPath}' (exists: {File.Exists(finalPath)}, UNC: {isUnc})");
                         break;
                     }
                 }
             }
-
-            Debug.Log($"[MTL] Parsed '{Path.GetFileName(mtlPath)}' → materials: {dict.Count}");
-        foreach (var kv in dict)
-        {
-            Debug.Log($"[MTL] - Material '{kv.Key}' → texture: {(string.IsNullOrEmpty(kv.Value.mapKdPath) ? "NONE" : kv.Value.mapKdPath)}");
         }
-        }
-        catch (Exception e)
+        catch (Exception)
         {
-            Debug.LogWarning($"[MTL] Parse failed: {mtlPath}\n{e}");
+            // MTL 파싱 실패 시 무시
         }
     }
 
@@ -485,12 +496,10 @@ public static class RuntimeObjLoader
             // 캐시된 메터리얼이 텍스처를 가지고 있는지 확인
             if (cached != null && cached.mainTexture != null)
             {
-                Debug.Log($"[MAT] Using cached material '{matName}' with texture");
                 return cached;
             }
             else if (cached != null)
             {
-                Debug.LogWarning($"[MAT] Cached material '{matName}' has no texture, recreating...");
                 _matCache.Remove(key);
             }
         }
@@ -503,13 +512,10 @@ public static class RuntimeObjLoader
             shader = Shader.Find("Standard");
             if (shader == null)
             {
-                Debug.LogError("[MAT] URP/Lit and Standard shader not found! Using Diffuse as fallback.");
                 shader = Shader.Find("Legacy Shaders/Diffuse");
                 if (shader == null) shader = Shader.Find("Diffuse");
             }
         }
-        
-        Debug.Log($"[MAT] Using shader: {(shader != null ? shader.name : "NULL")}");
 
         var std = new Material(shader)
         {
@@ -523,11 +529,6 @@ public static class RuntimeObjLoader
 
         if (!string.IsNullOrEmpty(matName) && mtlDict.TryGetValue(matName, out var m))
         {
-            if (!string.IsNullOrEmpty(m.mapKdPath))
-                Debug.Log($"[MAT] {std.name} map_Kd → {m.mapKdPath}");
-            else
-                Debug.Log($"[MAT] {std.name} has NO map_Kd (color only)");
-
             // MTL 기본 색상 설정 (텍스처가 없을 때 사용)
             std.color = m.kd;
 
@@ -586,12 +587,9 @@ public static class RuntimeObjLoader
                         #if UNITY_EDITOR
                         UnityEditor.EditorUtility.SetDirty(std);
                         #endif
-                        
-                        Debug.Log($"[MAT] Applied texture to {std.name}: {m.mapKdPath}, mainTexture={(std.mainTexture != null ? $"{std.mainTexture.name} ({std.mainTexture.width}x{std.mainTexture.height})" : "NULL")}, _MainTex={std.GetTexture("_MainTex")?.name ?? "NULL"}, color={std.color}");
                     }
-                    catch (Exception e)
+                    catch (Exception)
                     {
-                        Debug.LogWarning($"[MAT] Texture validation failed for {std.name}: {m.mapKdPath}\n{e}");
                         // 텍스처가 무효하면 색상만 사용
                         std.color = new Color(m.kd.r, m.kd.g, m.kd.b, m.alpha);
                     }
@@ -619,8 +617,6 @@ public static class RuntimeObjLoader
                         std.SetFloat("_Surface", 0);  // Opaque
                         std.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
                     }
-                    
-                    Debug.LogWarning($"[MAT] Failed to load texture for {std.name}: {m.mapKdPath}, using color instead");
                 }
             }
             else
@@ -650,16 +646,6 @@ public static class RuntimeObjLoader
 
         _matCache[key] = std;
         
-        // 최종 확인 로그
-        if (std.mainTexture != null)
-        {
-            Debug.Log($"[MAT] Final check - Material '{std.name}' has texture: {std.mainTexture.name} ({std.mainTexture.width}x{std.mainTexture.height}), Color: {std.color}");
-        }
-        else
-        {
-            Debug.LogWarning($"[MAT] Final check - Material '{std.name}' has NO texture, Color: {std.color}");
-        }
-        
         return std;
     }
 
@@ -667,11 +653,8 @@ public static class RuntimeObjLoader
     {
         if (string.IsNullOrEmpty(path))
         {
-            Debug.LogWarning("[Texture] Path is null or empty");
             return null;
         }
-        
-        Debug.Log($"[Texture] Attempting to load: '{path}' (exists: {File.Exists(path)})");
         
         if (_texCache.TryGetValue(path, out var t))
         {
@@ -711,7 +694,6 @@ public static class RuntimeObjLoader
                     if (found.Length > 0)
                     {
                         actualPath = found[0];
-                        Debug.Log($"[Texture] Found alternative path: '{actualPath}' (original: '{path}')");
                     }
                     else
                     {
@@ -722,7 +704,6 @@ public static class RuntimeObjLoader
                         if (match != null)
                         {
                             actualPath = match;
-                            Debug.Log($"[Texture] Found case-insensitive match: '{actualPath}' (original: '{path}')");
                         }
                     }
                 }
@@ -733,7 +714,6 @@ public static class RuntimeObjLoader
                 var bytes = File.ReadAllBytes(actualPath);
                 if (bytes == null || bytes.Length == 0)
                 {
-                    Debug.LogWarning($"[Texture] File is empty: {actualPath}");
                     return null;
                 }
 
@@ -742,7 +722,6 @@ public static class RuntimeObjLoader
                 
                 if (!tex.LoadImage(bytes, false))
                 {
-                    Debug.LogWarning($"[Texture] LoadImage failed: {actualPath}");
                     UnityEngine.Object.DestroyImmediate(tex);
                     return null;
                 }
@@ -750,7 +729,6 @@ public static class RuntimeObjLoader
                 // 텍스처가 제대로 로드되었는지 확인
                 if (tex.width <= 0 || tex.height <= 0)
                 {
-                    Debug.LogWarning($"[Texture] Invalid texture dimensions: {tex.width}x{tex.height}");
                     UnityEngine.Object.DestroyImmediate(tex);
                     return null;
                 }
@@ -759,7 +737,6 @@ public static class RuntimeObjLoader
             {
                 // 2) file:// URI를 통한 로드 (UNC 포함)
                 string uri = ToFileUri(path);
-                Debug.Log($"[Texture] Trying URI: {uri}");
                 
                 using var req = UnityWebRequestTexture.GetTexture(uri);
                 var op = req.SendWebRequest();
@@ -775,7 +752,6 @@ public static class RuntimeObjLoader
 
                 if (!op.isDone)
                 {
-                    Debug.LogWarning($"[Texture] Timeout loading: {uri}");
                     return null;
                 }
 
@@ -784,13 +760,11 @@ public static class RuntimeObjLoader
                     tex = DownloadHandlerTexture.GetContent(req);
                     if (tex == null || tex.width <= 0 || tex.height <= 0)
                     {
-                        Debug.LogWarning($"[Texture] Invalid texture from URI: {uri}");
                         return null;
                     }
                 }
                 else
                 {
-                    Debug.LogWarning($"[Texture] Load failed via URI: {uri} (result: {req.result}, error: {req.error})");
                     return null;
                 }
             }
@@ -816,20 +790,17 @@ public static class RuntimeObjLoader
                     var midPixel = tex.GetPixel(tex.width / 2, tex.height / 2);
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                Debug.LogWarning($"[Texture] Texture validation failed: {path}\n{e}");
                 UnityEngine.Object.DestroyImmediate(tex);
                 return null;
             }
 
             _texCache[path] = tex;
-            Debug.Log($"[Texture] Loaded successfully: {path} ({tex.width}x{tex.height}), format: {tex.format}, mipmap: {tex.mipmapCount}, valid: {tex != null}");
             return tex;
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            Debug.LogWarning($"[Texture] Load failed: {path}\n{e}");
             return null;
         }
     }

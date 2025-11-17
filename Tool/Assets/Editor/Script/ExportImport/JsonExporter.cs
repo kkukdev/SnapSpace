@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using Newtonsoft.Json;
 
 namespace ObjDropWatcher.ExportImport
 {
@@ -17,36 +18,55 @@ namespace ObjDropWatcher.ExportImport
             try
             {
                 var collection = new ObjectTransformCollection();
+                int skippedCount = 0;
                 
                 foreach (var obj in objects)
                 {
                     if (obj == null) continue;
                     
-                    // 실제 OBJ 파일 경로 찾기
-                    string objPath = ObjPathFinder.FindObjPath(obj);
+                    string objPath = ObjectTransformData.GetObjPathForExport(obj);
+                    
+                    // OBJ 파일 경로가 없으면 건너뛰기
                     if (string.IsNullOrEmpty(objPath))
                     {
-                        // 찾지 못한 경우 MeshFilter의 메시 이름 사용 (하위 호환성)
-                        var meshFilter = obj.GetComponent<MeshFilter>();
-                        if (meshFilter != null && meshFilter.sharedMesh != null)
-                        {
-                            objPath = meshFilter.sharedMesh.name;
-                        }
+                        skippedCount++;
+                        continue;
                     }
                     
-                    collection.objects.Add(new ObjectTransformData(obj, objPath));
+                    var data = new ObjectTransformData(obj, objPath, true);
+                    
+                    // OBJ 파일만 export
+                    if (data.objectType == ObjectType.ObjFile)
+                    {
+                        collection.objects.Add(data);
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
                 }
 
-                string json = JsonUtility.ToJson(collection, true);
+                if (collection.objects.Count == 0)
+                {
+                    EditorUtility.DisplayDialog("Export 실패", 
+                        "Export할 OBJ 오브젝트가 없습니다.\nOBJ 파일 경로를 찾을 수 있는 오브젝트만 export됩니다.", "OK");
+                    return;
+                }
+
+                string json = JsonConvert.SerializeObject(collection, Formatting.Indented);
                 File.WriteAllText(filePath, json);
                 
-                Debug.Log($"[JSON Export] Exported {collection.objects.Count} objects to: {filePath}");
-                EditorUtility.DisplayDialog("Export 완료", 
-                    $"JSON 형식으로 {collection.objects.Count}개의 오브젝트를 export했습니다.\n{filePath}", "OK");
+                string message = $"JSON 형식으로 {collection.objects.Count}개의 OBJ 오브젝트를 export했습니다.";
+                if (skippedCount > 0)
+                {
+                    message += $"\n({skippedCount}개의 오브젝트는 건너뛰었습니다)";
+                }
+                message += $"\n{filePath}";
+                
+                EditorUtility.DisplayDialog("Export 완료", message, "OK");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[JSON Export] Failed: {ex}");
                 EditorUtility.DisplayDialog("Export 실패", $"JSON export 실패:\n{ex.Message}", "OK");
             }
         }
@@ -62,14 +82,17 @@ namespace ObjDropWatcher.ExportImport
                 }
 
                 string json = File.ReadAllText(filePath);
-                var collection = JsonUtility.FromJson<ObjectTransformCollection>(json);
+                var collection = JsonConvert.DeserializeObject<ObjectTransformCollection>(json);
                 
-                Debug.Log($"[JSON Import] Imported {collection.objects.Count} objects from: {filePath}");
+                if (collection == null)
+                {
+                    return null;
+                }
+                
                 return collection;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[JSON Import] Failed: {ex}");
                 EditorUtility.DisplayDialog("Import 실패", $"JSON import 실패:\n{ex.Message}", "OK");
                 return null;
             }
@@ -77,65 +100,15 @@ namespace ObjDropWatcher.ExportImport
 
         public static void ApplyImportedData(ObjectTransformCollection collection, bool createNewObjects = false)
         {
-            if (collection == null || collection.objects == null) return;
-
-            int successCount = 0;
-            int failCount = 0;
-
-            foreach (var data in collection.objects)
+            if (collection == null || collection.objects == null)
             {
-                GameObject obj = null;
-
-                if (createNewObjects)
-                {
-                    // 먼저 씬에 같은 이름의 오브젝트가 있는지 확인
-                    obj = GameObject.Find(data.objectName);
-                    
-                    if (obj != null)
-                    {
-                        // 기존 오브젝트가 있으면 Transform만 적용하고 새로 생성하지 않음
-                        Debug.Log($"[JSON Import] Found existing object '{data.objectName}', applying transform only");
-                    }
-                    else
-                    {
-                        // 기존 오브젝트가 없으면 새로 생성
-                        // OBJ 파일 경로가 없거나 찾을 수 없는 경우를 위해 FindObjPathForImport 사용
-                        if (data.objectType == ObjectType.ObjFile)
-                        {
-                            string objPath = ObjPathFinder.FindObjPathForImport(data.objectName, data.objFilePath);
-                            if (!string.IsNullOrEmpty(objPath) && File.Exists(objPath))
-                            {
-                                data.objFilePath = objPath; // 경로 업데이트
-                            }
-                        }
-                        
-                        obj = data.CreateGameObject();
-                        if (obj != null)
-                        {
-                            Debug.Log($"[JSON Import] Created object '{data.objectName}' (Type: {data.objectType}, Primitive: {data.primitiveType})");
-                        }
-                    }
-                }
-                else
-                {
-                    // 기존 오브젝트 찾기
-                    obj = GameObject.Find(data.objectName);
-                }
-
-                if (obj != null)
-                {
-                    data.ApplyToGameObject(obj);
-                    successCount++;
-                }
-                else
-                {
-                    Debug.LogWarning($"[JSON Import] Object not found: {data.objectName}");
-                    failCount++;
-                }
+                return;
             }
-
+            
+            var result = ObjectTransformData.ApplyCollection(collection, createNewObjects, "[JSON Import]");
+            
             EditorUtility.DisplayDialog("Import 완료", 
-                $"성공: {successCount}개\n실패: {failCount}개", "OK");
+                $"성공: {result.successCount}개\n실패: {result.failCount}개", "OK");
         }
     }
 }
