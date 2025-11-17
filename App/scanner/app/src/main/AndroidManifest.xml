@@ -62,10 +62,8 @@
             </intent-filter>
         </activity>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.main.Main" android:windowSoftInputMode="stateAlwaysHidden|adjustPan"/>
-        <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.Settings"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.HomeActivity"/>
         <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.FileManager"/>
-        <activity android:configChanges="orientation|screenSize" android:launchMode="singleTop" android:name="com.snapspace.scanner.ui.Uploader"/>
         <service android:name="com.snapspace.scanner.ui.Service"/>
 
         <provider

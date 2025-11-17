@@ -12,8 +12,7 @@ public class Initializator extends AbstractActivity
   private static boolean first;
   private static Intent lastIntent;
 
-  public Initializator()
-  {
+  public Initializator() {
     super();
     first = true;
   }
@@ -44,8 +43,7 @@ public class Initializator extends AbstractActivity
   }
 
   @Override
-  protected void onResume()
-  {
+  protected void onResume() {
     super.onResume();
 
     lastIntent = getIntent();
@@ -65,8 +63,7 @@ public class Initializator extends AbstractActivity
     }
   }
 
-  public static boolean isFirst()
-  {
+  public static boolean isFirst() {
     boolean output = first;
     first = false;
     return output;

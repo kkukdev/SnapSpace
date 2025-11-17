@@ -89,16 +89,6 @@ public class Exporter
       IO.copy(gpsFile, newGPS);
     }
 
-    //copy memo file
-//    File memoFile = new File(file.getParent(), "memo.txt");
-//    if (memoFile.exists()) {
-//      File newMemo = new File(AbstractActivity.getPath(false), "memo.txt");
-//      if (newMemo.exists()) {
-//        newMemo.delete();
-//      }
-//      IO.copy(memoFile, newMemo);
-//    }
-
     //copy memos JSON file
     File memosJsonFile = new File(file.getParent(), "memos.json");
     if (memosJsonFile.exists()) {
@@ -236,18 +226,12 @@ public class Exporter
       if (gpsFile.exists())
         res.add(gpsFile.getName());
 
-      // 메모 파일 확인 추가
-//      File memoFile = new File(modelParentPath, "memo.txt");
-//      if (memoFile.exists())
-//        res.add(memoFile.getName());
-
       // memos.json 파일 확인 추가
       File memosJsonFile = new File(modelParentPath, "memos.json");
       if (memosJsonFile.exists()) {
         res.add(memosJsonFile.getName());
         Log.d(AbstractActivity.TAG, "Memos JSON file added to structure: " + memosJsonFile.getName());
       }
-
 
       // 음성 파일 확인 추가
       File[] voiceFiles = new File(modelParentPath).listFiles((dir, name) ->

@@ -109,8 +109,6 @@ class FileAdapter extends BaseAdapter
     }, mContext);
   }
 
-  // ... (getCount, getItem, getItemId, getView, hasParent, toParent, loadIcon, getPath... 등 다른 메소드는 동일) ...
-  // ... (이하 기존 코드 생략) ...
   @Override
   public int getCount()
   {
@@ -166,10 +164,6 @@ class FileAdapter extends BaseAdapter
     }
     loadIcon(key, icon);
 
-    //set extension
-    // View extension = view.findViewById(R.id.extension);
-    // extension.setVisibility(key.endsWith(Exporter.EXT_DATASET) ? View.VISIBLE : view.GONE);
-
     //set selection
     View selection = view.findViewById(R.id.selection);
     if (mSelected.contains(index)) {
@@ -191,8 +185,6 @@ class FileAdapter extends BaseAdapter
           mPath = new File(mPath, key).getAbsolutePath();
         }
         mContext.refreshUI();
-      } else if (key.endsWith(Exporter.EXT_DATASET)) {
-        startPostprocess(key);
       } else {
         File f = new File(getPath(), key);
         Intent intent = new Intent(mContext, Main.class);
@@ -287,50 +279,6 @@ class FileAdapter extends BaseAdapter
 
   public String getPath() {
     return new File(mPath).getAbsolutePath();
-  }
-
-  private void startPostprocess(String key) {
-
-    AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
-    builder.setView(R.layout.dialog_scan);
-    Dialog dialog = builder.create();
-    dialog.getWindow().setBackgroundDrawable(mContext.getDrawable(R.drawable.background_dialog));
-    dialog.show();
-    ((TextView)dialog.findViewById(R.id.name)).setText(R.string.export);
-
-    ArrayList<Drawable> icons = new ArrayList<>();
-    ArrayList<String> values = new ArrayList<>();
-    values.add(mContext.getString(R.string.export_model));
-    values.add(mContext.getString(R.string.export_floorplan));
-    values.add(mContext.getString(R.string.export_pointcloud));
-    icons.add(mContext.getDrawable(R.drawable.ic_type_scan));
-    icons.add(mContext.getDrawable(R.drawable.ic_type_floorplan));
-    icons.add(mContext.getDrawable(R.drawable.ic_type_pointcloud));
-
-    SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(mContext);
-    ArrayAdapterWithIcons adapter = new ArrayAdapterWithIcons(mContext, values, icons);
-    GridView list = dialog.findViewById(R.id.list);
-    list.setAdapter(adapter);
-    list.setOnTouchListener((v, event) -> event.getAction() == MotionEvent.ACTION_MOVE);
-    list.setOnItemClickListener((adapterView, view, index, l) -> {
-      String mode = values.get(index);
-      SharedPreferences.Editor e = pref.edit();
-      e.putBoolean(mContext.getString(R.string.pref_later), true);
-      if (mode.compareTo(mContext.getString(R.string.export_floorplan)) == 0) {
-        e.putString(mContext.getString(R.string.pref_mode), "exp_floorplan");
-      } else if (mode.compareTo(mContext.getString(R.string.export_pointcloud)) == 0) {
-        e.putString(mContext.getString(R.string.pref_mode), "exp_pointcloud");
-      } else if (mode.compareTo(mContext.getString(R.string.export_model)) == 0) {
-        e.putString(mContext.getString(R.string.pref_mode), "realtime");
-      }
-      e.commit();
-
-      File file = new File(getPath(), key);
-      Intent intent = new Intent(mContext, Main.class);
-      intent.putExtra(AbstractActivity.FILE_KEY, file.getAbsolutePath());
-      dialog.dismiss();
-      mContext.startActivity(intent);
-    });
   }
 
   public void update() {
