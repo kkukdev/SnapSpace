@@ -705,6 +705,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     // 메모 내용 저장
     mMemoContent = mMemoEditText.getText().toString();
     
+    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+      mMemoManager.addTextMemo(mCurrentMemoAnchor, mMemoContent);
+      Log.d("MemoDialog", "Text memo added: " + mMemoContent);
+          
+      // 메모 추가 후 EditText 초기화
+      mMemoContent = "";
+    }
+    
     // 키보드 숨기기
     android.view.inputmethod.InputMethodManager imm = 
       (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
