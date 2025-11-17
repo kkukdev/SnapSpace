@@ -75,7 +75,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private LinearLayout mLayoutMemo;
   private EditText mMemoEditText;
   private Button mMemoCloseButton;
-  private Button mMemoPositionButton; 
+//  private Button mMemoPositionButton;
   private String mMemoContent = "";
 //  private ImageButton mViewButton;
   private ImageButton mToggleButton;
@@ -117,6 +117,8 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   private boolean mIsVoiceRecording = false;
   private Button mVoiceRecordButton;
   private String mCurrentVoiceFileName = "";
+  private MemoManager mMemoManager;
+  private String mCurrentMemoAnchor = ""; // 메모 버튼 클릭 시점의 좌표
 
   int getARMode() {
     int mode = getBackend(this) * 3; //0 = GOOGLE_SFM, 3 = HUAWEI_SFM
@@ -292,12 +294,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     mLayoutMemo = findViewById(R.id.layout_memo_scroll);
     mMemoEditText = findViewById(R.id.memo_edit_text);
     mMemoCloseButton = findViewById(R.id.memo_close_button);
-    mMemoPositionButton = findViewById(R.id.memo_position_button);
+//    mMemoPositionButton = findViewById(R.id.memo_position_button);
     findViewById(R.id.clear_button).setOnClickListener(this);
     findViewById(R.id.save_button).setOnClickListener(this);
     findViewById(R.id.memo_button).setOnClickListener(this);
     mMemoCloseButton.setOnClickListener(this);
-    mMemoPositionButton.setOnClickListener(this);
+//    mMemoPositionButton.setOnClickListener(this);
 //    mViewButton = findViewById(R.id.view_button);
 //    mViewButton.setVisibility(View.GONE);
 //    mViewButton.setOnClickListener(this);
@@ -316,6 +318,9 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     // 음성 녹음 버튼 초기화
     mVoiceRecordButton = findViewById(R.id.memo_voice_record);
     mVoiceRecordButton.setOnClickListener(this);
+
+    // 메모 관련 객체 초기화
+    mMemoManager = new MemoManager();
 
     if (isFaceModeOn(this)) {
       findViewById(R.id.clear_button).setVisibility(View.GONE);
@@ -487,10 +492,8 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       }
     }
 
-    // 음성 파일 경로 생성 (좌표 기반 이름)
-    String positionStr = getPositionForFilename();
-    mCurrentVoiceFileName = "voice_" + positionStr + "_"
-            + System.currentTimeMillis() + ".3gp";
+    // 파일명을 타임스탬프만으로 단순화
+    mCurrentVoiceFileName = "voice_" + System.currentTimeMillis() + ".3gp";
     File voiceFile = new File(getTempPath(), mCurrentVoiceFileName);
 
     // 음성 녹음 시작
@@ -518,12 +521,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       mVoiceRecordButton.setBackgroundResource(R.drawable.background_button_normal_blue);
 
       if (success) {
-        // 음성 메모 저장 완료 알림
-        String message = "음성 메모 저장됨: " + mCurrentVoiceFileName;
-        Log.d("VoiceRecording", message);
+        // MemoManager에 음성 메모 추가 (JSON 저장은 스캔 저장 시)
+        if (mMemoManager != null) {
+          mMemoManager.addAudioMemo(mCurrentMemoAnchor, mCurrentVoiceFileName);
+          Log.d("VoiceRecording", "음성 메모 추가됨: " + mCurrentVoiceFileName + " at " + mCurrentMemoAnchor);
+        }
 
         // 옵션: 토스트 메시지로 사용자 알림
-        // Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        // Toast.makeText(this, "음성 메모가 추가되었습니다", Toast.LENGTH_SHORT).show();
       }
 
       mVoiceRecorder.release();
@@ -546,7 +551,14 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     } else if (id == R.id.clear_button) {
       pauseScanning();
       if (JNI.getScanSize() > 0) {
-        CommonDialogs.confirmDialog(this, R.string.scan_discard, JNI::onClearButtonClicked);
+        CommonDialogs.confirmDialog(this, R.string.scan_discard, () -> {
+          JNI.onClearButtonClicked();
+          // 메모도 함께 초기화
+          if (mMemoManager != null) {
+            mMemoManager.clear();
+            Log.d(TAG, "Memos cleared");
+          }
+        });
       }
     }
 //    else if (id == R.id.view_button) {
@@ -608,22 +620,22 @@ public class Main extends AbstractActivity implements View.OnClickListener,
       pauseScanning();
       showMemoDialog();
     }
-    else if (id == R.id.memo_position_button) { // 메모 위치 좌표 버튼 클릭 시
-      // 현재 AR 카메라 위치 좌표 가져오기 (GetPose 사용)
-      float x = JNI.getCameraPosition(0);
-      float y = JNI.getCameraPosition(1);
-      float z = JNI.getCameraPosition(2);
-      
-      // [x:1,y:1,z:1] 형식으로 좌표 문자열 생성
-      String positionText = String.format("[x:%.2f,y:%.2f,z:%.2f]\n", x, y, z);
-      
-      // 현재 메모 내용에 좌표 추가
-      String currentText = mMemoEditText.getText().toString();
-      mMemoEditText.setText(currentText + positionText);
-      
-      // 커서를 끝으로 이동
-      mMemoEditText.setSelection(mMemoEditText.getText().length());
-    }
+//    else if (id == R.id.memo_position_button) { // 메모 위치 좌표 버튼 클릭 시
+//      // 현재 AR 카메라 위치 좌표 가져오기 (GetPose 사용)
+//      float x = JNI.getCameraPosition(0);
+//      float y = JNI.getCameraPosition(1);
+//      float z = JNI.getCameraPosition(2);
+//
+//      // [x:1,y:1,z:1] 형식으로 좌표 문자열 생성
+//      String positionText = String.format("[x:%.2f,y:%.2f,z:%.2f]\n", x, y, z);
+//
+//      // 현재 메모 내용에 좌표 추가
+//      String currentText = mMemoEditText.getText().toString();
+//      mMemoEditText.setText(currentText + positionText);
+//
+//      // 커서를 끝으로 이동
+//      mMemoEditText.setSelection(mMemoEditText.getText().length());
+//    }
     else if (id == R.id.memo_close_button) { // 메모 완료 버튼 클릭 시
       hideMemoDialog();
     }
@@ -636,6 +648,17 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         stopVoiceRecording();
       }
     }
+    else if (id == R.id.memo_clear_button) {
+      pauseScanning();
+      if (JNI.getScanSize() > 0) {
+        CommonDialogs.confirmDialog(this, R.string.scan_discard, () -> {
+          JNI.onClearButtonClicked();
+          // ★ 메모도 함께 초기화
+          mMemoManager.clear();
+          Log.d("Main", "Memos cleared");
+        });
+      }
+    }
 
     if (!mPhotoMode) {
       mToggleButton.setImageResource(m3drRunning ? R.drawable.icon_pause_circle : R.drawable.icon_record);
@@ -644,6 +667,13 @@ public class Main extends AbstractActivity implements View.OnClickListener,
   }
 
   private void showMemoDialog() {
+    // 메모 다이얼로그를 열 때 현재 좌표 저장
+    float x = JNI.getCameraPosition(0);
+    float y = JNI.getCameraPosition(1);
+    float z = JNI.getCameraPosition(2);
+    mCurrentMemoAnchor = String.format("x:%.2f,y:%.2f,z:%.2f", x, y, z);
+    Log.d("MemoDialog", "Anchor saved: " + mCurrentMemoAnchor);
+
     // 전체 화면 해제
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     
@@ -1105,15 +1135,31 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     }
     
     //save memo
-    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+//    if (mMemoContent != null && !mMemoContent.trim().isEmpty()) {
+//      try {
+//        File memoFile = new File(getTempPath(), "memo.txt");
+//        FileOutputStream fos = new FileOutputStream(memoFile);
+//        fos.write(mMemoContent.getBytes("UTF-8"));
+//        fos.flush();
+//        fos.close();
+//      } catch (Exception e) {
+//        Log.e(TAG, "Failed to save memo", e);
+//        e.printStackTrace();
+//      }
+//    }
+
+    //save memos JSON
+    if (mMemoManager != null && mMemoManager.getMemoCount() > 0) {
       try {
-        File memoFile = new File(getTempPath(), "memo.txt");
-        FileOutputStream fos = new FileOutputStream(memoFile);
-        fos.write(mMemoContent.getBytes("UTF-8"));
-        fos.flush();
-        fos.close();
+        String jsonPath = new File(getTempPath(), "memos.json").getAbsolutePath();
+        mMemoManager.setJsonFilePath(jsonPath);
+        if (mMemoManager.saveToJson()) {
+          Log.d(TAG, "Memos JSON saved successfully");
+        } else {
+          Log.e(TAG, "Failed to save memos JSON");
+        }
       } catch (Exception e) {
-        Log.e(TAG, "Failed to save memo", e);
+        Log.e(TAG, "Exception while saving memos JSON", e);
         e.printStackTrace();
       }
     }
