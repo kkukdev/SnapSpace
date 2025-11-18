@@ -185,8 +185,8 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
             startActivity(new Intent(this, FileManager.class));
         }
         else if (id == R.id.btn_settings) {
-            // 설정 화면 (나중에 구현)
-            Toast.makeText(this, "설정 기능은 준비 중입니다", Toast.LENGTH_SHORT).show();
+            // 설정 화면으로 이동
+            startActivity(new Intent(this, SettingsActivity.class));
         }
         else if (id == R.id.service_cancel) {
             cancelProcessing();

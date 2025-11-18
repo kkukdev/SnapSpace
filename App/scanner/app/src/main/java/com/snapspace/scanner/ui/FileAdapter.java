@@ -1,16 +1,13 @@
 package com.snapspace.scanner.ui;
 
 import android.app.AlertDialog;
-import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.preference.PreferenceManager;
 import android.text.SpannableString;
 import android.util.Log; // <-- [추가] 로그 import
 import android.view.LayoutInflater;
@@ -18,11 +15,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast; // <-- [추가] Toast import
-import android.widget.FrameLayout;
 import android.widget.EditText;
 
 import androidx.core.content.FileProvider;
@@ -32,7 +27,7 @@ import com.snapspace.scanner.BuildConfig;
 import com.snapspace.scanner.R;
 import com.snapspace.scanner.main.Exporter;
 import com.snapspace.scanner.main.Main;
-import com.snapspace.scanner.fastapi.FastApiService; // <-- 'fastapi'가 'network'로 변경됨 (이전 코드 기준)
+import com.snapspace.scanner.utils.FastApiService; // <-- 'fastapi'가 'network'로 변경됨 (이전 코드 기준)
 import com.lvonasek.utils.GestureDetector;
 
 import java.io.File;
@@ -560,7 +555,7 @@ class FileAdapter extends BaseAdapter
     mContext.showProgress();
 
     FastApiService.FastApiInterface service =
-            FastApiService.getRetrofitInstance().create(FastApiService.FastApiInterface.class);
+            FastApiService.getRetrofitInstance(mContext).create(FastApiService.FastApiInterface.class);
 
     File file = new File(zipFilePath);
     RequestBody requestFile = RequestBody.create(MediaType.parse("application/zip"), file);

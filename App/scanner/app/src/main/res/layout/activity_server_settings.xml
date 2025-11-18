@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- 헤더 -->
+        <LinearLayout
+            android:id="@+id/header"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1.5"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+
+            <TextView
+                android:id="@+id/header_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="서버 설정"
+                android:textSize="@dimen/text_header"
+                android:textColor="@color/primary"
+                android:fontFamily="@font/pretendard_black" />
+
+        </LinearLayout>
+
+        <!-- 서버 설정 폼 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="8.5"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <!-- IP 주소 입력 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="서버 IP 주소"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@color/primary"
+                    android:fontFamily="@font/pretendard_bold"
+                    android:layout_marginBottom="8dp"/>
+
+                <EditText
+                    android:id="@+id/edit_server_ip"
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:background="@drawable/background_button_white"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:hint="예: 192.168.0.100"
+                    android:inputType="text"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@color/text_primary"
+                    android:fontFamily="@font/pretendard_medium"
+                    android:maxLines="1"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="현재: 0.0.0.0"
+                    android:textSize="@dimen/text_small"
+                    android:textColor="@color/text_secondary"
+                    android:fontFamily="@font/pretendard_medium"
+                    android:layout_marginTop="4dp"/>
+            </LinearLayout>
+
+            <!-- 포트 번호 입력 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="32dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="포트 번호"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@color/primary"
+                    android:fontFamily="@font/pretendard_bold"
+                    android:layout_marginBottom="8dp"/>
+
+                <EditText
+                    android:id="@+id/edit_server_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:background="@drawable/background_button_white"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:hint="예: 8000"
+                    android:inputType="number"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@color/text_primary"
+                    android:fontFamily="@font/pretendard_medium"
+                    android:maxLines="1"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="현재: 8000"
+                    android:textSize="@dimen/text_small"
+                    android:textColor="@color/text_secondary"
+                    android:fontFamily="@font/pretendard_medium"
+                    android:layout_marginTop="4dp"/>
+            </LinearLayout>
+
+            <!-- 안내 메시지 -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="⚠️ 서버 주소를 변경하면 앱을 다시 시작해야 적용됩니다."
+                android:textSize="@dimen/text_small"
+                android:textColor="@color/secondary"
+                android:fontFamily="@font/pretendard_medium"
+                android:padding="12dp"
+                android:background="@drawable/background_memo"
+                android:layout_marginBottom="32dp"/>
+
+            <!-- 버튼 영역 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <!-- 취소 버튼 -->
+                <Button
+                    android:id="@+id/btn_cancel"
+                    android:layout_width="0dp"
+                    android:layout_height="60dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="취소"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@color/primary"
+                    android:fontFamily="@font/pretendard_bold"
+                    android:background="@drawable/background_button_white"/>
+
+                <!-- 저장 버튼 -->
+                <Button
+                    android:id="@+id/btn_save"
+                    android:layout_width="0dp"
+                    android:layout_height="60dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="저장"
+                    android:textSize="@dimen/text_middle_2"
+                    android:textColor="@android:color/white"
+                    android:fontFamily="@font/pretendard_bold"
+                    android:background="@drawable/background_button"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</RelativeLayout>
