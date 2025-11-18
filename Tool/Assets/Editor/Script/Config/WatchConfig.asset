@@ -18,4 +18,4 @@ MonoBehaviour:
   projectRoot: C:\Users\SSAFY\Desktop\dev_dydgk\S13P31S102
   scanDebounceMs: 800
   objPatterns: '*.obj, *.glb'
-  unitScale: 1000
+  unitScale: 1
