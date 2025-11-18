@@ -1451,10 +1451,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 }
                 
                 #if UNITY_EDITOR
-                if ((rootGo.hideFlags & HideFlags.DontSaveInEditor) == 0)
-                {
-                    EditorUtility.SetDirty(rootGo);
-                }
+                // SafeSetDirty를 사용하여 assertion 오류 방지
+                SafeSetDirty(rootGo);
                 #endif
             }
             catch (System.Exception)
@@ -1810,14 +1808,24 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             return;
         }
 
+        // SafeSetDirty를 사용하여 assertion 오류 방지
+        SafeSetDirty(targetConfig);
+    }
+    
+    /// <summary>
+    /// 안전하게 SetDirty를 호출합니다. DontSaveInEditor 플래그가 있는 객체는 건너뜁니다.
+    /// </summary>
+    void SafeSetDirty(UnityEngine.Object obj)
+    {
+        if (obj == null) return;
+        #if UNITY_EDITOR
         try
         {
-            // 객체가 실제로 Unity 에셋인지 확인
-            string assetPath = AssetDatabase.GetAssetPath(targetConfig);
-            if (string.IsNullOrEmpty(assetPath))
-                return;
-
-            EditorUtility.SetDirty(targetConfig);
+            // DontSaveInEditor 플래그가 있으면 SetDirty 호출하지 않음 (assertion 오류 방지)
+            if ((obj.hideFlags & HideFlags.DontSaveInEditor) == 0)
+            {
+                EditorUtility.SetDirty(obj);
+            }
         }
         catch (System.ArgumentException)
         {
@@ -1827,6 +1835,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         {
             // SetDirty 실패 시 무시 (메모리 오브젝트이거나 이미 삭제된 경우)
         }
+        #endif
     }
 
     // 직렬화 가능한지 확인하는 헬퍼 메서드

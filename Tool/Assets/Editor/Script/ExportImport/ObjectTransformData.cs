@@ -406,6 +406,14 @@ namespace ObjDropWatcher.ExportImport
             {
                 try
                 {
+                    // AudioSource의 더 이상 지원하지 않는 속성은 건너뛰기
+                    if (component is AudioSource)
+                    {
+                        string[] deprecatedProps = { "minVolume", "maxVolume", "rolloffFactor" };
+                        if (deprecatedProps.Contains(prop.Name))
+                            continue;
+                    }
+                    
                     object value = prop.GetValue(component);
                     if (value != null)
                     {
@@ -427,7 +435,7 @@ namespace ObjDropWatcher.ExportImport
                 }
                 catch (Exception)
                 {
-                    // 속성 저장 실패 시 건너뛰기
+                    // 속성 저장 실패 시 건너뛰기 (더 이상 지원하지 않는 속성 접근 시 예외 발생 가능)
                 }
             }
         }
@@ -480,8 +488,13 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         static bool IsIgnoredProperty(string propName)
         {
+            // 기본 무시 속성
             string[] ignored = { "enabled", "gameObject", "transform" };
-            return ignored.Contains(propName);
+            
+            // AudioSource의 더 이상 지원하지 않는 속성들 (Unity 최신 버전에서 제거됨)
+            string[] audioSourceDeprecated = { "minVolume", "maxVolume", "rolloffFactor" };
+            
+            return ignored.Contains(propName) || audioSourceDeprecated.Contains(propName);
         }
 
         bool IsSerializableField(FieldInfo field)
@@ -1709,15 +1722,17 @@ namespace ObjDropWatcher.ExportImport
                 try
                 {
                     // 메모 관련 children은 JSON에서 복원하지 않음 (memos.json에서 생성됨)
-                    // 메모는 이름이 "Memo_"로 시작하거나 TextMesh 컴포넌트를 가진 경우
-                    bool isMemoChild = childData.objectName.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase);
+                    // 메모는 이름이 "Memo_" 또는 "AudioMemo_"로 시작하거나 TextMesh 컴포넌트를 가진 경우
+                    bool isMemoChild = childData.objectName.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase) ||
+                                      childData.objectName.StartsWith("AudioMemo_", System.StringComparison.OrdinalIgnoreCase);
                     if (!isMemoChild && childData.components != null)
                     {
                         foreach (var compData in childData.components)
                         {
                             if (compData.componentType != null && 
                                 (compData.componentType.Contains("TextMesh") || 
-                                 compData.componentType.Contains("UnityEngine.TextMesh")))
+                                 compData.componentType.Contains("UnityEngine.TextMesh") ||
+                                 compData.componentType.Contains("AudioMemoPlayer")))
                             {
                                 isMemoChild = true;
                                 break;

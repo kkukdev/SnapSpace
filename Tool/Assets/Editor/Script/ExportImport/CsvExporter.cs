@@ -16,6 +16,38 @@ namespace ObjDropWatcher.ExportImport
     {
         public static void ExportToCsv(IEnumerable<GameObject> objects, string filePath)
         {
+            // GameObject를 ObjectTransformData로 변환하여 collection 생성
+            var collection = new ObjectTransformCollection();
+            foreach (var obj in objects)
+            {
+                if (obj == null) continue;
+                
+                string objPath = ObjectTransformData.GetObjPathForExport(obj);
+                if (string.IsNullOrEmpty(objPath)) continue;
+                
+                var data = new ObjectTransformData(obj, objPath, true);
+                if (data.objectType == ObjectType.ObjFile)
+                {
+                    collection.objects.Add(data);
+                }
+            }
+            
+            ExportToCsv(collection, filePath);
+        }
+        
+        public static void ExportToCsv(ObjectTransformCollection collection, string filePath)
+        {
+            if (collection == null || collection.objects == null)
+            {
+                EditorUtility.DisplayDialog("Export 실패", "Export할 데이터가 없습니다.", "OK");
+                return;
+            }
+            
+            ExportToCsv(collection.objects, filePath);
+        }
+        
+        public static void ExportToCsv(IEnumerable<ObjectTransformData> dataList, string filePath)
+        {
             try
             {
                 var sb = new StringBuilder();
@@ -25,20 +57,9 @@ namespace ObjDropWatcher.ExportImport
                 // 헤더 (하위 호환성을 위해 기존 필드 유지, 새로운 필드 추가)
                 sb.AppendLine("ObjectName,PositionX,PositionY,PositionZ,RotationX,RotationY,RotationZ,ScaleX,ScaleY,ScaleZ,ObjFilePath,OriginalPath,RetouchedPath,IsUsingRetouched,ObjectType,PrimitiveType");
                 
-                foreach (var obj in objects)
+                foreach (var data in dataList)
                 {
-                    if (obj == null) continue;
-                    
-                    string objPath = ObjectTransformData.GetObjPathForExport(obj);
-                    
-                    // OBJ 파일 경로가 없으면 건너뛰기
-                    if (string.IsNullOrEmpty(objPath))
-                    {
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    var data = new ObjectTransformData(obj, objPath, true);
+                    if (data == null) continue;
                     
                     // OBJ 파일만 export
                     if (data.objectType != ObjectType.ObjFile)

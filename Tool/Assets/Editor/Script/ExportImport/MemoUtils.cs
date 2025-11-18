@@ -231,7 +231,7 @@ namespace ObjDropWatcher.ExportImport
                 return null;
 
             // 지원하는 오디오 확장자
-            string[] audioExtensions = { ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".3gp" };
+            string[] audioExtensions = { ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac" };
 
             // content 제목과 정확히 일치하는 파일 찾기
             foreach (string ext in audioExtensions)
@@ -241,13 +241,30 @@ namespace ObjDropWatcher.ExportImport
                     return audioPath;
             }
 
-            // content 자체에 확장자가 포함된 경우 직접 시도
+            // content 자체에 확장자가 포함된 경우 처리
             string trimmedTitle = audioTitle?.Trim();
             if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
             {
-                string directPath = Path.Combine(objDir, trimmedTitle);
-                if (File.Exists(directPath))
-                    return directPath;
+                string fileExt = Path.GetExtension(trimmedTitle).ToLowerInvariant();
+                
+                // 지원하는 확장자인 경우에만 직접 시도
+                if (audioExtensions.Contains(fileExt))
+                {
+                    string directPath = Path.Combine(objDir, trimmedTitle);
+                    if (File.Exists(directPath))
+                        return directPath;
+                }
+                // 지원하지 않는 확장자인 경우 확장자 제거하고 파일명만 사용하여 재검색
+                else
+                {
+                    string baseFileName = Path.GetFileNameWithoutExtension(trimmedTitle);
+                    foreach (string ext in audioExtensions)
+                    {
+                        string audioPath = Path.Combine(objDir, baseFileName + ext);
+                        if (File.Exists(audioPath))
+                            return audioPath;
+                    }
+                }
             }
 
             // 대소문자 구분 없이 찾기
@@ -259,12 +276,28 @@ namespace ObjDropWatcher.ExportImport
                     string fileName = Path.GetFileNameWithoutExtension(file);
                     string fileExt = Path.GetExtension(file).ToLowerInvariant();
                     
-                    // 제목에 확장자가 이미 포함되었으면 전체 파일명 비교
+                    // 제목에 확장자가 이미 포함되었으면 처리
                     if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
                     {
-                        if (string.Equals(Path.GetFileName(trimmedTitle), Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+                        string titleExt = Path.GetExtension(trimmedTitle).ToLowerInvariant();
+                        
+                        // 지원하는 확장자인 경우 전체 파일명 비교
+                        if (audioExtensions.Contains(titleExt))
                         {
-                            return file;
+                            if (string.Equals(Path.GetFileName(trimmedTitle), Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+                            {
+                                return file;
+                            }
+                        }
+                        // 지원하지 않는 확장자인 경우 확장자 제거하고 파일명만 비교
+                        else
+                        {
+                            string baseTitle = Path.GetFileNameWithoutExtension(trimmedTitle);
+                            if (audioExtensions.Contains(fileExt) && 
+                                string.Equals(fileName, baseTitle, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return file;
+                            }
                         }
                     }
                     else if (audioExtensions.Contains(fileExt) && 
@@ -368,7 +401,6 @@ namespace ObjDropWatcher.ExportImport
                 {
                     if (string.IsNullOrEmpty(objFilePath))
                     {
-                        Debug.LogWarning($"[MemoUtils] Audio memo detected but OBJ path is missing. title={memo.content}");
                         continue;
                     }
                     
@@ -377,15 +409,9 @@ namespace ObjDropWatcher.ExportImport
                     
                     if (!string.IsNullOrEmpty(audioPath))
                     {
-                        Debug.Log($"[MemoUtils] Audio memo detected. title={memo.content}, path={audioPath}");
                         // 오디오 메모 생성
                         CreateAudioMemoAsChild(parentObj, memo.content, audioPath, localPosition, localRotation, localScale);
                         memoCount++;
-                    }
-                    else
-                    {
-                        string objDir = Path.GetDirectoryName(objFilePath);
-                        Debug.LogWarning($"[MemoUtils] Audio memo file not found. title={memo.content}, searchDir={objDir}");
                     }
                 }
                 // 다른 타입은 건너뛰기
@@ -913,11 +939,11 @@ namespace ObjDropWatcher.ExportImport
                 // 2. 수직선 생성
                 CreateVerticalLine(audioMemoRoot, _currentDesignConfig);
                 
-                // 3. 네모창 생성 (오디오 제목 표시)
-                GameObject panelObj = CreatePanel(audioMemoRoot, _currentDesignConfig, audioTitle);
+                // 3. 네모창 생성 (플레이 버튼용 작은 패널)
+                GameObject panelObj = CreatePlayButtonPanel(audioMemoRoot, _currentDesignConfig);
                 
-                // 4. 텍스트 생성 (오디오 제목)
-                CreateTextInPanel(panelObj, audioTitle, _currentDesignConfig);
+                // 4. 플레이 버튼 아이콘 생성 (텍스트 대신)
+                CreatePlayButtonIcon(panelObj, _currentDesignConfig);
                 
                 // 5. 오디오 재생 컴포넌트 추가
                 #if UNITY_EDITOR
@@ -930,6 +956,122 @@ namespace ObjDropWatcher.ExportImport
             {
                 // 오디오 메모 생성 실패 시 무시
             }
+        }
+        
+        /// <summary>
+        /// 플레이 버튼용 작은 패널을 생성합니다.
+        /// </summary>
+        private static GameObject CreatePlayButtonPanel(GameObject parent, MemoDesignConfig config)
+        {
+            // 플레이 버튼용 작은 패널 크기
+            float buttonWidth = 0.5f;
+            float buttonHeight = 0.5f;
+            
+            GameObject panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            panel.name = "PlayButtonPanel";
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            panel.hideFlags = HideFlags.None;
+            
+            panel.transform.SetParent(parent.transform, false);
+            
+            // 패널 위치 (선 끝 위)
+            float panelY = config.lineHeight + buttonHeight / 2f;
+            panel.transform.localPosition = new Vector3(0, panelY, 0);
+            panel.transform.localRotation = Quaternion.identity;
+            panel.transform.localScale = new Vector3(buttonWidth, buttonHeight, 1f);
+            
+            // 배경 색상 설정
+            Renderer renderer = panel.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Shader shader = Shader.Find("Unlit/Color");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Unlit/Transparent");
+                    if (shader == null)
+                    {
+                        shader = Shader.Find("Standard");
+                    }
+                }
+                
+                if (shader != null)
+                {
+                    Material mat = new Material(shader);
+                    mat.hideFlags = HideFlags.None;
+                    mat.color = config.panelBackgroundColor;
+                    
+                    if (shader.name == "Standard")
+                    {
+                        mat.SetFloat("_Metallic", 0f);
+                        mat.SetFloat("_Glossiness", 0.1f);
+                    }
+                    
+                    renderer.material = mat;
+                }
+            }
+            
+            #if UNITY_EDITOR
+            Undo.RegisterCreatedObjectUndo(panel, "Create Play Button Panel");
+            #endif
+            
+            return panel;
+        }
+        
+        /// <summary>
+        /// 플레이 버튼 아이콘(▶)을 생성합니다.
+        /// </summary>
+        private static void CreatePlayButtonIcon(GameObject panelObj, MemoDesignConfig config)
+        {
+            GameObject textObject = new GameObject("PlayIcon");
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            textObject.hideFlags = HideFlags.None;
+            
+            textObject.transform.SetParent(panelObj.transform, false);
+            textObject.transform.localPosition = new Vector3(0, 0, -0.2f);
+            textObject.transform.localRotation = Quaternion.identity;
+            
+            // 패널 크기 정보 가져오기
+            Vector3 panelScale = panelObj.transform.localScale;
+            float panelWidth = panelScale.x;
+            float panelHeight = panelScale.y;
+            
+            // 부모 패널의 scale 영향을 상쇄
+            Vector3 inverseScale = new Vector3(1f / panelWidth, 1f / panelHeight, 1f);
+            textObject.transform.localScale = inverseScale;
+            
+            // TextMesh 컴포넌트 추가 및 플레이 아이콘 설정
+            TextMesh textMesh = textObject.AddComponent<TextMesh>();
+            textMesh.text = "▶"; // 플레이 아이콘
+            textMesh.fontSize = config.fontSize * 2; // 아이콘은 더 크게
+            textMesh.characterSize = config.characterSize * 1.5f; // 아이콘은 더 크게
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = config.textColor;
+            textMesh.richText = false;
+            textMesh.fontStyle = FontStyle.Bold;
+            
+            // TextMesh 렌더러 설정
+            Renderer textRenderer = textObject.GetComponent<Renderer>();
+            if (textRenderer != null)
+            {
+                textRenderer.sortingOrder = 100;
+                
+                Material sharedMaterial = textRenderer.sharedMaterial;
+                if (sharedMaterial != null)
+                {
+                    Material newMaterial = new Material(sharedMaterial);
+                    newMaterial.hideFlags = HideFlags.None;
+                    newMaterial.renderQueue = 4000;
+                    newMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                    textRenderer.sharedMaterial = newMaterial;
+                }
+            }
+            
+            #if UNITY_EDITOR
+            Undo.RegisterCreatedObjectUndo(textObject, "Create Play Icon");
+            #endif
         }
 
         /// <summary>

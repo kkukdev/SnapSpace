@@ -70,8 +70,22 @@ namespace ObjDropWatcher.ExportImport
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             {
-                Debug.LogWarning($"[AudioMemoPlayer] 오디오 파일을 찾을 수 없습니다: {filePath}");
                 return;
+            }
+            
+            // audioSource가 null이면 다시 가져오기 (에디터에서 Awake가 호출되지 않을 수 있음)
+            if (audioSource == null)
+            {
+                audioSource = GetComponent<AudioSource>();
+                if (audioSource == null)
+                {
+                    audioSource = gameObject.AddComponent<AudioSource>();
+                }
+                
+                // AudioSource 설정
+                audioSource.playOnAwake = playOnAwake;
+                audioSource.loop = loop;
+                audioSource.volume = volume;
             }
             
             audioFilePath = filePath;
@@ -88,7 +102,6 @@ namespace ObjDropWatcher.ExportImport
                     audioClip = assetClip;
                     audioSource.clip = audioClip;
                     isLoaded = true;
-                    Debug.Log($"[AudioMemoPlayer] 오디오 에셋 로드 성공: {assetPath}");
                     return;
                 }
             }
@@ -97,7 +110,6 @@ namespace ObjDropWatcher.ExportImport
             StartCoroutine(LoadAudioClipCoroutine(filePath));
             #else
             // 런타임에서는 Resources나 StreamingAssets에서 로드
-            Debug.LogWarning("[AudioMemoPlayer] 런타임에서는 오디오 파일을 직접 로드할 수 없습니다. Resources나 StreamingAssets를 사용하세요.");
             #endif
         }
         
@@ -142,18 +154,16 @@ namespace ObjDropWatcher.ExportImport
                 // 파일 복사
                 File.Copy(filePath, assetPath, true);
                 
-                // AssetDatabase 새로고침
+                // AssetDatabase 새로고침 (Refresh가 자동으로 임포트함)
                 AssetDatabase.Refresh();
                 
-                // 임포트 완료 대기
-                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+                // ImportAsset 호출 제거 - Refresh가 자동으로 임포트하므로 중복 호출은 Assertion 오류를 유발할 수 있음
+                // AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.Default);
                 
-                Debug.Log($"[AudioMemoPlayer] 오디오 파일을 에셋으로 임포트했습니다: {assetPath}");
                 return assetPath;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogWarning($"[AudioMemoPlayer] 오디오 파일 에셋 임포트 실패: {ex.Message}");
                 return null;
             }
         }
@@ -176,16 +186,7 @@ namespace ObjDropWatcher.ExportImport
                     {
                         audioSource.clip = audioClip;
                         isLoaded = true;
-                        Debug.Log($"[AudioMemoPlayer] 오디오 파일 로드 성공: {filePath}");
                     }
-                    else
-                    {
-                        Debug.LogError($"[AudioMemoPlayer] 오디오 클립을 생성할 수 없습니다: {filePath}");
-                    }
-                }
-                else
-                {
-                    Debug.LogError($"[AudioMemoPlayer] 오디오 파일 로드 실패: {www.error}");
                 }
             }
         }
@@ -211,7 +212,6 @@ namespace ObjDropWatcher.ExportImport
                     return UnityEngine.AudioType.OGGVORBIS;
                 case ".m4a":
                 case ".aac":
-                case ".3gp":
                     return UnityEngine.AudioType.MPEG;
                 default:
                     return UnityEngine.AudioType.UNKNOWN;
