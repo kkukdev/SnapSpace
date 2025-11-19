@@ -164,7 +164,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     // 오브젝트 모드인 경우, 해상도 및 최대/최소 거리 조정
     if (scanMode.equals("object_scan")) {
       dmin = 0.01f;
-      dmax = 2.0f;
+      dmax = 1.0f;
     }
 
     mCameraControl.setOffset(0);

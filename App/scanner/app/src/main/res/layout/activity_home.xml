@@ -214,7 +214,7 @@
             android:layout_marginBottom="25dp"
             android:gravity="center"
             android:text="처리 중..."
-            android:textSize="@dimen/text_middle"
+            android:textSize="@dimen/text_middle_2"
             android:textAlignment="center"
             android:fontFamily="@font/pretendard_medium"/>
 

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name" translatable="false">SnapSpace</string>
+    <string name="no_data">No 3D models</string>
+
     <!--  정보 메시지  -->
     <string name="jump">앱에서 모션 추적 데이터가 잘못되었습니다. 기기의 위치를 다시 잡고 녹화 아이콘을 눌러 스캔을 계속 진행해주세요.</string>
 
@@ -37,7 +40,7 @@
     <string name="saving">모델 저장 중…</string>
     <string name="turn_off">데이터를 손실하지 않고 앱을 종료할 수 있습니다.</string>
     <string name="warning">경고</string>
-    <string name="working">작업 진행 중입니다. 기기를 끄거나 다른 AR 앱을 실행하지 마세요.</string>
+    <string name="working">작업 진행 중입니다.\n기기를 끄거나 다른 AR 앱을 실행하지 마세요.</string>
 
     <!-- Event !-->
     <string name="event_analyse">사진 분석 중</string>
@@ -52,8 +55,6 @@
 
     <!--  원본  -->
     <!-- File Manager !-->
-    <string name="app_name" translatable="false">SnapSpace</string>
-    <string name="no_data">No 3D models</string>
     <string name="migrating_data">Migrating data into a new folder, please wait…</string>
     <string name="name_exists">A model with the entered name already exists.</string>
     <string name="invalid_name">Invalid file name!</string>
