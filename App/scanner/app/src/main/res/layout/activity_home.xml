@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/main_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- 헤더 -->
+        <LinearLayout
+            android:id="@+id/header"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="2"
+            android:gravity="center"
+            android:orientation="horizontal"
+            tools:ignore="UselessParent">
+
+            <TextView
+                android:id="@+id/header_title"
+                style="@style/AppHeaderStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/app_name"
+                android:textSize="@dimen/text_title"
+                android:textColor="@color/primary"
+                android:fontFamily="@font/pretendard_black"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/card_view_layout"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:orientation="vertical"
+            android:layout_weight="3"
+            android:padding="20dp"
+            android:gravity="center">
+
+            <!-- 상단: 정사각형 버튼 2개 (공간 스캔, 오브젝트 스캔) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="3"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <!-- 공간 스캔 버튼 -->
+                <LinearLayout
+                    android:id="@+id/btn_space_scan"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_margin="3dp"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/btn_white_selector"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="110sp"
+                        android:layout_height="110sp"
+                        android:src="@drawable/icon_space_scan" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="공간 스캔"
+                        android:textSize="@dimen/text_middle_2"
+                        android:textColor="@color/primary"
+                        android:fontFamily="@font/pretendard_bold"/>
+                </LinearLayout>
+
+                <!-- 오브젝트 스캔 버튼 -->
+                <LinearLayout
+                    android:id="@+id/btn_object_scan"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_margin="3dp"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/btn_white_selector"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="110sp"
+                        android:layout_height="110sp"
+                        android:src="@drawable/icon_object_scan" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="오브젝트 스캔"
+                        android:textSize="@dimen/text_middle_2"
+                        android:textColor="@color/primary"
+                        android:fontFamily="@font/pretendard_bold"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 하단: 가로 긴 버튼 2개 (미리보기, 설정) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="2"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <!-- 미리보기 버튼 -->
+                <LinearLayout
+                    android:id="@+id/btn_preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:layout_margin="3dp"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="@drawable/btn_white_selector"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="28sp"
+                        android:layout_height="28sp"
+                        android:src="@drawable/icon_database" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="파일 미리보기"
+                        android:textSize="@dimen/text_middle_2"
+                        android:textColor="@color/primary"
+                        android:fontFamily="@font/pretendard_bold"/>
+                </LinearLayout>
+
+                <!-- 설정 버튼 -->
+                <LinearLayout
+                    android:id="@+id/btn_settings"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:layout_margin="3dp"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:background="@drawable/btn_white_selector"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="28sp"
+                        android:layout_height="28sp"
+                        android:src="@drawable/icon_settings" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="설정"
+                        android:textSize="@dimen/text_middle_2"
+                        android:textColor="@color/primary"
+                        android:fontFamily="@font/pretendard_bold"/>
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" >
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 프로세싱 진행 표시 -->
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:id="@+id/processing_layout"
+        android:visibility="gone"
+        android:gravity="center">
+
+        <ProgressBar
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:id="@+id/progressBar"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/info_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="50dp"
+            android:layout_marginBottom="25dp"
+            android:gravity="center"
+            android:text="처리 중..."
+            android:textSize="@dimen/text_middle_2"
+            android:textAlignment="center"
+            android:fontFamily="@font/pretendard_medium"/>
+
+        <Button
+            android:text="@string/action_cancel"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:id="@+id/service_cancel"
+            android:background="@drawable/background_button" />
+    </LinearLayout>
+
+</RelativeLayout>

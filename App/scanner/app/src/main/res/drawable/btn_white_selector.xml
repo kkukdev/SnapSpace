@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 눌렸을 때 -->
+    <item android:state_pressed="true" android:drawable="@drawable/background_button_white_pressed" />
+    
+    <!-- 포커스 되었을 때 -->
+    <item android:state_focused="true" android:drawable="@drawable/background_button_white_pressed" />
+    
+    <!-- 기본 상태 -->
+    <item android:drawable="@drawable/background_button_white" />
+</selector>
