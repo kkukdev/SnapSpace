@@ -28,6 +28,28 @@
 
     <string name="share_via">공유</string>
 
+    <!-- Service !-->
+    <string name="enter_filename">파일 이름을 입력하세요</string>
+    <string name="failed">처리 실패! 스캔 데이터가 손실되었습니다.</string>
+    <string name="finished">작업 완료</string>
+    <string name="paused">스캔 일시 정지됨</string>
+    <string name="postprocessing">모델 후처리 중…</string>
+    <string name="saving">모델 저장 중…</string>
+    <string name="turn_off">데이터를 손실하지 않고 앱을 종료할 수 있습니다.</string>
+    <string name="warning">경고</string>
+    <string name="working">작업 진행 중입니다. 기기를 끄거나 다른 AR 앱을 실행하지 마세요.</string>
+
+    <!-- Event !-->
+    <string name="event_analyse">사진 분석 중</string>
+    <string name="event_features">모션 트래킹 문제 감지됨</string>
+    <string name="event_convert">데이터 변환 중</string>
+    <string name="event_image">사진 처리 중</string>
+    <string name="event_merge">결과 병합 중</string>
+    <string name="event_process">모델 처리 중</string>
+    <string name="event_simplify">형상 단순화 중</string>
+    <string name="event_unwrap">텍스처 언랩 중</string>
+    <string name="scan_rewind">계속하고 싶은 지점으로 스캔 과정을 되돌립니다.</string>
+
     <!--  원본  -->
     <!-- File Manager !-->
     <string name="app_name" translatable="false">SnapSpace</string>
@@ -160,28 +182,6 @@
     <string name="editor_edit_undo">Undo</string>
     <string name="editor_edit_visualisation">Visualisation</string>
     <string name="editor_deselect">Deselect</string>
-
-    <!-- Service !-->
-    <string name="enter_filename">Enter the file name</string>
-    <string name="failed">Processing failed, scanned data was lost!</string>
-    <string name="finished">Operation finished</string>
-    <string name="paused">Scanning paused</string>
-    <string name="postprocessing">Postprocessing the model…</string>
-    <string name="saving">Saving the model…</string>
-    <string name="turn_off">You can exit the app without losing data.</string>
-    <string name="warning">Warning</string>
-    <string name="working">The app is working, please do not turn off the device and do not start another AR app.</string>
-
-    <!-- Event !-->
-    <string name="event_analyse">Photos analysis</string>
-    <string name="event_features">Motion tracking detected issues</string>
-    <string name="event_convert">Converting data</string>
-    <string name="event_image">Processing photo</string>
-    <string name="event_merge">Merging results</string>
-    <string name="event_process">Processing model</string>
-    <string name="event_simplify">Simplifying geometry</string>
-    <string name="event_unwrap">Unwrapping textures</string>
-    <string name="scan_rewind">Rewind the scan process to a state from which you want to continue.</string>
 
     <!-- Scan dialog !-->
     <string name="scan_1cm">1 cm - Small room</string>

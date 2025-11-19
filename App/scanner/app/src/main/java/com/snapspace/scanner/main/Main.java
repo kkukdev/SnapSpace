@@ -163,8 +163,6 @@ public class Main extends AbstractActivity implements View.OnClickListener,
 
     // 오브젝트 모드인 경우, 해상도 및 최대/최소 거리 조정
     if (scanMode.equals("object_scan")) {
-      res = 0.01f;
-      mRes = 0.01f;
       dmin = 0.01f;
       dmax = 2.0f;
     }
@@ -524,14 +522,12 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     } else if (id == R.id.save_button) {
       if (isFaceModeOn(this)) {
         save();
-        finish();
       } else {
         pauseScanning();
         CommonDialogs.confirmDialog(this, R.string.scan_finish, new Runnable() {
           @Override
           public void run() {
             save();
-            finish();
           }
         });
       }

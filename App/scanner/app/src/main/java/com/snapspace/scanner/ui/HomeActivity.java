@@ -104,14 +104,40 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
      protected void onResume() {
          super.onResume();
 
-         // 저장 완료 상태 확인
+         // 서비스 실행 중 상태 확인
          int serviceState = Service.getRunning(this);
-         if (serviceState < 0) {
+         
+         // 서비스가 현재 실행 중일 때 (양수)
+         if (serviceState > Service.SERVICE_NOT_RUNNING) {
+             showProgress();
+             mInfoText.setText("");
+             
+             // 1초마다 진행 상태 업데이트
+             new Thread(() -> {
+                 while(Service.getRunning(this) > Service.SERVICE_NOT_RUNNING) {
+                     try {
+                         Thread.sleep(1000);
+                     } catch (Exception e) {
+                         e.printStackTrace();
+                     }
+                     
+                     runOnUiThread(() -> {
+                         String message = Service.getMessage();
+                         if (message == null) {
+                             mInfoText.setText(getString(R.string.failed));
+                         } else {
+                             mInfoText.setText(getString(R.string.working) + "\n\n" + message);
+                         }
+                     });
+                 }
+             }).start();
+         }
+         // 서비스 완료 상태 확인 (음수)
+         else if (serviceState < Service.SERVICE_NOT_RUNNING) {
              int absState = Math.abs(serviceState);
 
              if (absState == Service.SERVICE_SAVE) {
                  showProgress();
-
                  startActivity(new Intent(this, Main.class));
              }
              else if (absState == Service.SERVICE_POSTPROCESS) {
@@ -217,12 +243,26 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
          SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
         
          final String filename = dateFormat.format(date);
+         
+         // 토스트 메시지 표시 (텍스처 생성 완료 후)
          String text = getString(R.string.data_saved) + " " + filename;
          Toast.makeText(this, text, Toast.LENGTH_LONG).show();
 
          new Thread(() -> {
              // OBJ 파일 처리
-             File objFile = new File(Service.getLink(HomeActivity.this));
+             String link = Service.getLink(HomeActivity.this);
+             Log.d(TAG, "Service.getLink() 반환 값: " + link);
+             
+             File objFile = new File(link);
+             if (!objFile.exists()) {
+                 Log.e(TAG, "파일이 존재하지 않습니다: " + objFile.getAbsolutePath());
+                 runOnUiThread(() -> {
+                     Toast.makeText(HomeActivity.this, "파일을 찾을 수 없습니다", Toast.LENGTH_LONG).show();
+                     Service.reset(HomeActivity.this);
+                 });
+                 return;
+             }
+             
              File objFileSaved = Exporter.export(objFile, filename);
              Log.d(TAG, "OBJ 파일 처리를 완료했습니다: " + objFileSaved.getAbsolutePath());
 
@@ -237,18 +277,11 @@ public class HomeActivity extends AbstractActivity implements View.OnClickListen
 
              // 폴더 구조 정렬
              Exporter.makeStructure(AbstractActivity.getPath(false));
-
-             // 임시 디렉토리 삭제
-             if (!isPostProcessLaterOn(HomeActivity.this)) {
-                 deleteRecursive(new File(objFile.getParent()));
-                 Log.d(TAG, "임시 디렉토리를 삭제하였습니다");
-             }
-
+             
              // 최종 정리
              Service.reset(HomeActivity.this);
              Intent intent = new Intent(HomeActivity.this, Main.class);
              intent.putExtra(FILE_KEY, objFileSaved.getAbsolutePath());
-//             showProgress();
              startActivity(intent);
          }).start();
      }

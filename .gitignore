@@ -364,3 +364,5 @@ fabric.properties
 !App/third_party/tango_3d_reconstruction/**
 !App/third_party/tango_3d_reconstruction/lib/
 !App/third_party/tango_3d_reconstruction/lib/**
+
+Origin/
