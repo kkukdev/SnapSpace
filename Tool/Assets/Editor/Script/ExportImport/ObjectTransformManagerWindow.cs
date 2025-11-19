@@ -10,6 +10,7 @@ using Newtonsoft.Json;
 public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallbackReceiver
 {
     private enum ExportFormat { JSON, CSV, Binary }
+    private enum PathTrackingFilter { All, Tracked, NotTracked }
     
     [Serializable]
     class ManagedObjItem
@@ -232,6 +233,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
     private Vector2 _listScroll;
     private string _manualPath = "";
     private bool _autoDetectOnSceneChange = true;
+    private PathTrackingFilter _pathTrackingFilter = PathTrackingFilter.All;
     
     /// <summary>
     /// 경로가 유효한지 확인 (파일 또는 폴더 안에 .obj 파일이 있는지)
@@ -506,14 +508,68 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
 
+        // 경로 추적 필터 토글
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("경로 추적 필터:", GUILayout.Width(100));
+        _pathTrackingFilter = (PathTrackingFilter)EditorGUILayout.EnumPopup(_pathTrackingFilter, GUILayout.Width(150));
+        EditorGUILayout.EndHorizontal();
+        
+        EditorGUILayout.Space();
+
+        // 필터링된 객체 목록 계산
+        List<ManagedObjItem> filteredObjects = new List<ManagedObjItem>();
+        foreach (var item in _managedObjects)
+        {
+            bool shouldShow = true;
+            
+            if (_pathTrackingFilter != PathTrackingFilter.All)
+            {
+                GameObject go = item.GetGameObject();
+                bool hasPathTracking = false;
+                
+                if (go != null)
+                {
+                    // ObjPathInfo 컴포넌트로 경로 추적 여부 확인
+                    string trackedPath = ObjPathInfo.GetPath(go);
+                    hasPathTracking = !string.IsNullOrEmpty(trackedPath);
+                    
+                    // children에도 확인
+                    if (!hasPathTracking)
+                    {
+                        Transform[] children = go.GetComponentsInChildren<Transform>(true);
+                        foreach (Transform child in children)
+                        {
+                            if (child != null && child.gameObject != null)
+                            {
+                                string childPath = ObjPathInfo.GetPath(child.gameObject);
+                                if (!string.IsNullOrEmpty(childPath))
+                                {
+                                    hasPathTracking = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (_pathTrackingFilter == PathTrackingFilter.Tracked && !hasPathTracking)
+                    shouldShow = false;
+                else if (_pathTrackingFilter == PathTrackingFilter.NotTracked && hasPathTracking)
+                    shouldShow = false;
+            }
+            
+            if (shouldShow)
+                filteredObjects.Add(item);
+        }
+
         // OBJ 관리 리스트
-        EditorGUILayout.LabelField($"관리 중인 OBJ: {_managedObjects.Count}개", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField($"관리 중인 OBJ: {filteredObjects.Count}개 / 전체 {_managedObjects.Count}개", EditorStyles.boldLabel);
         
         _listScroll = EditorGUILayout.BeginScrollView(_listScroll, GUILayout.Height(250));
         
-        for (int i = _managedObjects.Count - 1; i >= 0; i--)
+        for (int i = filteredObjects.Count - 1; i >= 0; i--)
         {
-            var item = _managedObjects[i];
+            var item = filteredObjects[i];
             
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.BeginHorizontal();
@@ -526,6 +582,35 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
             
             if (safeGameObject != null)
             {
+                // 경로 추적 여부 확인
+                string trackedPath = ObjPathInfo.GetPath(safeGameObject);
+                bool hasPathTracking = !string.IsNullOrEmpty(trackedPath);
+                
+                // children에도 확인
+                if (!hasPathTracking)
+                {
+                    Transform[] children = safeGameObject.GetComponentsInChildren<Transform>(true);
+                    foreach (Transform child in children)
+                    {
+                        if (child != null && child.gameObject != null)
+                        {
+                            string childPath = ObjPathInfo.GetPath(child.gameObject);
+                            if (!string.IsNullOrEmpty(childPath))
+                            {
+                                hasPathTracking = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // 경로 추적 여부 표시
+                string trackingStatus = hasPathTracking ? "✓ 경로 추적됨" : "✗ 경로 추적 안 됨";
+                Color originalColor = GUI.color;
+                GUI.color = hasPathTracking ? Color.green : Color.gray;
+                EditorGUILayout.LabelField(trackingStatus, EditorStyles.miniLabel);
+                GUI.color = originalColor;
+                
                 EditorGUILayout.LabelField($"오브젝트: {safeGameObject.name}", EditorStyles.boldLabel);
                 
                 // 현재 사용 중인 경로 표시
