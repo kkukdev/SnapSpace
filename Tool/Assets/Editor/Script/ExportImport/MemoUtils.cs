@@ -217,6 +217,105 @@ namespace ObjDropWatcher.ExportImport
         }
 
         /// <summary>
+        /// OBJ 파일 경로에서 오디오 파일을 찾습니다.
+        /// content의 제목을 가진 오디오 파일을 찾습니다.
+        /// </summary>
+        public static string FindAudioFile(string objFilePath, string audioTitle)
+        {
+            if (string.IsNullOrEmpty(objFilePath) || string.IsNullOrEmpty(audioTitle))
+                return null;
+
+            // OBJ 파일의 디렉토리에서 오디오 파일 찾기
+            string objDir = Path.GetDirectoryName(objFilePath);
+            if (string.IsNullOrEmpty(objDir) || !Directory.Exists(objDir))
+                return null;
+
+            // 지원하는 오디오 확장자
+            string[] audioExtensions = { ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac" };
+
+            // content 제목과 정확히 일치하는 파일 찾기
+            foreach (string ext in audioExtensions)
+            {
+                string audioPath = Path.Combine(objDir, audioTitle + ext);
+                if (File.Exists(audioPath))
+                    return audioPath;
+            }
+
+            // content 자체에 확장자가 포함된 경우 처리
+            string trimmedTitle = audioTitle?.Trim();
+            if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
+            {
+                string fileExt = Path.GetExtension(trimmedTitle).ToLowerInvariant();
+                
+                // 지원하는 확장자인 경우에만 직접 시도
+                if (audioExtensions.Contains(fileExt))
+                {
+                    string directPath = Path.Combine(objDir, trimmedTitle);
+                    if (File.Exists(directPath))
+                        return directPath;
+                }
+                // 지원하지 않는 확장자인 경우 확장자 제거하고 파일명만 사용하여 재검색
+                else
+                {
+                    string baseFileName = Path.GetFileNameWithoutExtension(trimmedTitle);
+                    foreach (string ext in audioExtensions)
+                    {
+                        string audioPath = Path.Combine(objDir, baseFileName + ext);
+                        if (File.Exists(audioPath))
+                            return audioPath;
+                    }
+                }
+            }
+
+            // 대소문자 구분 없이 찾기
+            try
+            {
+                string[] allFiles = Directory.GetFiles(objDir, "*", SearchOption.TopDirectoryOnly);
+                foreach (string file in allFiles)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string fileExt = Path.GetExtension(file).ToLowerInvariant();
+                    
+                    // 제목에 확장자가 이미 포함되었으면 처리
+                    if (!string.IsNullOrEmpty(trimmedTitle) && Path.HasExtension(trimmedTitle))
+                    {
+                        string titleExt = Path.GetExtension(trimmedTitle).ToLowerInvariant();
+                        
+                        // 지원하는 확장자인 경우 전체 파일명 비교
+                        if (audioExtensions.Contains(titleExt))
+                        {
+                            if (string.Equals(Path.GetFileName(trimmedTitle), Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+                            {
+                                return file;
+                            }
+                        }
+                        // 지원하지 않는 확장자인 경우 확장자 제거하고 파일명만 비교
+                        else
+                        {
+                            string baseTitle = Path.GetFileNameWithoutExtension(trimmedTitle);
+                            if (audioExtensions.Contains(fileExt) && 
+                                string.Equals(fileName, baseTitle, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return file;
+                            }
+                        }
+                    }
+                    else if (audioExtensions.Contains(fileExt) && 
+                        string.Equals(fileName, audioTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return file;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // 파일 검색 실패 시 무시
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// memos를 메시 GameObject의 자식으로 생성합니다.
         /// 메모의 좌표는 메시의 로컬 좌표계를 사용합니다.
         /// </summary>
@@ -235,13 +334,22 @@ namespace ObjDropWatcher.ExportImport
                 return;
 
             int memoCount = 0;
+            
+            // OBJ 파일 경로 찾기 (parentObj에서)
+            string objFilePath = null;
+            try
+            {
+                // ObjPathInfo를 통해 경로 가져오기
+                objFilePath = ObjPathInfo.GetPath(parentObj);
+            }
+            catch (Exception)
+            {
+                // 경로 가져오기 실패 시 무시
+            }
+            
             foreach (var memo in memos)
             {
                 if (memo == null)
-                    continue;
-                
-                // type이 "text"인 경우만 표시
-                if (memo.type != "text")
                     continue;
                 
                 // anchor 좌표 파싱 (스케일이 1일 때의 좌표, 즉 Unity 월드 좌표계 기준)
@@ -281,9 +389,32 @@ namespace ObjDropWatcher.ExportImport
                 // 메모의 스케일에도 unitScale을 적용
                 localScale = localScale * unitScale;
                 
-                // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
-                Create3DTextAsChild(parentObj, memo.content, localPosition, localRotation, localScale);
-                memoCount++;
+                // type이 "text"인 경우 텍스트 메모 생성
+                if (memo.type == "text")
+                {
+                    // 메시 GameObject의 자식으로 3D 텍스트 생성 (로컬 좌표 사용)
+                    Create3DTextAsChild(parentObj, memo.content, localPosition, localRotation, localScale);
+                    memoCount++;
+                }
+                // type이 "audio"인 경우 오디오 메모 생성
+                else if (memo.type == "audio")
+                {
+                    if (string.IsNullOrEmpty(objFilePath))
+                    {
+                        continue;
+                    }
+                    
+                    // 오디오 파일 찾기
+                    string audioPath = FindAudioFile(objFilePath, memo.content);
+                    
+                    if (!string.IsNullOrEmpty(audioPath))
+                    {
+                        // 오디오 메모 생성
+                        CreateAudioMemoAsChild(parentObj, memo.content, audioPath, localPosition, localRotation, localScale);
+                        memoCount++;
+                    }
+                }
+                // 다른 타입은 건너뛰기
             }
         }
 
@@ -359,16 +490,19 @@ namespace ObjDropWatcher.ExportImport
                 memoRoot.transform.localScale = localScale;
                 
                 // 1. 동그라미 마커 생성 (좌표 위치)
-                CreateMarker(memoRoot, designConfig);
+                GameObject markerObj = CreateMarker(memoRoot, designConfig);
                 
                 // 2. 수직선 생성 (마커에서 위로)
-                CreateVerticalLine(memoRoot, designConfig);
+                GameObject lineObj = CreateVerticalLine(memoRoot, designConfig);
                 
                 // 3. 네모창 생성 (선 끝에, 텍스트 크기에 맞게 동적 조정)
-                GameObject panelObj = CreatePanel(memoRoot, designConfig, text);
+                GameObject panelObj = CreatePanel(memoRoot, designConfig, text, markerObj);
                 
                 // 4. 텍스트 생성 (네모창 안에)
                 CreateTextInPanel(panelObj, text, designConfig);
+                
+                // 5. 마커-패널 연결선 동기화
+                AttachLineConnector(lineObj, markerObj, panelObj, designConfig);
             }
             catch (Exception)
             {
@@ -379,7 +513,7 @@ namespace ObjDropWatcher.ExportImport
         /// <summary>
         /// 동그라미 마커를 생성합니다.
         /// </summary>
-        private static void CreateMarker(GameObject parent, MemoDesignConfig config)
+        private static GameObject CreateMarker(GameObject parent, MemoDesignConfig config)
         {
             GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             marker.name = "Marker";
@@ -423,12 +557,14 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(marker, "Create Marker");
             #endif
+            
+            return marker;
         }
         
         /// <summary>
         /// 수직선을 생성합니다.
         /// </summary>
-        private static void CreateVerticalLine(GameObject parent, MemoDesignConfig config)
+        private static GameObject CreateVerticalLine(GameObject parent, MemoDesignConfig config)
         {
             GameObject line = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             line.name = "Line";
@@ -482,12 +618,14 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(line, "Create Line");
             #endif
+            
+            return line;
         }
         
         /// <summary>
         /// 네모창을 생성합니다. (텍스트 크기에 맞게 동적 조정)
         /// </summary>
-        private static GameObject CreatePanel(GameObject parent, MemoDesignConfig config, string text)
+        private static GameObject CreatePanel(GameObject parent, MemoDesignConfig config, string text, GameObject marker)
         {
             // 텍스트 크기를 먼저 계산하여 패널 크기 결정
             Vector2 textSize = CalculateTextSize(text, config);
@@ -520,7 +658,16 @@ namespace ObjDropWatcher.ExportImport
             panel.transform.localPosition = new Vector3(0, panelY, 0);
             
             // 네모창 회전 설정
-            panel.transform.localRotation = Quaternion.identity;
+            // XZ 평면에서 정면으로 보이도록 설정
+            // X rotation = 90도 (Quad가 위를 향하도록)
+            // Z rotation = 0도 (Unity의 world space와 수직, 수평 정렬)
+            // parent의 회전과 상관없이 절대적으로 Unity의 grid와 정렬되도록 설정
+            Quaternion desiredWorldRotation = Quaternion.Euler(90f, 0f, 0f);
+            
+            // parent의 회전을 역으로 적용하여 localRotation 계산
+            // 월드 공간에서 원하는 rotation을 localRotation으로 변환
+            Quaternion parentWorldRotation = parent.transform.rotation;
+            panel.transform.localRotation = Quaternion.Inverse(parentWorldRotation) * desiredWorldRotation;
             
             // 네모창 크기 (동적으로 계산된 크기 사용)
             panel.transform.localScale = new Vector3(panelWidth, panelHeight, 1f);
@@ -591,6 +738,8 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(panel, "Create Panel");
             #endif
+            
+            ConfigurePanelHeightLock(panel, marker, parent.transform, config, panelHeight);
             
             return panel;
         }
@@ -772,6 +921,228 @@ namespace ObjDropWatcher.ExportImport
             
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(textObject, "Create Text");
+            #endif
+        }
+
+        /// <summary>
+        /// 메시 GameObject의 자식으로 오디오 메모를 생성합니다.
+        /// 위치는 부모 객체의 로컬 좌표계를 사용합니다.
+        /// </summary>
+        public static void CreateAudioMemoAsChild(GameObject parentObj, string audioTitle, string audioPath, Vector3 localPosition, Quaternion localRotation, Vector3 localScale)
+        {
+            try
+            {
+                // 오디오 메모 루트 오브젝트 생성
+                string objectName = $"AudioMemo_{audioTitle.Substring(0, Math.Min(audioTitle.Length, 10))}";
+                GameObject audioMemoRoot = new GameObject(objectName);
+                
+                // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+                audioMemoRoot.hideFlags = HideFlags.None;
+                
+                #if UNITY_EDITOR
+                Undo.RegisterCreatedObjectUndo(audioMemoRoot, "Create Audio Memo");
+                #endif
+                
+                // 부모 객체의 자식으로 설정
+                audioMemoRoot.transform.SetParent(parentObj.transform, false);
+                
+                // 로컬 Transform 설정
+                audioMemoRoot.transform.localPosition = localPosition;
+                audioMemoRoot.transform.localRotation = localRotation;
+                audioMemoRoot.transform.localScale = localScale;
+                
+                // 1. 동그라미 마커 생성 (텍스트 메모와 동일한 스타일)
+                CreateMarker(audioMemoRoot, _currentDesignConfig);
+                
+                // 2. 수직선 생성
+                CreateVerticalLine(audioMemoRoot, _currentDesignConfig);
+                
+                // 3. 네모창 생성 (플레이 버튼용 작은 패널)
+                GameObject panelObj = CreatePlayButtonPanel(audioMemoRoot, _currentDesignConfig);
+                
+                // 4. 플레이 버튼 아이콘 생성 (텍스트 대신)
+                CreatePlayButtonIcon(panelObj, _currentDesignConfig);
+                
+                // 5. 오디오 재생 컴포넌트 추가
+                #if UNITY_EDITOR
+                AudioMemoPlayer audioPlayer = audioMemoRoot.AddComponent<AudioMemoPlayer>();
+                audioPlayer.audioFilePath = audioPath;
+                audioPlayer.audioTitle = audioTitle;
+                #endif
+            }
+            catch (Exception)
+            {
+                // 오디오 메모 생성 실패 시 무시
+            }
+        }
+        
+        private static void AttachLineConnector(GameObject lineObj, GameObject markerObj, GameObject panelObj, MemoDesignConfig config)
+        {
+            if (lineObj == null || markerObj == null || panelObj == null)
+                return;
+            
+            MemoLineConnector connector = lineObj.GetComponent<MemoLineConnector>();
+            if (connector == null)
+            {
+                connector = lineObj.AddComponent<MemoLineConnector>();
+            }
+            connector.Initialize(markerObj, panelObj, config);
+        }
+        
+        private static void ConfigurePanelHeightLock(GameObject panel, GameObject marker, Transform memoRootTransform, MemoDesignConfig config, float panelHeight)
+        {
+            if (panel == null || marker == null || memoRootTransform == null || config == null)
+                return;
+            
+            float defaultOffset = config.lineHeight + panelHeight / 2f;
+            float scaledOffset = defaultOffset * memoRootTransform.lossyScale.y;
+            float? overrideWorldY = ResolvePanelWorldYOverride(memoRootTransform, config);
+            
+            MemoPanelHeightLock lockComponent = panel.GetComponent<MemoPanelHeightLock>();
+            if (lockComponent == null)
+            {
+                lockComponent = panel.AddComponent<MemoPanelHeightLock>();
+            }
+            
+            lockComponent.Initialize(marker.transform, scaledOffset, overrideWorldY);
+        }
+        
+        private static float? ResolvePanelWorldYOverride(Transform memoRootTransform, MemoDesignConfig config)
+        {
+            Transform searchRoot = memoRootTransform != null ? memoRootTransform.parent : null;
+            MemoPanelHeightOverride overrideComponent = null;
+            
+            if (searchRoot != null)
+            {
+                overrideComponent = searchRoot.GetComponentInParent<MemoPanelHeightOverride>();
+            }
+            
+            if (overrideComponent != null && overrideComponent.applyOverride)
+            {
+                return overrideComponent.targetWorldY;
+            }
+            
+            if (config != null && config.lockPanelWorldY)
+            {
+                return config.fixedPanelWorldY;
+            }
+            
+            return null;
+        }
+        
+        /// <summary>
+        /// 플레이 버튼용 작은 패널을 생성합니다.
+        /// </summary>
+        private static GameObject CreatePlayButtonPanel(GameObject parent, MemoDesignConfig config)
+        {
+            // 플레이 버튼용 작은 패널 크기
+            float buttonWidth = 0.5f;
+            float buttonHeight = 0.5f;
+            
+            GameObject panel = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            panel.name = "PlayButtonPanel";
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            panel.hideFlags = HideFlags.None;
+            
+            panel.transform.SetParent(parent.transform, false);
+            
+            // 패널 위치 (선 끝 위)
+            float panelY = config.lineHeight + buttonHeight / 2f;
+            panel.transform.localPosition = new Vector3(0, panelY, 0);
+            panel.transform.localRotation = Quaternion.identity;
+            panel.transform.localScale = new Vector3(buttonWidth, buttonHeight, 1f);
+            
+            // 배경 색상 설정
+            Renderer renderer = panel.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Shader shader = Shader.Find("Unlit/Color");
+                if (shader == null)
+                {
+                    shader = Shader.Find("Unlit/Transparent");
+                    if (shader == null)
+                    {
+                        shader = Shader.Find("Standard");
+                    }
+                }
+                
+                if (shader != null)
+                {
+                    Material mat = new Material(shader);
+                    mat.hideFlags = HideFlags.None;
+                    mat.color = config.panelBackgroundColor;
+                    
+                    if (shader.name == "Standard")
+                    {
+                        mat.SetFloat("_Metallic", 0f);
+                        mat.SetFloat("_Glossiness", 0.1f);
+                    }
+                    
+                    renderer.material = mat;
+                }
+            }
+            
+            #if UNITY_EDITOR
+            Undo.RegisterCreatedObjectUndo(panel, "Create Play Button Panel");
+            #endif
+            
+            return panel;
+        }
+        
+        /// <summary>
+        /// 플레이 버튼 아이콘(▶)을 생성합니다.
+        /// </summary>
+        private static void CreatePlayButtonIcon(GameObject panelObj, MemoDesignConfig config)
+        {
+            GameObject textObject = new GameObject("PlayIcon");
+            
+            // HideFlags를 명시적으로 설정하여 직렬화 오류 방지
+            textObject.hideFlags = HideFlags.None;
+            
+            textObject.transform.SetParent(panelObj.transform, false);
+            textObject.transform.localPosition = new Vector3(0, 0, -0.2f);
+            textObject.transform.localRotation = Quaternion.identity;
+            
+            // 패널 크기 정보 가져오기
+            Vector3 panelScale = panelObj.transform.localScale;
+            float panelWidth = panelScale.x;
+            float panelHeight = panelScale.y;
+            
+            // 부모 패널의 scale 영향을 상쇄
+            Vector3 inverseScale = new Vector3(1f / panelWidth, 1f / panelHeight, 1f);
+            textObject.transform.localScale = inverseScale;
+            
+            // TextMesh 컴포넌트 추가 및 플레이 아이콘 설정
+            TextMesh textMesh = textObject.AddComponent<TextMesh>();
+            textMesh.text = "▶"; // 플레이 아이콘
+            textMesh.fontSize = config.fontSize * 2; // 아이콘은 더 크게
+            textMesh.characterSize = config.characterSize * 1.5f; // 아이콘은 더 크게
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = config.textColor;
+            textMesh.richText = false;
+            textMesh.fontStyle = FontStyle.Bold;
+            
+            // TextMesh 렌더러 설정
+            Renderer textRenderer = textObject.GetComponent<Renderer>();
+            if (textRenderer != null)
+            {
+                textRenderer.sortingOrder = 100;
+                
+                Material sharedMaterial = textRenderer.sharedMaterial;
+                if (sharedMaterial != null)
+                {
+                    Material newMaterial = new Material(sharedMaterial);
+                    newMaterial.hideFlags = HideFlags.None;
+                    newMaterial.renderQueue = 4000;
+                    newMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                    textRenderer.sharedMaterial = newMaterial;
+                }
+            }
+            
+            #if UNITY_EDITOR
+            Undo.RegisterCreatedObjectUndo(textObject, "Create Play Icon");
             #endif
         }
 

@@ -10,6 +10,7 @@ using Newtonsoft.Json;
 public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallbackReceiver
 {
     private enum ExportFormat { JSON, CSV, Binary }
+    private enum PathTrackingFilter { All, Tracked, NotTracked }
     
     [Serializable]
     class ManagedObjItem
@@ -232,6 +233,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
     private Vector2 _listScroll;
     private string _manualPath = "";
     private bool _autoDetectOnSceneChange = true;
+    private PathTrackingFilter _pathTrackingFilter = PathTrackingFilter.All;
     
     /// <summary>
     /// 경로가 유효한지 확인 (파일 또는 폴더 안에 .obj 파일이 있는지)
@@ -339,6 +341,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
     {
         // 씬 변경 감지
         EditorApplication.hierarchyChanged += OnHierarchyChanged;
+        EditorApplication.update += OnUpdate;
         
         // 기본 경로 설정 (처음 열 때만)
         if (string.IsNullOrEmpty(_manualPath))
@@ -406,6 +409,51 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
     void OnDisable()
     {
         EditorApplication.hierarchyChanged -= OnHierarchyChanged;
+        EditorApplication.update -= OnUpdate;
+    }
+    
+    private float _lastRepaintTime = 0f;
+    private const float REPAINT_INTERVAL = 0.1f; // 0.1초마다 갱신 (10 FPS)
+    
+    void OnUpdate()
+    {
+        // 재생 중인 오디오 메모가 있는지 확인하여 UI 갱신
+        // 성능 최적화를 위해 일정 간격으로만 갱신
+        float currentTime = (float)EditorApplication.timeSinceStartup;
+        if (currentTime - _lastRepaintTime < REPAINT_INTERVAL)
+        {
+            return;
+        }
+        
+        bool hasPlayingAudio = false;
+        foreach (var item in _managedObjects)
+        {
+            GameObject go = item.GetGameObject();
+            if (go != null)
+            {
+                AudioMemoPlayer[] audioPlayers = go.GetComponentsInChildren<AudioMemoPlayer>();
+                if (audioPlayers != null)
+                {
+                    foreach (var player in audioPlayers)
+                    {
+                        if (player != null && player.IsPlaying())
+                        {
+                            hasPlayingAudio = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasPlayingAudio)
+                    break;
+            }
+        }
+        
+        // 재생 중인 오디오가 있으면 주기적으로 UI 갱신
+        if (hasPlayingAudio)
+        {
+            _lastRepaintTime = currentTime;
+            Repaint();
+        }
     }
 
     void OnHierarchyChanged()
@@ -460,14 +508,68 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
 
+        // 경로 추적 필터 토글
+        EditorGUILayout.BeginHorizontal();
+        EditorGUILayout.LabelField("경로 추적 필터:", GUILayout.Width(100));
+        _pathTrackingFilter = (PathTrackingFilter)EditorGUILayout.EnumPopup(_pathTrackingFilter, GUILayout.Width(150));
+        EditorGUILayout.EndHorizontal();
+        
+        EditorGUILayout.Space();
+
+        // 필터링된 객체 목록 계산
+        List<ManagedObjItem> filteredObjects = new List<ManagedObjItem>();
+        foreach (var item in _managedObjects)
+        {
+            bool shouldShow = true;
+            
+            if (_pathTrackingFilter != PathTrackingFilter.All)
+            {
+                GameObject go = item.GetGameObject();
+                bool hasPathTracking = false;
+                
+                if (go != null)
+                {
+                    // ObjPathInfo 컴포넌트로 경로 추적 여부 확인
+                    string trackedPath = ObjPathInfo.GetPath(go);
+                    hasPathTracking = !string.IsNullOrEmpty(trackedPath);
+                    
+                    // children에도 확인
+                    if (!hasPathTracking)
+                    {
+                        Transform[] children = go.GetComponentsInChildren<Transform>(true);
+                        foreach (Transform child in children)
+                        {
+                            if (child != null && child.gameObject != null)
+                            {
+                                string childPath = ObjPathInfo.GetPath(child.gameObject);
+                                if (!string.IsNullOrEmpty(childPath))
+                                {
+                                    hasPathTracking = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (_pathTrackingFilter == PathTrackingFilter.Tracked && !hasPathTracking)
+                    shouldShow = false;
+                else if (_pathTrackingFilter == PathTrackingFilter.NotTracked && hasPathTracking)
+                    shouldShow = false;
+            }
+            
+            if (shouldShow)
+                filteredObjects.Add(item);
+        }
+
         // OBJ 관리 리스트
-        EditorGUILayout.LabelField($"관리 중인 OBJ: {_managedObjects.Count}개", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField($"관리 중인 OBJ: {filteredObjects.Count}개 / 전체 {_managedObjects.Count}개", EditorStyles.boldLabel);
         
         _listScroll = EditorGUILayout.BeginScrollView(_listScroll, GUILayout.Height(250));
         
-        for (int i = _managedObjects.Count - 1; i >= 0; i--)
+        for (int i = filteredObjects.Count - 1; i >= 0; i--)
         {
-            var item = _managedObjects[i];
+            var item = filteredObjects[i];
             
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.BeginHorizontal();
@@ -480,6 +582,35 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
             
             if (safeGameObject != null)
             {
+                // 경로 추적 여부 확인
+                string trackedPath = ObjPathInfo.GetPath(safeGameObject);
+                bool hasPathTracking = !string.IsNullOrEmpty(trackedPath);
+                
+                // children에도 확인
+                if (!hasPathTracking)
+                {
+                    Transform[] children = safeGameObject.GetComponentsInChildren<Transform>(true);
+                    foreach (Transform child in children)
+                    {
+                        if (child != null && child.gameObject != null)
+                        {
+                            string childPath = ObjPathInfo.GetPath(child.gameObject);
+                            if (!string.IsNullOrEmpty(childPath))
+                            {
+                                hasPathTracking = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // 경로 추적 여부 표시
+                string trackingStatus = hasPathTracking ? "✓ 경로 추적됨" : "✗ 경로 추적 안 됨";
+                Color originalColor = GUI.color;
+                GUI.color = hasPathTracking ? Color.green : Color.gray;
+                EditorGUILayout.LabelField(trackingStatus, EditorStyles.miniLabel);
+                GUI.color = originalColor;
+                
                 EditorGUILayout.LabelField($"오브젝트: {safeGameObject.name}", EditorStyles.boldLabel);
                 
                 // 현재 사용 중인 경로 표시
@@ -557,6 +688,44 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                 {
                     Selection.activeGameObject = safeGameObject;
                     EditorGUIUtility.PingObject(safeGameObject);
+                }
+                
+                // 오디오 메모 플레이 버튼
+                AudioMemoPlayer[] audioPlayers = safeGameObject.GetComponentsInChildren<AudioMemoPlayer>();
+                if (audioPlayers != null && audioPlayers.Length > 0)
+                {
+                    EditorGUILayout.Space(2);
+                    foreach (var audioPlayer in audioPlayers)
+                    {
+                        if (audioPlayer != null)
+                        {
+                            EditorGUILayout.BeginHorizontal();
+                            
+                            // 오디오 제목 표시
+                            string audioTitle = !string.IsNullOrEmpty(audioPlayer.audioTitle) 
+                                ? audioPlayer.audioTitle 
+                                : "오디오 메모";
+                            EditorGUILayout.LabelField($"▶ {audioTitle}", EditorStyles.miniLabel, GUILayout.Width(120));
+                            
+                            // 재생 버튼
+                            bool isPlaying = audioPlayer.IsPlaying();
+                            string buttonText = isPlaying ? "■ 중지" : "▶ 재생";
+                            
+                            if (GUILayout.Button(buttonText, GUILayout.Height(20), GUILayout.Width(60)))
+                            {
+                                if (isPlaying)
+                                {
+                                    audioPlayer.Stop();
+                                }
+                                else
+                                {
+                                    audioPlayer.Play();
+                                }
+                            }
+                            
+                            EditorGUILayout.EndHorizontal();
+                        }
+                    }
                 }
                 
                 // Original/Retouched 토글 버튼
@@ -2466,10 +2635,10 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                         ExportToJsonWithPaths(gameObjects, filePath);
                         break;
                     case ExportFormat.CSV:
-                        CsvExporter.ExportToCsv(gameObjects, filePath);
+                        ExportToCsvWithPaths(gameObjects, filePath);
                         break;
                     case ExportFormat.Binary:
-                        BinaryExporter.ExportToBinary(gameObjects, filePath);
+                        ExportToBinaryWithPaths(gameObjects, filePath);
                         break;
                 }
                 
@@ -2549,6 +2718,170 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
         
         string json = JsonConvert.SerializeObject(collection, Formatting.Indented);
         File.WriteAllText(filePath, json);
+    }
+
+    void ExportToCsvWithPaths(List<GameObject> objects, string filePath)
+    {
+        var collection = new ObjectTransformCollection();
+        
+        foreach (var obj in objects)
+        {
+            if (obj == null) continue;
+            
+            var item = _managedObjects.FirstOrDefault(m => m.GetGameObject() == obj);
+            
+            // children 포함하여 export (메모 등 자식 오브젝트도 포함)
+            // objPath는 하위 호환성을 위해 유지
+            string objPath = item != null ? item.GetCurrentPath() : ObjPathFinder.FindObjPath(obj);
+            
+            // OBJ 파일 경로가 없으면 건너뛰기
+            if (string.IsNullOrEmpty(objPath))
+            {
+                continue;
+            }
+            
+            var data = new ObjectTransformData(obj, objPath, true);
+            
+            // OBJ 파일만 export
+            if (data.objectType != ObjectType.ObjFile)
+            {
+                continue;
+            }
+            
+            // ManagedObjItem에서 originalPath와 retouchedPath 정보 가져오기
+            if (item != null)
+            {
+                // originalPath와 retouchedPath를 파일 경로로 변환
+                string originalFilePath = null;
+                string retouchedFilePath = null;
+                
+                if (!string.IsNullOrEmpty(item.originalPath))
+                {
+                    if (File.Exists(item.originalPath))
+                    {
+                        originalFilePath = item.originalPath;
+                    }
+                    else if (Directory.Exists(item.originalPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.originalPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            originalFilePath = objFile;
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(item.retouchedPath))
+                {
+                    if (File.Exists(item.retouchedPath))
+                    {
+                        retouchedFilePath = item.retouchedPath;
+                    }
+                    else if (Directory.Exists(item.retouchedPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.retouchedPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            retouchedFilePath = objFile;
+                    }
+                }
+                
+                // ObjectTransformData에 경로 정보 설정
+                if (!string.IsNullOrEmpty(originalFilePath))
+                {
+                    data.originalPath = originalFilePath;
+                }
+                if (!string.IsNullOrEmpty(retouchedFilePath))
+                {
+                    data.retouchedPath = retouchedFilePath;
+                }
+                data.isUsingRetouched = item.isUsingRetouched;
+            }
+            
+            collection.objects.Add(data);
+        }
+        
+        // CSV 형식으로 export
+        CsvExporter.ExportToCsv(collection, filePath);
+    }
+
+    void ExportToBinaryWithPaths(List<GameObject> objects, string filePath)
+    {
+        var collection = new ObjectTransformCollection();
+        
+        foreach (var obj in objects)
+        {
+            if (obj == null) continue;
+            
+            var item = _managedObjects.FirstOrDefault(m => m.GetGameObject() == obj);
+            
+            // children 포함하여 export (메모 등 자식 오브젝트도 포함)
+            // objPath는 하위 호환성을 위해 유지
+            string objPath = item != null ? item.GetCurrentPath() : ObjPathFinder.FindObjPath(obj);
+            
+            // OBJ 파일 경로가 없으면 건너뛰기
+            if (string.IsNullOrEmpty(objPath))
+            {
+                continue;
+            }
+            
+            var data = new ObjectTransformData(obj, objPath, true);
+            
+            // OBJ 파일만 export
+            if (data.objectType != ObjectType.ObjFile)
+            {
+                continue;
+            }
+            
+            // ManagedObjItem에서 originalPath와 retouchedPath 정보 가져오기
+            if (item != null)
+            {
+                // originalPath와 retouchedPath를 파일 경로로 변환
+                string originalFilePath = null;
+                string retouchedFilePath = null;
+                
+                if (!string.IsNullOrEmpty(item.originalPath))
+                {
+                    if (File.Exists(item.originalPath))
+                    {
+                        originalFilePath = item.originalPath;
+                    }
+                    else if (Directory.Exists(item.originalPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.originalPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            originalFilePath = objFile;
+                    }
+                }
+                
+                if (!string.IsNullOrEmpty(item.retouchedPath))
+                {
+                    if (File.Exists(item.retouchedPath))
+                    {
+                        retouchedFilePath = item.retouchedPath;
+                    }
+                    else if (Directory.Exists(item.retouchedPath))
+                    {
+                        string objFile = ManagedObjItem.FindObjFileInFolder(item.retouchedPath);
+                        if (!string.IsNullOrEmpty(objFile))
+                            retouchedFilePath = objFile;
+                    }
+                }
+                
+                // ObjectTransformData에 경로 정보 설정
+                if (!string.IsNullOrEmpty(originalFilePath))
+                {
+                    data.originalPath = originalFilePath;
+                }
+                if (!string.IsNullOrEmpty(retouchedFilePath))
+                {
+                    data.retouchedPath = retouchedFilePath;
+                }
+                data.isUsingRetouched = item.isUsingRetouched;
+            }
+            
+            collection.objects.Add(data);
+        }
+        
+        // Binary 형식으로 export
+        BinaryExporter.ExportToBinary(collection, filePath);
     }
 
     void ImportObjects(ExportFormat format)
@@ -2801,6 +3134,8 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                             
                             // 3. memos.json에서 메모 읽기 및 스폰 (anchor 기반)
                             // 새로운 구조에서는 Original 경로에서 메모 찾기
+                            // Note: CreateGameObject()의 RestoreChildren에서 이미 메모를 복원하지 않으므로
+                            // 여기서만 memos.json에서 메모를 생성하면 됨
                             try
                             {
                                 string memoPath = useNewStructure && !string.IsNullOrEmpty(data.originalPath)
@@ -2810,9 +3145,33 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                                 var memos = MemoUtils.FindAndParseMemoFile(memoPath);
                                 if (memos != null && memos.Length > 0)
                                 {
-                                    float unitScale = MemoUtils.GetUnitScale();
-                                    // memos.json의 anchor와 텍스트만 사용하여 스폰
-                                    MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                                    // 이미 메모가 있는지 확인 (중복 생성 방지)
+                                    AudioMemoPlayer[] existingAudioMemos = go.GetComponentsInChildren<AudioMemoPlayer>();
+                                    bool hasExistingMemos = existingAudioMemos != null && existingAudioMemos.Length > 0;
+                                    
+                                    // 텍스트 메모도 확인
+                                    if (!hasExistingMemos)
+                                    {
+                                        Transform[] memoChildren = go.GetComponentsInChildren<Transform>();
+                                        foreach (Transform child in memoChildren)
+                                        {
+                                            if (child != null && child.gameObject != null && 
+                                                (child.gameObject.name.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase) ||
+                                                 child.gameObject.name.StartsWith("AudioMemo_", System.StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                hasExistingMemos = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 메모가 없을 때만 생성
+                                    if (!hasExistingMemos)
+                                    {
+                                        float unitScale = MemoUtils.GetUnitScale();
+                                        // memos.json의 anchor와 텍스트만 사용하여 스폰
+                                        MemoUtils.SpawnMemosAsChildren(go, memos, unitScale);
+                                    }
                                 }
                             }
                             catch (Exception)

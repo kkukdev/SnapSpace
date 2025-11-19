@@ -406,6 +406,14 @@ namespace ObjDropWatcher.ExportImport
             {
                 try
                 {
+                    // AudioSource의 더 이상 지원하지 않는 속성은 건너뛰기
+                    if (component is AudioSource)
+                    {
+                        string[] deprecatedProps = { "minVolume", "maxVolume", "rolloffFactor" };
+                        if (deprecatedProps.Contains(prop.Name))
+                            continue;
+                    }
+                    
                     object value = prop.GetValue(component);
                     if (value != null)
                     {
@@ -427,7 +435,7 @@ namespace ObjDropWatcher.ExportImport
                 }
                 catch (Exception)
                 {
-                    // 속성 저장 실패 시 건너뛰기
+                    // 속성 저장 실패 시 건너뛰기 (더 이상 지원하지 않는 속성 접근 시 예외 발생 가능)
                 }
             }
         }
@@ -480,8 +488,13 @@ namespace ObjDropWatcher.ExportImport
         /// </summary>
         static bool IsIgnoredProperty(string propName)
         {
+            // 기본 무시 속성
             string[] ignored = { "enabled", "gameObject", "transform" };
-            return ignored.Contains(propName);
+            
+            // AudioSource의 더 이상 지원하지 않는 속성들 (Unity 최신 버전에서 제거됨)
+            string[] audioSourceDeprecated = { "minVolume", "maxVolume", "rolloffFactor" };
+            
+            return ignored.Contains(propName) || audioSourceDeprecated.Contains(propName);
         }
 
         bool IsSerializableField(FieldInfo field)
@@ -1082,10 +1095,141 @@ namespace ObjDropWatcher.ExportImport
         }
         
         /// <summary>
+        /// 폴더 이름에서 Unity 경로에 부적합한 문자를 제거합니다.
+        /// </summary>
+        static string SanitizePathName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return "Default";
+            
+            // Unity 경로에 부적합한 문자 제거
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            string sanitized = name;
+            
+            foreach (char c in invalidChars)
+            {
+                sanitized = sanitized.Replace(c, '_');
+            }
+            
+            // 추가로 제거할 문자들 (Unity 특수 문자)
+            sanitized = sanitized.Replace('/', '_').Replace('\\', '_').Replace(':', '_');
+            sanitized = sanitized.Replace('*', '_').Replace('?', '_').Replace('"', '_');
+            sanitized = sanitized.Replace('<', '_').Replace('>', '_').Replace('|', '_');
+            
+            // 연속된 언더스코어 제거
+            while (sanitized.Contains("__"))
+            {
+                sanitized = sanitized.Replace("__", "_");
+            }
+            
+            // 앞뒤 공백 및 언더스코어 제거
+            sanitized = sanitized.Trim(' ', '_');
+            
+            // 빈 문자열이면 기본값 사용
+            if (string.IsNullOrEmpty(sanitized))
+                sanitized = "Default";
+            
+            return sanitized;
+        }
+
+        /// <summary>
+        /// SnapSpace 폴더 안에 그룹 이름 폴더를 생성하거나 반환합니다.
+        /// </summary>
+        static string GetOrCreateSnapSpaceFolder(string groupName)
+        {
+            #if UNITY_EDITOR
+            if (string.IsNullOrEmpty(groupName))
+                groupName = "Default";
+            
+            // 그룹 이름 정리
+            string sanitizedGroupName = SanitizePathName(groupName);
+            
+            // SnapSpace 폴더 경로
+            string snapSpacePath = "Assets/SnapSpace";
+            string groupFolderPath = $"{snapSpacePath}/{sanitizedGroupName}";
+            
+            // SnapSpace 폴더가 없으면 생성
+            if (!AssetDatabase.IsValidFolder(snapSpacePath))
+            {
+                string guid = AssetDatabase.CreateFolder("Assets", "SnapSpace");
+                if (string.IsNullOrEmpty(guid))
+                {
+                    Debug.LogError($"SnapSpace 폴더 생성 실패");
+                    return null;
+                }
+                AssetDatabase.Refresh();
+            }
+            
+            // 그룹 폴더가 없으면 생성
+            if (!AssetDatabase.IsValidFolder(groupFolderPath))
+            {
+                string guid = AssetDatabase.CreateFolder(snapSpacePath, sanitizedGroupName);
+                if (string.IsNullOrEmpty(guid))
+                {
+                    Debug.LogError($"그룹 폴더 생성 실패: {groupFolderPath}");
+                    return null;
+                }
+                AssetDatabase.Refresh();
+            }
+            
+            return groupFolderPath;
+            #else
+            return null;
+            #endif
+        }
+
+        /// <summary>
+        /// OBJ 파일을 Assets/SnapSpace/그룹이름/으로 복사합니다 (Import용).
+        /// </summary>
+        static string CopyObjToAssetsForImport(string objPath, string groupName)
+        {
+            #if UNITY_EDITOR
+            if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
+                return null;
+            
+            string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+            if (string.IsNullOrEmpty(groupFolderPath))
+                return null;
+            
+            string fileName = Path.GetFileName(objPath);
+            string targetAssetPath = $"{groupFolderPath}/{fileName}";
+            
+            // 이미 같은 파일이 있으면 재사용
+            if (File.Exists(targetAssetPath))
+            {
+                return targetAssetPath;
+            }
+            
+            try
+            {
+                // 파일 복사
+                File.Copy(objPath, targetAssetPath, true);
+                
+                // AssetDatabase 새로고침
+                AssetDatabase.Refresh();
+                
+                // OBJ 파일 임포트
+                AssetDatabase.ImportAsset(targetAssetPath, ImportAssetOptions.ForceUpdate);
+                AssetDatabase.Refresh();
+                
+                return targetAssetPath;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"OBJ 파일 복사 실패: {ex.Message}\n원본: {objPath}\n대상: {targetAssetPath}");
+                return null;
+            }
+            #else
+            return null;
+            #endif
+        }
+
+        /// <summary>
         /// Original과 Retouched 버전을 모두 로드하여 하나의 root GameObject에 children으로 추가합니다.
         /// ObjDropWatcherWindow.SpawnWithBothVersions와 동일한 로직을 사용합니다.
+        /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 파일을 복사합니다.
         /// </summary>
-        GameObject LoadObjFileWithBothVersions()
+        GameObject LoadObjFileWithBothVersions(string groupName = null)
         {
             try
             {
@@ -1125,8 +1269,8 @@ namespace ObjDropWatcher.ExportImport
                 // unitScale 가져오기
                 float unitScale = MemoUtils.GetUnitScale();
                 
-                // Original OBJ 로드 및 설정
-                GameObject originalGo = LoadSingleMeshFile(actualOriginalPath);
+                // Original OBJ 로드 및 설정 (그룹 이름 전달)
+                GameObject originalGo = LoadSingleMeshFile(actualOriginalPath, groupName);
                 if (originalGo == null)
                 {
                     Debug.LogError($"[LoadObjFileWithBothVersions] Original OBJ 로드 실패: {actualOriginalPath}");
@@ -1151,7 +1295,7 @@ namespace ObjDropWatcher.ExportImport
                 // Original OBJ를 보이는 상태로 설정 (isUsingRetouched에 따라)
                 originalGo.SetActive(!isUsingRetouched);
                 
-                // Retouched OBJ 로드 및 설정 (있는 경우)
+                // Retouched OBJ 로드 및 설정 (있는 경우, 그룹 이름 전달)
                 GameObject retouchedGo = null;
                 string actualRetouchedPath = !string.IsNullOrEmpty(retouchedPath) && File.Exists(retouchedPath)
                     ? retouchedPath
@@ -1159,7 +1303,7 @@ namespace ObjDropWatcher.ExportImport
                 
                 if (!string.IsNullOrEmpty(actualRetouchedPath))
                 {
-                    retouchedGo = LoadSingleMeshFile(actualRetouchedPath);
+                    retouchedGo = LoadSingleMeshFile(actualRetouchedPath, groupName);
                     if (retouchedGo != null)
                     {
                         retouchedGo.name = "Retouched";
@@ -1218,8 +1362,9 @@ namespace ObjDropWatcher.ExportImport
         
         /// <summary>
         /// 단일 메시 파일을 로드합니다. (내부 헬퍼 메서드)
+        /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 파일을 복사합니다.
         /// </summary>
-        GameObject LoadSingleMeshFile(string meshPath)
+        GameObject LoadSingleMeshFile(string meshPath, string groupName = null)
         {
             if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
             {
@@ -1233,7 +1378,19 @@ namespace ObjDropWatcher.ExportImport
             switch (extension)
             {
                 case ".obj":
+                    // OBJ 파일 복사 (그룹 이름이 있는 경우)
+                    string actualObjPath = meshPath;
+                    if (!string.IsNullOrEmpty(groupName))
+                    {
+                        string copiedObjPath = CopyObjToAssetsForImport(meshPath, groupName);
+                        if (!string.IsNullOrEmpty(copiedObjPath))
+                        {
+                            actualObjPath = copiedObjPath;
+                        }
+                    }
+                    
                     // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+                    // Assets로 복사된 경우에도 원본 경로를 RuntimeObjLoader에 전달 (메타데이터 유지)
                     go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
                     if (go != null)
                     {
@@ -1245,8 +1402,8 @@ namespace ObjDropWatcher.ExportImport
                     
                 case ".glb":
                 case ".gltf":
-                    // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
-                    go = LoadGlbOrGltf(meshPath);
+                    // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용 (그룹 이름 전달)
+                    go = LoadGlbOrGltf(meshPath, groupName);
                     if (go != null)
                     {
                         #if UNITY_EDITOR
@@ -1256,8 +1413,8 @@ namespace ObjDropWatcher.ExportImport
                     break;
                     
                 case ".fbx":
-                    // FBX 파일은 Unity의 기본 임포트 기능 사용
-                    go = LoadFbx(meshPath);
+                    // FBX 파일은 Unity의 기본 임포트 기능 사용 (그룹 이름 전달)
+                    go = LoadFbx(meshPath, groupName);
                     if (go != null)
                     {
                         #if UNITY_EDITOR
@@ -1352,8 +1509,9 @@ namespace ObjDropWatcher.ExportImport
         /// <summary>
         /// GLB/GLTF 파일을 로드합니다.
         /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+        /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 복사합니다.
         /// </summary>
-        GameObject LoadGlbOrGltf(string filePath)
+        GameObject LoadGlbOrGltf(string filePath, string groupName = null)
         {
             try
             {
@@ -1361,10 +1519,38 @@ namespace ObjDropWatcher.ExportImport
                 #if UNITY_EDITOR
                 // 파일을 Assets 폴더로 복사하여 임포트
                 string fileName = Path.GetFileName(filePath);
-                string tempAssetPath = $"Assets/Temp_{fileName}";
+                string tempAssetPath;
                 
-                // 파일 복사
-                File.Copy(filePath, tempAssetPath, true);
+                if (!string.IsNullOrEmpty(groupName))
+                {
+                    // SnapSpace/그룹이름/ 폴더 사용
+                    string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                    if (string.IsNullOrEmpty(groupFolderPath))
+                    {
+                        Debug.LogError($"그룹 폴더를 찾을 수 없습니다: {groupName}");
+                        return null;
+                    }
+                    tempAssetPath = $"{groupFolderPath}/{fileName}";
+                    
+                    // 기존 파일이 있으면 재사용
+                    if (File.Exists(tempAssetPath))
+                    {
+                        // 파일 내용 비교는 생략하고 경로만 확인
+                    }
+                    else
+                    {
+                        // 파일 복사
+                        File.Copy(filePath, tempAssetPath, true);
+                    }
+                }
+                else
+                {
+                    // 기존 방식: Temp 폴더 사용
+                    tempAssetPath = $"Assets/Temp_{fileName}";
+                    
+                    // 파일 복사
+                    File.Copy(filePath, tempAssetPath, true);
+                }
                 
                 // AssetDatabase를 통해 임포트
                 AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
@@ -1390,8 +1576,11 @@ namespace ObjDropWatcher.ExportImport
                 }
                 else
                 {
-                    // 임시 파일 삭제
-                    AssetDatabase.DeleteAsset(tempAssetPath);
+                    // Temp 폴더인 경우만 임시 파일 삭제
+                    if (string.IsNullOrEmpty(groupName))
+                    {
+                        AssetDatabase.DeleteAsset(tempAssetPath);
+                    }
                     return null;
                 }
                 #else
@@ -1407,8 +1596,9 @@ namespace ObjDropWatcher.ExportImport
         /// <summary>
         /// FBX 파일을 로드합니다.
         /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+        /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 복사합니다.
         /// </summary>
-        GameObject LoadFbx(string filePath)
+        GameObject LoadFbx(string filePath, string groupName = null)
         {
             try
             {
@@ -1416,10 +1606,38 @@ namespace ObjDropWatcher.ExportImport
                 #if UNITY_EDITOR
                 // 파일을 Assets 폴더로 복사하여 임포트
                 string fileName = Path.GetFileName(filePath);
-                string tempAssetPath = $"Assets/Temp_{fileName}";
+                string tempAssetPath;
                 
-                // 파일 복사
-                File.Copy(filePath, tempAssetPath, true);
+                if (!string.IsNullOrEmpty(groupName))
+                {
+                    // SnapSpace/그룹이름/ 폴더 사용
+                    string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                    if (string.IsNullOrEmpty(groupFolderPath))
+                    {
+                        Debug.LogError($"그룹 폴더를 찾을 수 없습니다: {groupName}");
+                        return null;
+                    }
+                    tempAssetPath = $"{groupFolderPath}/{fileName}";
+                    
+                    // 기존 파일이 있으면 재사용
+                    if (File.Exists(tempAssetPath))
+                    {
+                        // 파일 내용 비교는 생략하고 경로만 확인
+                    }
+                    else
+                    {
+                        // 파일 복사
+                        File.Copy(filePath, tempAssetPath, true);
+                    }
+                }
+                else
+                {
+                    // 기존 방식: Temp 폴더 사용
+                    tempAssetPath = $"Assets/Temp_{fileName}";
+                    
+                    // 파일 복사
+                    File.Copy(filePath, tempAssetPath, true);
+                }
                 
                 // AssetDatabase를 통해 임포트
                 AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
@@ -1445,8 +1663,11 @@ namespace ObjDropWatcher.ExportImport
                 }
                 else
                 {
-                    // 임시 파일 삭제
-                    AssetDatabase.DeleteAsset(tempAssetPath);
+                    // Temp 폴더인 경우만 임시 파일 삭제
+                    if (string.IsNullOrEmpty(groupName))
+                    {
+                        AssetDatabase.DeleteAsset(tempAssetPath);
+                    }
                     return null;
                 }
                 #else
@@ -1709,15 +1930,17 @@ namespace ObjDropWatcher.ExportImport
                 try
                 {
                     // 메모 관련 children은 JSON에서 복원하지 않음 (memos.json에서 생성됨)
-                    // 메모는 이름이 "Memo_"로 시작하거나 TextMesh 컴포넌트를 가진 경우
-                    bool isMemoChild = childData.objectName.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase);
+                    // 메모는 이름이 "Memo_" 또는 "AudioMemo_"로 시작하거나 TextMesh 컴포넌트를 가진 경우
+                    bool isMemoChild = childData.objectName.StartsWith("Memo_", System.StringComparison.OrdinalIgnoreCase) ||
+                                      childData.objectName.StartsWith("AudioMemo_", System.StringComparison.OrdinalIgnoreCase);
                     if (!isMemoChild && childData.components != null)
                     {
                         foreach (var compData in childData.components)
                         {
                             if (compData.componentType != null && 
                                 (compData.componentType.Contains("TextMesh") || 
-                                 compData.componentType.Contains("UnityEngine.TextMesh")))
+                                 compData.componentType.Contains("UnityEngine.TextMesh") ||
+                                 compData.componentType.Contains("AudioMemoPlayer")))
                             {
                                 isMemoChild = true;
                                 break;

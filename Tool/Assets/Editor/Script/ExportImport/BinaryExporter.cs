@@ -15,25 +15,46 @@ namespace ObjDropWatcher.ExportImport
     {
         public static void ExportToBinary(IEnumerable<GameObject> objects, string filePath)
         {
+            // GameObject를 ObjectTransformData로 변환하여 collection 생성
+            var collection = new ObjectTransformCollection();
+            foreach (var obj in objects)
+            {
+                if (obj == null) continue;
+                
+                string objPath = ObjectTransformData.GetObjPathForExport(obj);
+                if (string.IsNullOrEmpty(objPath)) continue;
+                
+                var data = new ObjectTransformData(obj, objPath, true);
+                if (data.objectType == ObjectType.ObjFile)
+                {
+                    collection.objects.Add(data);
+                }
+            }
+            
+            ExportToBinary(collection, filePath);
+        }
+        
+        public static void ExportToBinary(ObjectTransformCollection collection, string filePath)
+        {
+            if (collection == null || collection.objects == null)
+            {
+                EditorUtility.DisplayDialog("Export 실패", "Export할 데이터가 없습니다.", "OK");
+                return;
+            }
+            
+            ExportToBinary(collection.objects, filePath);
+        }
+        
+        public static void ExportToBinary(IEnumerable<ObjectTransformData> dataList, string filePath)
+        {
             try
             {
                 var collection = new ObjectTransformCollection();
                 int skippedCount = 0;
                 
-                foreach (var obj in objects)
+                foreach (var data in dataList)
                 {
-                    if (obj == null) continue;
-                    
-                    string objPath = ObjectTransformData.GetObjPathForExport(obj);
-                    
-                    // OBJ 파일 경로가 없으면 건너뛰기
-                    if (string.IsNullOrEmpty(objPath))
-                    {
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    var data = new ObjectTransformData(obj, objPath, true);
+                    if (data == null) continue;
                     
                     // OBJ 파일만 export
                     if (data.objectType == ObjectType.ObjFile)
