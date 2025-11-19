@@ -103,7 +103,7 @@ public class Exporter
     // 음성 파일 복사
     if (file.getParent() != null) {
       File[] voiceFiles = new File(file.getParent()).listFiles((dir, name) ->
-              name.startsWith("voice_") && name.endsWith(".3gp"));
+              name.startsWith("voice_") && name.endsWith(".wav"));
 
       if (voiceFiles != null) {
         for (File voiceFile : voiceFiles) {
@@ -235,7 +235,7 @@ public class Exporter
 
       // 음성 파일 확인 추가
       File[] voiceFiles = new File(modelParentPath).listFiles((dir, name) ->
-              name.startsWith("voice_") && name.endsWith(".3gp"));
+              name.startsWith("voice_") && name.endsWith(".wav"));
       if (voiceFiles != null) {
         for (File voiceFile : voiceFiles) {
           res.add(voiceFile.getName());

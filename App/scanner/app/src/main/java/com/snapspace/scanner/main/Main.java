@@ -454,7 +454,7 @@ public class Main extends AbstractActivity implements View.OnClickListener,
     }
 
     // 파일명을 타임스탬프만으로 단순화
-    mCurrentVoiceFileName = "voice_" + System.currentTimeMillis() + ".3gp";
+    mCurrentVoiceFileName = "voice_" + System.currentTimeMillis() + ".wav";
     File voiceFile = new File(getTempPath(), mCurrentVoiceFileName);
 
     // 음성 녹음 시작
