@@ -568,7 +568,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                             // API 응답의 memos는 목록 표시용일 뿐, 실제 import 시에는 파일에서 읽어야 함
                             MemoUtils.MemoData[] memosFromFile = MemoUtils.FindAndParseMemoFile(it.originalPath);
                             
-                            GameObject spawnedObj = SpawnWithBothVersions(it.originalPath, it.retouchedPath, memosFromFile);
+                            // 그룹 이름과 스캔 ID를 전달하여 프리팹 저장
+                            string groupName = GetSelectedGroupName();
+                            GameObject spawnedObj = SpawnWithBothVersions(it.originalPath, it.retouchedPath, memosFromFile, groupName, it.scanId);
                             // ObjectTransformManagerWindow에 경로 정보 전달
                             if (spawnedObj != null)
                             {
@@ -1323,6 +1325,517 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     }
 
     /// <summary>
+    /// 폴더 이름에서 Unity 경로에 부적합한 문자를 제거합니다.
+    /// </summary>
+    string SanitizePathName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "Default";
+        
+        // Unity 경로에 부적합한 문자 제거
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        string sanitized = name;
+        
+        foreach (char c in invalidChars)
+        {
+            sanitized = sanitized.Replace(c, '_');
+        }
+        
+        // 추가로 제거할 문자들 (Unity 특수 문자)
+        sanitized = sanitized.Replace('/', '_').Replace('\\', '_').Replace(':', '_');
+        sanitized = sanitized.Replace('*', '_').Replace('?', '_').Replace('"', '_');
+        sanitized = sanitized.Replace('<', '_').Replace('>', '_').Replace('|', '_');
+        
+        // 연속된 언더스코어 제거
+        while (sanitized.Contains("__"))
+        {
+            sanitized = sanitized.Replace("__", "_");
+        }
+        
+        // 앞뒤 공백 및 언더스코어 제거
+        sanitized = sanitized.Trim(' ', '_');
+        
+        // 빈 문자열이면 기본값 사용
+        if (string.IsNullOrEmpty(sanitized))
+            sanitized = "Default";
+        
+        return sanitized;
+    }
+
+    /// <summary>
+    /// SnapSpace 폴더 안에 그룹 이름 폴더를 생성하거나 반환합니다.
+    /// </summary>
+    string GetOrCreateSnapSpaceFolder(string groupName)
+    {
+        if (string.IsNullOrEmpty(groupName))
+            groupName = "Default";
+        
+        // 그룹 이름 정리
+        string sanitizedGroupName = SanitizePathName(groupName);
+        
+        // SnapSpace 폴더 경로
+        string snapSpacePath = "Assets/SnapSpace";
+        string groupFolderPath = $"{snapSpacePath}/{sanitizedGroupName}";
+        
+        // SnapSpace 폴더가 없으면 생성
+        if (!AssetDatabase.IsValidFolder(snapSpacePath))
+        {
+            string guid = AssetDatabase.CreateFolder("Assets", "SnapSpace");
+            if (string.IsNullOrEmpty(guid))
+            {
+                Debug.LogError($"SnapSpace 폴더 생성 실패");
+                return null;
+            }
+            AssetDatabase.Refresh();
+        }
+        
+        // 그룹 폴더가 없으면 생성
+        if (!AssetDatabase.IsValidFolder(groupFolderPath))
+        {
+            string guid = AssetDatabase.CreateFolder(snapSpacePath, sanitizedGroupName);
+            if (string.IsNullOrEmpty(guid))
+            {
+                Debug.LogError($"그룹 폴더 생성 실패: {groupFolderPath}");
+                return null;
+            }
+            AssetDatabase.Refresh();
+        }
+        
+        return groupFolderPath;
+    }
+
+    /// <summary>
+    /// 현재 선택된 그룹 이름을 가져옵니다.
+    /// </summary>
+    string GetSelectedGroupName()
+    {
+        if (!_selectedGroupId.HasValue || _availableGroups == null || _availableGroups.Count == 0)
+            return null;
+        
+        var selectedGroup = _availableGroups.FirstOrDefault(g => g.group_id == _selectedGroupId.Value);
+        return selectedGroup?.name;
+    }
+
+    /// <summary>
+    /// OBJ 파일을 Assets/SnapSpace/그룹이름/model/으로 복사합니다.
+    /// </summary>
+    string CopyObjToAssets(string objPath, string groupName)
+    {
+        if (string.IsNullOrEmpty(objPath) || !File.Exists(objPath))
+            return null;
+        
+        string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+        if (string.IsNullOrEmpty(groupFolderPath))
+            return null;
+        
+        // model 폴더 생성
+        string modelFolderPath = $"{groupFolderPath}/model";
+        if (!AssetDatabase.IsValidFolder(modelFolderPath))
+        {
+            string guid = AssetDatabase.CreateFolder(groupFolderPath, "model");
+            if (string.IsNullOrEmpty(guid))
+            {
+                Debug.LogError($"model 폴더 생성 실패: {modelFolderPath}");
+                return null;
+            }
+            AssetDatabase.Refresh();
+        }
+        
+        string fileName = Path.GetFileName(objPath);
+        string targetAssetPath = $"{modelFolderPath}/{fileName}";
+        
+        // 이미 같은 파일이 있으면 재사용 (파일 내용 비교는 생략 - 단순히 경로만 확인)
+        if (File.Exists(targetAssetPath))
+        {
+            // 기존 파일이 있으면 그대로 사용
+            return targetAssetPath;
+        }
+        
+        try
+        {
+            // 파일 복사
+            File.Copy(objPath, targetAssetPath, true);
+            
+            // AssetDatabase 새로고침
+            AssetDatabase.Refresh();
+            
+            // OBJ 파일 임포트 (Unity의 기본 임포트 설정 사용)
+            AssetDatabase.ImportAsset(targetAssetPath, ImportAssetOptions.ForceUpdate);
+            AssetDatabase.Refresh();
+            
+            return targetAssetPath;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"OBJ 파일 복사 실패: {ex.Message}\n원본: {objPath}\n대상: {targetAssetPath}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// GameObject의 모든 Mesh를 Assets/SnapSpace/그룹이름/materials/에 저장합니다.
+    /// 각 오브젝트가 고유한 Mesh를 사용하도록 OBJ 파일명을 파일명에 포함합니다.
+    /// </summary>
+    void SaveMeshesToAssets(GameObject go, string groupName, string objFileName)
+    {
+        if (go == null || string.IsNullOrEmpty(groupName) || string.IsNullOrEmpty(objFileName))
+            return;
+        
+        #if UNITY_EDITOR
+        try
+        {
+            // materials 폴더 경로 생성
+            string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+            if (string.IsNullOrEmpty(groupFolderPath))
+                return;
+            
+            string materialsFolderPath = $"{groupFolderPath}/materials";
+            
+            // materials 폴더가 없으면 생성
+            if (!AssetDatabase.IsValidFolder(materialsFolderPath))
+            {
+                string guid = AssetDatabase.CreateFolder(groupFolderPath, "materials");
+                if (string.IsNullOrEmpty(guid))
+                {
+                    Debug.LogError($"materials 폴더 생성 실패: {materialsFolderPath}");
+                    return;
+                }
+                AssetDatabase.Refresh();
+            }
+            
+            // OBJ 파일명에서 확장자 제거하여 prefix로 사용
+            string objPrefix = Path.GetFileNameWithoutExtension(objFileName);
+            objPrefix = SanitizePathName(objPrefix);
+            
+            // 모든 MeshFilter를 찾아서 Mesh 저장
+            MeshFilter[] filters = go.GetComponentsInChildren<MeshFilter>(true);
+            
+            foreach (MeshFilter filter in filters)
+            {
+                if (filter == null || filter.sharedMesh == null)
+                    continue;
+                
+                Mesh mesh = filter.sharedMesh;
+                
+                // OBJ 파일명과 Mesh 이름을 조합하여 고유한 파일명 생성
+                string meshFileName = $"{objPrefix}_{SanitizePathName(mesh.name)}.asset";
+                string meshAssetPath = $"{materialsFolderPath}/{meshFileName}";
+                
+                // Mesh를 복사하여 Assets에 저장 (재사용하지 않고 항상 새로 생성)
+                Mesh savedMesh = UnityEngine.Object.Instantiate(mesh);
+                savedMesh.name = mesh.name; // 원본 이름 유지
+                
+                // Mesh를 Assets에 저장
+                AssetDatabase.CreateAsset(savedMesh, meshAssetPath);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                
+                filter.sharedMesh = savedMesh;
+                EditorUtility.SetDirty(filter);
+            }
+            
+            AssetDatabase.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Mesh 저장 실패: {ex.Message}\n{ex.StackTrace}");
+        }
+        #endif
+    }
+
+    /// <summary>
+    /// GameObject의 모든 Material을 Assets/SnapSpace/그룹이름/materials/에 저장합니다.
+    /// 각 오브젝트가 고유한 Material을 사용하도록 OBJ 파일명을 파일명에 포함합니다.
+    /// 텍스처도 함께 Asset으로 저장합니다.
+    /// </summary>
+    void SaveMaterialsToAssets(GameObject go, string groupName, string objFileName)
+    {
+        if (go == null || string.IsNullOrEmpty(groupName) || string.IsNullOrEmpty(objFileName))
+            return;
+        
+        #if UNITY_EDITOR
+        try
+        {
+            // materials 폴더 경로 생성
+            string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+            if (string.IsNullOrEmpty(groupFolderPath))
+                return;
+            
+            string materialsFolderPath = $"{groupFolderPath}/materials";
+            
+            // materials 폴더가 없으면 생성
+            if (!AssetDatabase.IsValidFolder(materialsFolderPath))
+            {
+                string guid = AssetDatabase.CreateFolder(groupFolderPath, "materials");
+                if (string.IsNullOrEmpty(guid))
+                {
+                    Debug.LogError($"materials 폴더 생성 실패: {materialsFolderPath}");
+                    return;
+                }
+                AssetDatabase.Refresh();
+            }
+            
+            // OBJ 파일명에서 확장자 제거하여 prefix로 사용
+            string objPrefix = Path.GetFileNameWithoutExtension(objFileName);
+            objPrefix = SanitizePathName(objPrefix);
+            
+            // 모든 MeshRenderer를 찾아서 Material 저장
+            MeshRenderer[] renderers = go.GetComponentsInChildren<MeshRenderer>(true);
+            
+            foreach (MeshRenderer renderer in renderers)
+            {
+                if (renderer == null || renderer.sharedMaterials == null)
+                    continue;
+                
+                Material[] materials = renderer.sharedMaterials;
+                Material[] savedMaterials = new Material[materials.Length];
+                
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    Material mat = materials[i];
+                    if (mat == null)
+                    {
+                        savedMaterials[i] = null;
+                        continue;
+                    }
+                    
+                    // OBJ 파일명과 Material 이름을 조합하여 고유한 파일명 생성
+                    string matFileName = $"{objPrefix}_{SanitizePathName(mat.name)}.mat";
+                    string matAssetPath = $"{materialsFolderPath}/{matFileName}";
+                    
+                    // Material을 복사하여 Assets에 저장 (재사용하지 않고 항상 새로 생성)
+                    Material savedMat = new Material(mat);
+                    savedMat.name = mat.name; // 원본 이름 유지
+                    
+                    // Shader 설정 (먼저 shader를 설정해야 properties가 제대로 복사됨)
+                    Shader shader = mat.shader;
+                    if (shader != null)
+                    {
+                        savedMat.shader = shader;
+                    }
+                    
+                    // Material의 모든 shader properties 복사 (색상, float, vector 등)
+                    if (shader != null)
+                    {
+                        int propertyCount = shader.GetPropertyCount();
+                        for (int j = 0; j < propertyCount; j++)
+                        {
+                            string propName = shader.GetPropertyName(j);
+                            UnityEngine.Rendering.ShaderPropertyType propType = shader.GetPropertyType(j);
+                            
+                            try
+                            {
+                                switch (propType)
+                                {
+                                    case UnityEngine.Rendering.ShaderPropertyType.Color:
+                                        if (mat.HasColor(propName))
+                                            savedMat.SetColor(propName, mat.GetColor(propName));
+                                        break;
+                                    case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                                        if (mat.HasVector(propName))
+                                            savedMat.SetVector(propName, mat.GetVector(propName));
+                                        break;
+                                    case UnityEngine.Rendering.ShaderPropertyType.Float:
+                                    case UnityEngine.Rendering.ShaderPropertyType.Range:
+                                        if (mat.HasFloat(propName))
+                                            savedMat.SetFloat(propName, mat.GetFloat(propName));
+                                        break;
+                                    case UnityEngine.Rendering.ShaderPropertyType.Texture:
+                                        if (mat.HasTexture(propName))
+                                        {
+                                            Texture tex = mat.GetTexture(propName);
+                                            if (tex != null)
+                                            {
+                                                // 텍스처도 Asset인지 확인하고 필요시 저장
+                                                Texture2D tex2d = tex as Texture2D;
+                                                if (tex2d != null && !AssetDatabase.Contains(tex2d))
+                                                {
+                                                    // 텍스처 파일명도 OBJ 파일명을 포함하여 고유하게 생성
+                                                    string texFileName = $"{objPrefix}_{SanitizePathName(tex2d.name)}.asset";
+                                                    string texAssetPath = $"{materialsFolderPath}/{texFileName}";
+                                                    
+                                                    Texture2D savedTex = UnityEngine.Object.Instantiate(tex2d);
+                                                    savedTex.name = tex2d.name;
+                                                    AssetDatabase.CreateAsset(savedTex, texAssetPath);
+                                                    AssetDatabase.SaveAssets();
+                                                    AssetDatabase.Refresh();
+                                                    savedMat.SetTexture(propName, savedTex);
+                                                }
+                                                else
+                                                {
+                                                    savedMat.SetTexture(propName, tex);
+                                                }
+                                            }
+                                        }
+                                        break;
+                                }
+                            }
+                            catch (Exception)
+                            {
+                                // 특정 property 복사 실패는 무시
+                            }
+                        }
+                    }
+                    
+                    // mainTexture 설정 (텍스처가 있으면 처리)
+                    Texture2D mainTex = mat.mainTexture as Texture2D;
+                    if (mainTex != null)
+                    {
+                        if (!AssetDatabase.Contains(mainTex))
+                        {
+                            // 텍스처 파일명도 OBJ 파일명을 포함하여 고유하게 생성
+                            string texFileName = $"{objPrefix}_{SanitizePathName(mainTex.name)}.asset";
+                            string texAssetPath = $"{materialsFolderPath}/{texFileName}";
+                            
+                            // Texture2D를 복사하여 Assets에 저장
+                            Texture2D savedTex = UnityEngine.Object.Instantiate(mainTex);
+                            savedTex.name = mainTex.name;
+                            
+                            // 텍스처를 Assets에 저장
+                            AssetDatabase.CreateAsset(savedTex, texAssetPath);
+                            AssetDatabase.SaveAssets();
+                            AssetDatabase.Refresh();
+                            
+                            savedMat.mainTexture = savedTex;
+                        }
+                        else
+                        {
+                            // 이미 Asset인 텍스처는 그대로 사용
+                            savedMat.mainTexture = mainTex;
+                        }
+                    }
+                    
+                    // Material의 기본 속성도 복사 (renderQueue, doubleSidedGI 등)
+                    savedMat.renderQueue = mat.renderQueue;
+                    savedMat.enableInstancing = mat.enableInstancing;
+                    savedMat.doubleSidedGI = mat.doubleSidedGI;
+                    
+                    // Material을 Assets에 저장
+                    AssetDatabase.CreateAsset(savedMat, matAssetPath);
+                    AssetDatabase.SaveAssets();
+                    AssetDatabase.Refresh();
+                    
+                    savedMaterials[i] = savedMat;
+                }
+                
+                // 저장된 Material로 교체
+                renderer.sharedMaterials = savedMaterials;
+                EditorUtility.SetDirty(renderer);
+            }
+            
+            AssetDatabase.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Material 저장 실패: {ex.Message}\n{ex.StackTrace}");
+        }
+        #endif
+    }
+
+    /// <summary>
+    /// GameObject를 프리팹으로 저장합니다 (중복 체크 포함).
+    /// </summary>
+    GameObject SaveAsPrefabAssetSafe(GameObject rootGo, string prefabPath, bool replaceExisting = false)
+    {
+        if (rootGo == null || string.IsNullOrEmpty(prefabPath))
+            return null;
+        
+        // 디렉토리 존재 확인 및 생성
+        string directory = Path.GetDirectoryName(prefabPath).Replace('\\', '/');
+        if (directory.StartsWith("Assets/"))
+        {
+            directory = directory.Substring(7); // "Assets/" 제거
+        }
+        
+        string[] folders = directory.Split('/');
+        string currentPath = "Assets";
+        
+        foreach (string folder in folders)
+        {
+            if (string.IsNullOrEmpty(folder))
+                continue;
+            
+            string nextPath = $"{currentPath}/{folder}";
+            if (!AssetDatabase.IsValidFolder(nextPath))
+            {
+                string guid = AssetDatabase.CreateFolder(currentPath, folder);
+                if (string.IsNullOrEmpty(guid))
+                {
+                    Debug.LogError($"폴더 생성 실패: {nextPath}");
+                    return null;
+                }
+                AssetDatabase.Refresh();
+            }
+            currentPath = nextPath;
+        }
+        
+        // 기존 프리팹 확인
+        GameObject existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        
+        if (existingPrefab != null && !replaceExisting)
+        {
+            // 기존 프리팹이 있으면 그대로 반환
+            Debug.Log($"기존 프리팹 사용: {prefabPath}");
+            return existingPrefab;
+        }
+        
+        try
+        {
+            // 메모 children은 프리팹에 포함하지 않음 (런타임에 생성)
+            GameObject prefabRoot = rootGo;
+            
+            // 메모 children 임시 비활성화 또는 제거 (프리팹 저장 전)
+            List<GameObject> memoChildren = new List<GameObject>();
+            foreach (Transform child in rootGo.transform)
+            {
+                if (child.gameObject.TryGetComponent<TextMesh>(out _) || 
+                    child.gameObject.name.StartsWith("Memo_", StringComparison.OrdinalIgnoreCase) ||
+                    child.gameObject.name.StartsWith("AudioMemo_", StringComparison.OrdinalIgnoreCase))
+                {
+                    memoChildren.Add(child.gameObject);
+                }
+            }
+            
+            // 메모 children 임시 비활성화 (프리팹 저장 시 포함되지 않도록)
+            foreach (var memoChild in memoChildren)
+            {
+                memoChild.SetActive(false);
+            }
+            
+            // AssetDatabase 완전 새로고침 및 저장 (Mesh/Material Asset 참조 확실히 하기 위해)
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            
+            // 프리팹 저장
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(rootGo, prefabPath);
+            
+            // 메모 children 다시 활성화
+            foreach (var memoChild in memoChildren)
+            {
+                memoChild.SetActive(true);
+            }
+            
+            if (prefab != null)
+            {
+                #if UNITY_EDITOR
+                AssetDatabase.SaveAssets();
+                #endif
+            }
+            else
+            {
+                Debug.LogError($"프리팹 저장 실패: {prefabPath}");
+            }
+            
+            return prefab;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"프리팹 저장 중 오류: {ex.Message}\n경로: {prefabPath}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 메시 파일을 로드합니다. (단일 파일 버전 - 호환성 유지)
     /// </summary>
     GameObject Spawn(string meshPath, MemoUtils.MemoData[] memos = null)
@@ -1333,8 +1846,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     /// <summary>
     /// Original과 Retouched 버전을 모두 로드하여 하나의 root GameObject에 children으로 추가합니다.
     /// Original은 보이는 상태, Retouched는 안보이는 상태로 설정됩니다.
+    /// 그룹 이름과 스캔 ID가 제공되면 프리팹으로 저장합니다.
     /// </summary>
-    GameObject SpawnWithBothVersions(string originalPath, string retouchedPath = null, MemoUtils.MemoData[] memos = null)
+    GameObject SpawnWithBothVersions(string originalPath, string retouchedPath = null, MemoUtils.MemoData[] memos = null, string groupName = null, int? scanId = null)
     {
         try
         {
@@ -1345,8 +1859,18 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 return null;
             }
             
+            // 그룹 이름이 없으면 현재 선택된 그룹 사용
+            if (string.IsNullOrEmpty(groupName))
+            {
+                groupName = GetSelectedGroupName();
+            }
+            
             // Root GameObject 생성
             string rootName = Path.GetFileNameWithoutExtension(originalPath);
+            if (scanId.HasValue)
+            {
+                rootName = $"Scan_{scanId.Value}_{rootName}";
+            }
             GameObject rootGo = new GameObject($"{rootName}_Root");
             Undo.RegisterCreatedObjectUndo(rootGo, "Spawn OBJ Root");
             
@@ -1373,8 +1897,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 }
             }
             
-            // Original OBJ 로드 및 설정
-            GameObject originalGo = LoadMeshFile(originalPath);
+            // Original OBJ 로드 및 설정 (그룹 이름 전달)
+            GameObject originalGo = LoadMeshFile(originalPath, groupName);
             if (originalGo == null)
             {
                 GameObject.DestroyImmediate(rootGo);
@@ -1399,11 +1923,11 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             // Original OBJ를 보이는 상태로 설정
             originalGo.SetActive(true);
             
-            // Retouched OBJ 로드 및 설정 (있는 경우)
+            // Retouched OBJ 로드 및 설정 (있는 경우, 그룹 이름 전달)
             GameObject retouchedGo = null;
             if (!string.IsNullOrEmpty(retouchedPath) && File.Exists(retouchedPath))
             {
-                retouchedGo = LoadMeshFile(retouchedPath);
+                retouchedGo = LoadMeshFile(retouchedPath, groupName);
                 if (retouchedGo != null)
                 {
                     retouchedGo.name = "Retouched";
@@ -1460,7 +1984,77 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 // 경로 저장 실패 시 무시
             }
             
+            // 프리팹 저장 (그룹 이름과 스캔 ID가 제공된 경우)
+            if (!string.IsNullOrEmpty(groupName) && scanId.HasValue)
+            {
+                try
+                {
+                    // prefabs 폴더 생성
+                    string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                    string prefabsFolderPath = $"{groupFolderPath}/prefabs";
+                    if (!AssetDatabase.IsValidFolder(prefabsFolderPath))
+                    {
+                        string guid = AssetDatabase.CreateFolder(groupFolderPath, "prefabs");
+                        if (string.IsNullOrEmpty(guid))
+                        {
+                            Debug.LogError($"prefabs 폴더 생성 실패: {prefabsFolderPath}");
+                        }
+                        else
+                        {
+                            AssetDatabase.Refresh();
+                        }
+                    }
+                    
+                    string prefabPath = $"{prefabsFolderPath}/{scanId.Value}_Root.prefab";
+                    
+                    GameObject prefab = SaveAsPrefabAssetSafe(rootGo, prefabPath);
+                    
+                    if (prefab != null)
+                    {
+                        // 프리팹이 성공적으로 저장되었으면 프리팹에서 인스턴스 생성
+                        GameObject instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
+                        
+                        if (instance != null)
+                        {
+                            // 프리팹 인스턴스에 메모 다시 추가 (프리팹에는 포함되지 않았으므로)
+                            if (memos != null && memos.Length > 0)
+                            {
+                                MemoUtils.SpawnMemosAsChildren(instance, memos, unitScale);
+                            }
+                            
+                            // 원본 rootGo 삭제 (프리팹 인스턴스 사용)
+                            GameObject.DestroyImmediate(rootGo);
+                            rootGo = instance;
+                            
+                            // 프리팹 인스턴스에 경로 정보 저장
+                            try
+                            {
+                                ObjPathInfo.SetPath(rootGo, originalPath);
+                                Transform[] allInstanceChildren = rootGo.GetComponentsInChildren<Transform>(true);
+                                foreach (Transform child in allInstanceChildren)
+                                {
+                                    if (child != null && child != rootGo.transform && child.gameObject != null)
+                                    {
+                                        ObjPathInfo.SetPath(child.gameObject, originalPath);
+                                    }
+                                }
+                            }
+                            catch (System.Exception)
+                            {
+                                // 경로 저장 실패 시 무시
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"프리팹 저장 중 오류 (씬 오브젝트 사용): {ex.Message}\n{ex.StackTrace}");
+                    // 프리팹 저장 실패 시 기존 rootGo 사용
+                }
+            }
+            
             Selection.activeObject = rootGo;
+            
             return rootGo;
         }
         catch (Exception ex)
@@ -1472,8 +2066,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     
     /// <summary>
     /// 단일 메시 파일을 로드합니다. (내부 헬퍼 메서드)
+    /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 파일을 복사합니다.
     /// </summary>
-    GameObject LoadMeshFile(string meshPath)
+    GameObject LoadMeshFile(string meshPath, string groupName = null)
     {
         if (string.IsNullOrEmpty(meshPath) || !File.Exists(meshPath))
         {
@@ -1487,18 +2082,38 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         switch (extension)
         {
             case ".obj":
+                // OBJ 파일 복사 (그룹 이름이 있는 경우)
+                string actualObjPath = meshPath;
+                if (!string.IsNullOrEmpty(groupName))
+                {
+                    string copiedObjPath = CopyObjToAssets(meshPath, groupName);
+                    if (!string.IsNullOrEmpty(copiedObjPath))
+                    {
+                        actualObjPath = copiedObjPath;
+                    }
+                }
+                
                 // OBJ 파일의 원본 좌표 시스템을 유지하기 위해 preserveOriginalCoordinates=true 사용
+                // Assets로 복사된 경우에도 원본 경로를 RuntimeObjLoader에 전달 (메타데이터 유지)
                 go = RuntimeObjLoader.LoadObj(meshPath, preserveOriginalCoordinates: true);
                 if (go != null)
                 {
                     Undo.RegisterCreatedObjectUndo(go, "Load OBJ");
+                    
+                    // 그룹 이름이 있으면 Mesh와 Material을 Assets에 저장
+                    if (!string.IsNullOrEmpty(groupName))
+                    {
+                        string objFileName = Path.GetFileName(meshPath);
+                        SaveMeshesToAssets(go, groupName, objFileName);
+                        SaveMaterialsToAssets(go, groupName, objFileName);
+                    }
                 }
                 break;
                 
             case ".glb":
             case ".gltf":
-                // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용
-                go = LoadGlbOrGltf(meshPath);
+                // GLB/GLTF 파일은 Unity의 기본 임포트 기능 사용 (그룹 이름 전달)
+                go = LoadGlbOrGltf(meshPath, groupName);
                 if (go != null)
                 {
                     Undo.RegisterCreatedObjectUndo(go, "Load GLB/GLTF");
@@ -1506,8 +2121,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 break;
                 
             case ".fbx":
-                // FBX 파일은 Unity의 기본 임포트 기능 사용
-                go = LoadFbx(meshPath);
+                // FBX 파일은 Unity의 기본 임포트 기능 사용 (그룹 이름 전달)
+                go = LoadFbx(meshPath, groupName);
                 if (go != null)
                 {
                     Undo.RegisterCreatedObjectUndo(go, "Load FBX");
@@ -1532,8 +2147,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     /// <summary>
     /// GLB/GLTF 파일을 로드합니다.
     /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+    /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 복사합니다.
     /// </summary>
-    GameObject LoadGlbOrGltf(string filePath)
+    GameObject LoadGlbOrGltf(string filePath, string groupName = null)
     {
         try
         {
@@ -1549,25 +2165,52 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             
             // 파일을 Assets 폴더로 복사하여 임포트
             string fileName = Path.GetFileName(filePath);
-            string tempAssetPath = $"Assets/Temp_{fileName}";
+            string tempAssetPath;
             
-            // 기존 임시 파일이 있으면 삭제
-            if (File.Exists(tempAssetPath))
+            if (!string.IsNullOrEmpty(groupName))
             {
+                // SnapSpace/그룹이름/ 폴더 사용
+                string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                if (string.IsNullOrEmpty(groupFolderPath))
+                {
+                    Debug.LogError($"그룹 폴더를 찾을 수 없습니다: {groupName}");
+                    return null;
+                }
+                tempAssetPath = $"{groupFolderPath}/{fileName}";
+            }
+            else
+            {
+                // 기존 방식: Temp 폴더 사용
+                tempAssetPath = $"Assets/Temp_{fileName}";
+            }
+            
+            // 기존 파일이 있으면 삭제 (Temp 폴더인 경우만, SnapSpace는 재사용)
+            bool shouldCopyFile = true;
+            if (!string.IsNullOrEmpty(groupName) && File.Exists(tempAssetPath))
+            {
+                // SnapSpace 폴더인 경우 기존 파일 재사용 (복사하지 않음)
+                shouldCopyFile = false;
+            }
+            else if (File.Exists(tempAssetPath))
+            {
+                // Temp 폴더인 경우 기존 파일 삭제
                 AssetDatabase.DeleteAsset(tempAssetPath);
                 AssetDatabase.Refresh();
             }
             
-            // 파일 복사
-            try
+            // 파일 복사 (필요한 경우만)
+            if (shouldCopyFile)
             {
-                File.Copy(filePath, tempAssetPath, true);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"GLB 파일 복사 실패: {ex.Message}");
-                EditorUtility.DisplayDialog("파일 복사 실패", $"GLB 파일을 Assets 폴더로 복사할 수 없습니다:\n{ex.Message}", "OK");
-                return null;
+                try
+                {
+                    File.Copy(filePath, tempAssetPath, true);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"GLB 파일 복사 실패: {ex.Message}");
+                    EditorUtility.DisplayDialog("파일 복사 실패", $"GLB 파일을 Assets 폴더로 복사할 수 없습니다:\n{ex.Message}", "OK");
+                    return null;
+                }
             }
             
             // AssetDatabase 새로고침
@@ -1616,7 +2259,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 
                 Debug.Log($"GLB 파일 로드 성공: {filePath}");
                 
-                // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
+                // Temp 폴더가 아닌 경우 (SnapSpace) 임시 파일 삭제하지 않음
+                // Temp 폴더인 경우에도 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
                 
                 return instance;
@@ -1646,8 +2290,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
     /// <summary>
     /// FBX 파일을 로드합니다.
     /// Unity 에디터에서는 AssetDatabase를 사용하여 임포트합니다.
+    /// 그룹 이름이 제공되면 Assets/SnapSpace/그룹이름/으로 복사합니다.
     /// </summary>
-    GameObject LoadFbx(string filePath)
+    GameObject LoadFbx(string filePath, string groupName = null)
     {
         try
         {
@@ -1655,10 +2300,38 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             #if UNITY_EDITOR
             // 파일을 Assets 폴더로 복사하여 임포트
             string fileName = Path.GetFileName(filePath);
-            string tempAssetPath = $"Assets/Temp_{fileName}";
+            string tempAssetPath;
             
-            // 파일 복사
-            File.Copy(filePath, tempAssetPath, true);
+            if (!string.IsNullOrEmpty(groupName))
+            {
+                // SnapSpace/그룹이름/ 폴더 사용
+                string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                if (string.IsNullOrEmpty(groupFolderPath))
+                {
+                    Debug.LogError($"그룹 폴더를 찾을 수 없습니다: {groupName}");
+                    return null;
+                }
+                tempAssetPath = $"{groupFolderPath}/{fileName}";
+                
+                // 기존 파일이 있으면 재사용 (복사하지 않음)
+                if (File.Exists(tempAssetPath))
+                {
+                    // 파일 내용 비교는 생략하고 경로만 확인
+                }
+                else
+                {
+                    // 파일 복사
+                    File.Copy(filePath, tempAssetPath, true);
+                }
+            }
+            else
+            {
+                // 기존 방식: Temp 폴더 사용
+                tempAssetPath = $"Assets/Temp_{fileName}";
+                
+                // 파일 복사
+                File.Copy(filePath, tempAssetPath, true);
+            }
             
             // AssetDatabase를 통해 임포트
             AssetDatabase.ImportAsset(tempAssetPath, ImportAssetOptions.ForceUpdate);
@@ -1680,8 +2353,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 GameObject instance = GameObject.Instantiate(prefab);
                 instance.name = Path.GetFileNameWithoutExtension(filePath);
                 
-                
-                // 임시 파일 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
+                // Temp 폴더가 아닌 경우 (SnapSpace) 임시 파일 삭제하지 않음
+                // Temp 폴더인 경우에도 삭제는 사용자가 수동으로 할 수 있도록 주석 처리
                 // AssetDatabase.DeleteAsset(tempAssetPath);
                 
                 return instance;
