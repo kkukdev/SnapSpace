@@ -517,6 +517,9 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     }
                 };
             }
+            
+            EditorGUILayout.Space();
+            DrawMemoPanelSettingsSection();
         }
         else
         {
@@ -614,7 +617,66 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             ObjectTransformManagerWindow.Open();
         }
     }
+    
+    void DrawMemoPanelSettingsSection()
+    {
+        MemoDesignConfig currentDesignConfig = MemoUtils.GetDesignConfig();
+        if (currentDesignConfig == null)
+        {
+            EditorGUILayout.HelpBox("메모 디자인 설정을 불러올 수 없습니다.", MessageType.Warning);
+            return;
+        }
+        
+        EditorGUILayout.LabelField("Memo Panel", EditorStyles.boldLabel);
+        EditorGUI.BeginChangeCheck();
+        bool lockPanelWorldY = EditorGUILayout.Toggle("Lock Panel World Y", currentDesignConfig.lockPanelWorldY);
+        EditorGUI.BeginDisabledGroup(!lockPanelWorldY);
+        float fixedWorldY = EditorGUILayout.FloatField("Fixed Panel World Y", currentDesignConfig.fixedPanelWorldY);
+        EditorGUI.EndDisabledGroup();
+        EditorGUILayout.HelpBox("Lock을 활성화하면 모든 메모 패널이 지정한 월드 Y 높이에 고정됩니다.", MessageType.Info);
+        bool designChanged = EditorGUI.EndChangeCheck();
+        
+        if (designChanged)
+        {
+            MemoDesignConfig updatedConfig = CloneMemoDesignConfig(currentDesignConfig);
+            if (updatedConfig != null)
+            {
+                updatedConfig.lockPanelWorldY = lockPanelWorldY;
+                updatedConfig.fixedPanelWorldY = fixedWorldY;
+                MemoUtils.SetDesignConfig(updatedConfig);
+            }
+        }
+    }
 
+    MemoDesignConfig CloneMemoDesignConfig(MemoDesignConfig source)
+    {
+        if (source == null)
+            return null;
+        
+        return new MemoDesignConfig
+        {
+            markerRadius = source.markerRadius,
+            markerColor = source.markerColor,
+            lineHeight = source.lineHeight,
+            lineWidth = source.lineWidth,
+            lineColor = source.lineColor,
+            panelWidth = source.panelWidth,
+            panelHeight = source.panelHeight,
+            panelBackgroundColor = source.panelBackgroundColor,
+            panelBorderColor = source.panelBorderColor,
+            panelBorderWidth = source.panelBorderWidth,
+            panelPadding = source.panelPadding,
+            fontSize = source.fontSize,
+            characterSize = source.characterSize,
+            textColor = source.textColor,
+            anchor = source.anchor,
+            alignment = source.alignment,
+            maxNameLength = source.maxNameLength,
+            lockPanelWorldY = source.lockPanelWorldY,
+            fixedPanelWorldY = source.fixedPanelWorldY
+        };
+    }
+    
     void RefreshGroupList()
     {
         // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
@@ -1865,20 +1927,6 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                 groupName = GetSelectedGroupName();
             }
             
-            // Root GameObject 생성
-            string rootName = Path.GetFileNameWithoutExtension(originalPath);
-            if (scanId.HasValue)
-            {
-                rootName = $"Scan_{scanId.Value}_{rootName}";
-            }
-            GameObject rootGo = new GameObject($"{rootName}_Root");
-            Undo.RegisterCreatedObjectUndo(rootGo, "Spawn OBJ Root");
-            
-            // Root를 Unity 원점에 배치
-            rootGo.transform.position = Vector3.zero;
-            rootGo.transform.rotation = Quaternion.identity;
-            rootGo.transform.localScale = Vector3.one;
-            
             // config에 직접 접근하지 않고, 경로를 통해 안전하게 로드
             float unitScale = 1000f; // 기본값
             if (!string.IsNullOrEmpty(_configAssetPath))
@@ -1896,6 +1944,80 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     // config 접근 실패 시 기본값 사용
                 }
             }
+            
+            string groupFolderPath = null;
+            string prefabsFolderPath = null;
+            string prefabPath = null;
+            
+            // 기존 프리팹이 있으면 즉시 사용
+            if (!string.IsNullOrEmpty(groupName) && scanId.HasValue)
+            {
+                groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                if (!string.IsNullOrEmpty(groupFolderPath))
+                {
+                    prefabsFolderPath = $"{groupFolderPath}/prefabs";
+                    if (!AssetDatabase.IsValidFolder(prefabsFolderPath))
+                    {
+                        string guid = AssetDatabase.CreateFolder(groupFolderPath, "prefabs");
+                        if (string.IsNullOrEmpty(guid))
+                        {
+                            Debug.LogError($"prefabs 폴더 생성 실패: {prefabsFolderPath}");
+                        }
+                        else
+                        {
+                            AssetDatabase.Refresh();
+                        }
+                    }
+                    
+                    prefabPath = $"{prefabsFolderPath}/{scanId.Value}_Root.prefab";
+                    GameObject existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                    if (existingPrefab != null)
+                    {
+                        GameObject prefabInstance = PrefabUtility.InstantiatePrefab(existingPrefab) as GameObject;
+                        if (prefabInstance != null)
+                        {
+                            if (memos != null && memos.Length > 0)
+                            {
+                                MemoUtils.SpawnMemosAsChildren(prefabInstance, memos, unitScale);
+                            }
+                            
+                            try
+                            {
+                                ObjPathInfo.SetPath(prefabInstance, originalPath);
+                                Transform[] allInstanceChildren = prefabInstance.GetComponentsInChildren<Transform>(true);
+                                foreach (Transform child in allInstanceChildren)
+                                {
+                                    if (child != null && child != prefabInstance.transform && child.gameObject != null)
+                                    {
+                                        ObjPathInfo.SetPath(child.gameObject, originalPath);
+                                    }
+                                }
+                            }
+                            catch (System.Exception)
+                            {
+                                // 경로 저장 실패 시 무시
+                            }
+                            
+                            Selection.activeObject = prefabInstance;
+                            return prefabInstance;
+                        }
+                    }
+                }
+            }
+            
+            // Root GameObject 생성
+            string rootName = Path.GetFileNameWithoutExtension(originalPath);
+            if (scanId.HasValue)
+            {
+                rootName = $"Scan_{scanId.Value}_{rootName}";
+            }
+            GameObject rootGo = new GameObject($"{rootName}_Root");
+            Undo.RegisterCreatedObjectUndo(rootGo, "Spawn OBJ Root");
+            
+            // Root를 Unity 원점에 배치
+            rootGo.transform.position = Vector3.zero;
+            rootGo.transform.rotation = Quaternion.identity;
+            rootGo.transform.localScale = Vector3.one;
             
             // Original OBJ 로드 및 설정 (그룹 이름 전달)
             GameObject originalGo = LoadMeshFile(originalPath, groupName);
@@ -1989,25 +2111,44 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             {
                 try
                 {
-                    // prefabs 폴더 생성
-                    string groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
-                    string prefabsFolderPath = $"{groupFolderPath}/prefabs";
-                    if (!AssetDatabase.IsValidFolder(prefabsFolderPath))
+                    if (string.IsNullOrEmpty(groupFolderPath))
                     {
-                        string guid = AssetDatabase.CreateFolder(groupFolderPath, "prefabs");
-                        if (string.IsNullOrEmpty(guid))
+                        groupFolderPath = GetOrCreateSnapSpaceFolder(groupName);
+                    }
+                    
+                    if (string.IsNullOrEmpty(groupFolderPath))
+                    {
+                        throw new Exception("그룹 폴더를 생성할 수 없습니다.");
+                    }
+                    
+                    if (string.IsNullOrEmpty(prefabsFolderPath))
+                    {
+                        prefabsFolderPath = $"{groupFolderPath}/prefabs";
+                        if (!AssetDatabase.IsValidFolder(prefabsFolderPath))
                         {
-                            Debug.LogError($"prefabs 폴더 생성 실패: {prefabsFolderPath}");
-                        }
-                        else
-                        {
-                            AssetDatabase.Refresh();
+                            string guid = AssetDatabase.CreateFolder(groupFolderPath, "prefabs");
+                            if (string.IsNullOrEmpty(guid))
+                            {
+                                Debug.LogError($"prefabs 폴더 생성 실패: {prefabsFolderPath}");
+                            }
+                            else
+                            {
+                                AssetDatabase.Refresh();
+                            }
                         }
                     }
                     
-                    string prefabPath = $"{prefabsFolderPath}/{scanId.Value}_Root.prefab";
+                    if (string.IsNullOrEmpty(prefabsFolderPath))
+                    {
+                        throw new Exception("prefabs 폴더를 생성할 수 없습니다.");
+                    }
                     
-                    GameObject prefab = SaveAsPrefabAssetSafe(rootGo, prefabPath);
+                    if (string.IsNullOrEmpty(prefabPath))
+                    {
+                        prefabPath = $"{prefabsFolderPath}/{scanId.Value}_Root.prefab";
+                    }
+                    
+                    GameObject prefab = SaveAsPrefabAssetSafe(rootGo, prefabPath, replaceExisting: true);
                     
                     if (prefab != null)
                     {

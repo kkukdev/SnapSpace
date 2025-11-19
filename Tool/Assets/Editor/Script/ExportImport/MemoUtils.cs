@@ -490,16 +490,19 @@ namespace ObjDropWatcher.ExportImport
                 memoRoot.transform.localScale = localScale;
                 
                 // 1. 동그라미 마커 생성 (좌표 위치)
-                CreateMarker(memoRoot, designConfig);
+                GameObject markerObj = CreateMarker(memoRoot, designConfig);
                 
                 // 2. 수직선 생성 (마커에서 위로)
-                CreateVerticalLine(memoRoot, designConfig);
+                GameObject lineObj = CreateVerticalLine(memoRoot, designConfig);
                 
                 // 3. 네모창 생성 (선 끝에, 텍스트 크기에 맞게 동적 조정)
-                GameObject panelObj = CreatePanel(memoRoot, designConfig, text);
+                GameObject panelObj = CreatePanel(memoRoot, designConfig, text, markerObj);
                 
                 // 4. 텍스트 생성 (네모창 안에)
                 CreateTextInPanel(panelObj, text, designConfig);
+                
+                // 5. 마커-패널 연결선 동기화
+                AttachLineConnector(lineObj, markerObj, panelObj, designConfig);
             }
             catch (Exception)
             {
@@ -510,7 +513,7 @@ namespace ObjDropWatcher.ExportImport
         /// <summary>
         /// 동그라미 마커를 생성합니다.
         /// </summary>
-        private static void CreateMarker(GameObject parent, MemoDesignConfig config)
+        private static GameObject CreateMarker(GameObject parent, MemoDesignConfig config)
         {
             GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             marker.name = "Marker";
@@ -554,12 +557,14 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(marker, "Create Marker");
             #endif
+            
+            return marker;
         }
         
         /// <summary>
         /// 수직선을 생성합니다.
         /// </summary>
-        private static void CreateVerticalLine(GameObject parent, MemoDesignConfig config)
+        private static GameObject CreateVerticalLine(GameObject parent, MemoDesignConfig config)
         {
             GameObject line = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             line.name = "Line";
@@ -613,12 +618,14 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(line, "Create Line");
             #endif
+            
+            return line;
         }
         
         /// <summary>
         /// 네모창을 생성합니다. (텍스트 크기에 맞게 동적 조정)
         /// </summary>
-        private static GameObject CreatePanel(GameObject parent, MemoDesignConfig config, string text)
+        private static GameObject CreatePanel(GameObject parent, MemoDesignConfig config, string text, GameObject marker)
         {
             // 텍스트 크기를 먼저 계산하여 패널 크기 결정
             Vector2 textSize = CalculateTextSize(text, config);
@@ -651,7 +658,16 @@ namespace ObjDropWatcher.ExportImport
             panel.transform.localPosition = new Vector3(0, panelY, 0);
             
             // 네모창 회전 설정
-            panel.transform.localRotation = Quaternion.identity;
+            // XZ 평면에서 정면으로 보이도록 설정
+            // X rotation = 90도 (Quad가 위를 향하도록)
+            // Z rotation = 0도 (Unity의 world space와 수직, 수평 정렬)
+            // parent의 회전과 상관없이 절대적으로 Unity의 grid와 정렬되도록 설정
+            Quaternion desiredWorldRotation = Quaternion.Euler(90f, 0f, 0f);
+            
+            // parent의 회전을 역으로 적용하여 localRotation 계산
+            // 월드 공간에서 원하는 rotation을 localRotation으로 변환
+            Quaternion parentWorldRotation = parent.transform.rotation;
+            panel.transform.localRotation = Quaternion.Inverse(parentWorldRotation) * desiredWorldRotation;
             
             // 네모창 크기 (동적으로 계산된 크기 사용)
             panel.transform.localScale = new Vector3(panelWidth, panelHeight, 1f);
@@ -722,6 +738,8 @@ namespace ObjDropWatcher.ExportImport
             #if UNITY_EDITOR
             Undo.RegisterCreatedObjectUndo(panel, "Create Panel");
             #endif
+            
+            ConfigurePanelHeightLock(panel, marker, parent.transform, config, panelHeight);
             
             return panel;
         }
@@ -956,6 +974,60 @@ namespace ObjDropWatcher.ExportImport
             {
                 // 오디오 메모 생성 실패 시 무시
             }
+        }
+        
+        private static void AttachLineConnector(GameObject lineObj, GameObject markerObj, GameObject panelObj, MemoDesignConfig config)
+        {
+            if (lineObj == null || markerObj == null || panelObj == null)
+                return;
+            
+            MemoLineConnector connector = lineObj.GetComponent<MemoLineConnector>();
+            if (connector == null)
+            {
+                connector = lineObj.AddComponent<MemoLineConnector>();
+            }
+            connector.Initialize(markerObj, panelObj, config);
+        }
+        
+        private static void ConfigurePanelHeightLock(GameObject panel, GameObject marker, Transform memoRootTransform, MemoDesignConfig config, float panelHeight)
+        {
+            if (panel == null || marker == null || memoRootTransform == null || config == null)
+                return;
+            
+            float defaultOffset = config.lineHeight + panelHeight / 2f;
+            float scaledOffset = defaultOffset * memoRootTransform.lossyScale.y;
+            float? overrideWorldY = ResolvePanelWorldYOverride(memoRootTransform, config);
+            
+            MemoPanelHeightLock lockComponent = panel.GetComponent<MemoPanelHeightLock>();
+            if (lockComponent == null)
+            {
+                lockComponent = panel.AddComponent<MemoPanelHeightLock>();
+            }
+            
+            lockComponent.Initialize(marker.transform, scaledOffset, overrideWorldY);
+        }
+        
+        private static float? ResolvePanelWorldYOverride(Transform memoRootTransform, MemoDesignConfig config)
+        {
+            Transform searchRoot = memoRootTransform != null ? memoRootTransform.parent : null;
+            MemoPanelHeightOverride overrideComponent = null;
+            
+            if (searchRoot != null)
+            {
+                overrideComponent = searchRoot.GetComponentInParent<MemoPanelHeightOverride>();
+            }
+            
+            if (overrideComponent != null && overrideComponent.applyOverride)
+            {
+                return overrideComponent.targetWorldY;
+            }
+            
+            if (config != null && config.lockPanelWorldY)
+            {
+                return config.fixedPanelWorldY;
+            }
+            
+            return null;
         }
         
         /// <summary>

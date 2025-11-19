@@ -8,6 +8,7 @@ namespace ObjDropWatcher.ExportImport
     /// <summary>
     /// 메모의 마커와 패널 사이를 연결하는 동적 선을 관리하는 컴포넌트
     /// </summary>
+    [ExecuteAlways]
     public class MemoLineConnector : MonoBehaviour
     {
         private GameObject markerObj;
@@ -104,6 +105,4 @@ namespace ObjDropWatcher.ExportImport
         }
     }
 }
-
-
 

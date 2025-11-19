@@ -65,6 +65,13 @@ namespace ObjDropWatcher.ExportImport
         [Tooltip("게임 오브젝트 이름에 사용할 최대 텍스트 길이")]
         public int maxNameLength = 10;
         
+        [Header("패널 높이 제어")]
+        [Tooltip("패널을 특정 월드 Y 좌표에 고정할지 여부")]
+        public bool lockPanelWorldY = false;
+        
+        [Tooltip("lockPanelWorldY가 true일 때 사용할 월드 Y 좌표")]
+        public float fixedPanelWorldY = 2.0f;
+        
         /// <summary>
         /// 기본 디자인 설정을 반환합니다. (주황색 마커 + 밝은 노란색 배경 + 검은색 텍스트)
         /// </summary>
