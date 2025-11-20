@@ -1,0 +1,11 @@
+*.obj
+*.ply
+*.png
+*.jpg
+*.mtl
+*.txt
+*.glb
+*.json
+*.3gp
+*.mp3
+*.wav

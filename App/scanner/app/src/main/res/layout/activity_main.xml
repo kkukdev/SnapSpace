@@ -1,0 +1,371 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <com.lvonasek.gles.GLESSurfaceView
+        android:id="@+id/gl_surface_view"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
+        android:layout_gravity="top"/>
+
+    <SurfaceView
+        android:id="@+id/surface_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/ar_hand_layout"
+        android:visibility="gone"
+        android:clipChildren="false">
+
+        <com.snapspace.scanner.main.HandMotionView
+            android:id="@+id/ar_hand_image"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:foregroundGravity="center"
+            android:src="@drawable/ic_hand_phone"
+            android:scaleType="center"/>
+
+    </FrameLayout>
+
+    <com.snapspace.scanner.main.DistanceMeasuring
+        android:id="@+id/distance"
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
+        android:layout_gravity="top" />
+
+    <include layout="@layout/view_editor"/>
+
+    <LinearLayout
+        android:id="@+id/layout_wait"
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="45dp"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:padding="2dp"
+        android:background="#B0000000"
+        android:visibility="gone" >
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="@string/wait"
+            android:textColor="@android:color/white"
+            android:textSize="30dp" />
+    </LinearLayout>
+
+    <!-- 메모 입력 레이아웃 -->
+    <LinearLayout
+        android:id="@+id/layout_memo_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="@drawable/background_memo"
+        android:elevation="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="@drawable/background_memo">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="메모"
+                android:textColor="@android:color/black"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:layout_gravity="center_vertical"/>
+
+            <Button
+                android:id="@+id/memo_voice_record"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="2sp"
+                android:text="음성 녹음"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"
+                android:background="@drawable/background_button_normal_blue"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
+
+            <Button
+                android:id="@+id/memo_clear_button"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="2sp"
+                android:text="취소"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"
+                android:background="@drawable/background_button_normal_blue"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
+
+            <Button
+                android:id="@+id/memo_close_button"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="완료"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"
+                android:background="@drawable/background_button_normal_blue"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
+        </LinearLayout>
+
+        <EditText
+            android:id="@+id/memo_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="10dp"
+            android:background="@android:color/white"
+            android:gravity="top|start"
+            android:padding="8dp"
+            android:hint="메모를 입력하세요..."
+            android:textColor="@android:color/black"
+            android:textColorHint="#999999"
+            android:textSize="14sp"
+            android:inputType="textMultiLine"
+            android:scrollbars="vertical"
+            android:maxLines="6"
+            android:overScrollMode="always"/>
+
+    </LinearLayout>
+
+    <!--  스캔 중 하단 바  -->
+    <LinearLayout
+        android:id="@+id/layout_rec"
+        android:layout_width="match_parent"
+        android:layout_height="120sp"
+        android:orientation="horizontal"
+        android:layout_alignParentBottom="true"
+        android:background="#B0000000" >
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/toggle_button"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
+                android:adjustViewBounds="true"
+                android:background="@android:color/transparent"
+                android:importantForAccessibility="no"
+                android:scaleType="fitCenter"
+                android:src="@drawable/icon_pause_circle"
+                android:text="" />
+
+            <TextView
+                android:id="@+id/toggle_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="일시정지"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/save_button"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
+                android:adjustViewBounds="true"
+                android:background="@android:color/transparent"
+                android:importantForAccessibility="no"
+                android:scaleType="fitCenter"
+                android:src="@drawable/icon_save"
+                android:text="" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="저장"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/clear_button"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
+                android:adjustViewBounds="true"
+                android:background="@android:color/transparent"
+                android:scaleType="fitCenter"
+                android:src="@drawable/icon_scan_delete"
+                android:text="" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="삭제"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/memo_button"
+                android:layout_width="45sp"
+                android:layout_height="45sp"
+                android:layout_gravity="center_horizontal"
+                android:adjustViewBounds="true"
+                android:background="@android:color/transparent"
+                android:scaleType="fitCenter"
+                android:src="@drawable/icon_note"
+                android:text="" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="메모"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/text_small"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_view"
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:padding="2dp"
+        android:background="#B0000000">
+
+        <ImageButton
+            android:id="@+id/orbit_button"
+            android:layout_width="0dp"
+            android:layout_height="45dp"
+            android:layout_weight="1"
+            android:adjustViewBounds="true"
+            android:background="@android:color/transparent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_modeorbit"
+            android:text=""/>
+
+        <ImageButton
+            android:id="@+id/topview_button"
+            android:layout_width="0dp"
+            android:layout_height="45dp"
+            android:layout_weight="1"
+            android:adjustViewBounds="true"
+            android:background="@android:color/transparent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mode2d"
+            android:text=""/>
+
+        <ImageButton
+            android:id="@+id/first_button"
+            android:layout_width="0dp"
+            android:layout_height="45dp"
+            android:layout_weight="1"
+            android:adjustViewBounds="true"
+            android:background="@android:color/transparent"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mode3d"
+            android:text=""/>
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/infolog"
+        android:background="#B0000000"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/layout_info"
+        android:layout_alignParentStart="true"
+        android:visibility="gone"
+        android:text=""
+        android:textSize="20dp"
+        android:textColor="#FFFFFF"
+        android:gravity="center" />
+
+    <ProgressBar
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:layout_centerHorizontal="true"
+        android:id="@+id/progressBar"
+        android:visibility="gone"/>
+
+    <Button
+        android:id="@+id/editor_button"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:layout_margin="10dp"
+        android:visibility="gone"
+        android:background="@drawable/ic_editor"
+        android:text=""/>
+
+    <Button
+        android:id="@+id/thumbnail_button"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="10dp"
+        android:visibility="gone"
+        android:background="@drawable/icon_share"
+        android:text=""/>
+
+</RelativeLayout>

@@ -1,0 +1,12 @@
+# Stable Diffusion + ControlNet Tile stack (pinning to current environment)
+# PyTorch runtime is managed in requirements-pytorch.txt
+
+accelerate==1.11.0
+diffusers==0.35.2
+huggingface-hub==0.36.0
+pillow==12.0.0
+regex==2025.11.3
+safetensors==0.6.2
+tokenizers==0.22.1
+transformers==4.57.1
+opencv-python==4.11.0.86
