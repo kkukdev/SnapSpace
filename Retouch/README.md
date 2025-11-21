@@ -1,9 +1,9 @@
 ## 서버 실행 방법(개발 모드)
 
-### ai.env 파일 생성
-AI 서버 환경 변수 세팅을 위해 .env 파일을 생성해주세요.
+### retouch.env 파일 생성
+후처리 서버 환경 변수 세팅을 위해 .env 파일을 생성해주세요.
 ```bash
-# ai.env 파일 작성 양식(예시)
+# retouch.env 파일 작성 양식(예시)
 BACKEND_WEBSOCKET_URL=(웹소켓 URL)
 WEBSOCKET_PING_INTERVAL=(핑 확인 주기)
 WEBSOCKET_PING_TIMEOUT=(핑 타임아웃)
@@ -20,10 +20,10 @@ MAX_RETRY_ATTEMPTS=(파이프라인 재시도 동작 횟수)
 PROCESSING_TIMEOUT=(파이프라인 타임아웃 시간)
 
 LOG_LEVEL=INFO
-LOG_FILE=logs/ai_server.log
+LOG_FILE=logs/retouch_server.log
 
-HOST=(AI 서버 호스트 IP주소)
-PORT=(AI 서버 포트 번호)
+HOST=(후처리 서버 호스트 IP주소)
+PORT=(후처리 서버 포트 번호)
 
 BLENDER_EXECUTABLE=(Blender.exe 실행 파일 위치)
 KEEP_TEXTURE_TEMP_ARTIFACTS=(파이프라인 작동 중에 temp 파일 보존 여부 true/false)
