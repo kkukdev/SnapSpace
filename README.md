@@ -22,7 +22,7 @@ S13P31S102/
 │
 ├── Retouch/               # 후처리 파이프라인 서버
 │   ├── app/               # FastAPI 서버
-│   ├── pipeline/          # 데이터 후처리 파이프라인
+│   ├── ai_pipeline/          # 데이터 후처리 파이프라인
 │   │   ├── DeepMeshPrior/ # AI 보정 실험 폴더
 │   │   ├── Polygon/       # 메시 최적화
 │   │   └── Texture/       # 텍스처 정합
