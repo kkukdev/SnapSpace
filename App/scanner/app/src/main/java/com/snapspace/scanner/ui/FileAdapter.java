@@ -27,7 +27,7 @@ import com.snapspace.scanner.BuildConfig;
 import com.snapspace.scanner.R;
 import com.snapspace.scanner.main.Exporter;
 import com.snapspace.scanner.main.Main;
-import com.snapspace.scanner.utils.FastApiService; // <-- 'fastapi'가 'network'로 변경됨 (이전 코드 기준)
+import com.snapspace.scanner.utils.ServerUpload; // <-- 'fastapi'가 'network'로 변경됨 (이전 코드 기준)
 import com.lvonasek.utils.GestureDetector;
 
 import java.io.File;
@@ -554,8 +554,8 @@ class FileAdapter extends BaseAdapter
     Log.d("FileAdapter", "FastAPI 업로드 시도: " + zipFilePath + ", 그룹: " + groupName + ", 타입: " + modelType);
     mContext.showProgress();
 
-    FastApiService.FastApiInterface service =
-            FastApiService.getRetrofitInstance(mContext).create(FastApiService.FastApiInterface.class);
+    ServerUpload.FastApiInterface service =
+            ServerUpload.getRetrofitInstance(mContext).create(ServerUpload.FastApiInterface.class);
 
     File file = new File(zipFilePath);
     RequestBody requestFile = RequestBody.create(MediaType.parse("application/zip"), file);
@@ -565,27 +565,27 @@ class FileAdapter extends BaseAdapter
     // ★ modelType을 파라미터로 받아서 사용
     MultipartBody.Part modelTypePart = MultipartBody.Part.createFormData("model_type", modelType);
 
-    Call<FastApiService.FastSuccessResponse> call = service.uploadFile(modelTypePart, groupNamePart, filePart);
+    Call<ServerUpload.FastSuccessResponse> call = service.uploadFile(modelTypePart, groupNamePart, filePart);
 
-    call.enqueue(new Callback<FastApiService.FastSuccessResponse>() {
+    call.enqueue(new Callback<ServerUpload.FastSuccessResponse>() {
       @Override
-      public void onResponse(Call<FastApiService.FastSuccessResponse> call, Response<FastApiService.FastSuccessResponse> response) {
+      public void onResponse(Call<ServerUpload.FastSuccessResponse> call, Response<ServerUpload.FastSuccessResponse> response) {
         mContext.refreshUI();
         deleteTempZip(zipFilePath);
 
         if (response.isSuccessful()) {
-          FastApiService.FastSuccessResponse responseBody = response.body();
+          ServerUpload.FastSuccessResponse responseBody = response.body();
           if (responseBody != null && responseBody.isSuccess()) {
-            String msg = "FastAPI 업로드 성공: " + responseBody.getData().getSavedFilename();
+            String msg = "서버 업로드 성공";
             Log.d("FileAdapter", msg);
             Toast.makeText(mContext, msg, Toast.LENGTH_LONG).show();
           } else {
-            String msg = "FastAPI 업로드 성공 (서버 응답: " + (responseBody != null ? responseBody.getMessage() : "null") + ")";
+            String msg = "서버 업로드 성공";
             Log.d("FileAdapter", msg);
             Toast.makeText(mContext, msg, Toast.LENGTH_SHORT).show();
           }
         } else {
-          String errorMsg = "FastAPI 응답 실패: " + response.code();
+          String errorMsg = "서버 응답 실패: " + response.code();
           try {
             String errorBodyStr = response.errorBody().string();
             errorMsg += ", " + errorBodyStr;
@@ -596,7 +596,7 @@ class FileAdapter extends BaseAdapter
       }
 
       @Override
-      public void onFailure(Call<FastApiService.FastSuccessResponse> call, Throwable t) {
+      public void onFailure(Call<ServerUpload.FastSuccessResponse> call, Throwable t) {
         mContext.refreshUI();
         deleteTempZip(zipFilePath);
         String errorMsg = "FastAPI 요청 실패: " + t.getMessage();
