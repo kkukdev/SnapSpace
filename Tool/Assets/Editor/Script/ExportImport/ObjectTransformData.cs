@@ -1737,7 +1737,7 @@ namespace ObjDropWatcher.ExportImport
                             // 4. Color alpha가 1.0이 아니면 1.0으로 변경
                             if (originalColor.a < 0.999f)
                             {
-                                mat.color = new Color(originalColor.r, originalColor.g, originalColor.b, 1f);
+                                mat.color = new Color32((byte)(originalColor.r * 255), (byte)(originalColor.g * 255), (byte)(originalColor.b * 255), 255);
                                 needsFix = true;
                             }
                             
