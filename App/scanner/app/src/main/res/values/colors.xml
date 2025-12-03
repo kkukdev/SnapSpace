@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--  메인 색상  -->
+    <color name="primary">#1429A0</color>
+    <color name="primary_transparent">#801429A0</color>
+    <color name="secondary">#0077C7</color>
+    <color name="secondary_light">#01B3E3</color>
+
+    <!--  배경 색상  -->
+    <color name="background">#FAFAFA</color>
+    <color name="background_card">#FFFFFF</color>
+
+    <!--  텍스트 색상  -->
+    <color name="text_primary">#000000</color>
+    <color name="text_secondary">#E9E9E9</color>
+    <color name="text_highlight">#0381FE</color>
+    <color name="text_alertdialog_listitem">#222222</color>
+</resources>
