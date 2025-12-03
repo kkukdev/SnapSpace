@@ -14,7 +14,7 @@ namespace ObjDropWatcher.ExportImport
         public float markerRadius = 0.05f;
         
         [Tooltip("마커 색상 (기본값: 주황색)")]
-        public Color markerColor = new Color(1f, 0.5f, 0f, 1f); // 주황색
+        public Color markerColor = new Color32(255, 128, 0, 255); // 주황색
         
         [Header("선 설정 (수직선)")]
         [Tooltip("선 높이 (기본값: 0.5)")]
@@ -24,7 +24,7 @@ namespace ObjDropWatcher.ExportImport
         public float lineWidth = 0.01f;
         
         [Tooltip("선 색상 (기본값: 주황색)")]
-        public Color lineColor = new Color(1f, 0.5f, 0f, 1f); // 주황색
+        public Color lineColor = new Color32(255, 128, 0, 255); // 주황색
         
         [Header("네모창 설정")]
         [Tooltip("네모창 너비 (기본값: 0.8)")]
@@ -33,14 +33,14 @@ namespace ObjDropWatcher.ExportImport
         [Tooltip("네모창 높이 (기본값: 0.4)")]
         public float panelHeight = 0.4f;
         
-        [Tooltip("네모창 배경 색상 (기본값: 밝은 노란색, 고가시성)")]
-        public Color panelBackgroundColor = new Color(1f, 0.95f, 0.7f, 1f); // 밝은 노란색, 불투명
+        [Tooltip("네모창 배경 색상 (기본값: 밝은 초록색, 고가시성)")]
+        public Color panelBackgroundColor = new Color32(128, 255, 128, 1); // 밝은 초록색, 불투명
         
         [Tooltip("네모창 테두리 색상 (기본값: 주황색)")]
-        public Color panelBorderColor = new Color(1f, 0.6f, 0f, 1f); // 주황색
+        public Color panelBorderColor = new Color32(255, 153, 0, 255); // 주황색
         
         [Tooltip("네모창 테두리 두께 (기본값: 0.02)")]
-        public float panelBorderWidth = 0.02f;
+        public float panelBorderWidth = 0.2f;
         
         [Tooltip("패널 내부 여백 (기본값: 0.1)")]
         public float panelPadding = 0.1f;
@@ -53,7 +53,7 @@ namespace ObjDropWatcher.ExportImport
         public float characterSize = 0.12f;
         
         [Tooltip("텍스트 색상 (기본값: 검은색, 고대비)")]
-        public Color textColor = new Color(0.1f, 0.1f, 0.1f, 1f); // 진한 검은색
+        public Color textColor = new Color32(26, 26, 26, 255); // 진한 검은색
         
         [Tooltip("텍스트 앵커 위치")]
         public TextAnchor anchor = TextAnchor.MiddleCenter;
@@ -70,7 +70,7 @@ namespace ObjDropWatcher.ExportImport
         public bool lockPanelWorldY = false;
         
         [Tooltip("lockPanelWorldY가 true일 때 사용할 월드 Y 좌표")]
-        public float fixedPanelWorldY = 2.0f;
+        public float fixedPanelWorldY = 5.0f;
         
         /// <summary>
         /// 기본 디자인 설정을 반환합니다. (주황색 마커 + 밝은 노란색 배경 + 검은색 텍스트)
@@ -92,11 +92,11 @@ namespace ObjDropWatcher.ExportImport
             /// </summary>
             public static MemoDesignConfig RedWarning => new MemoDesignConfig
             {
-                markerColor = Color.red,
-                lineColor = Color.red,
-                panelBackgroundColor = new Color(0.4f, 0.1f, 0.1f, 0.9f),
-                panelBorderColor = new Color(1f, 0.3f, 0.3f, 1f),
-                textColor = Color.white
+                markerColor = new Color32(255, 0, 0, 255),
+                lineColor = new Color32(255, 0, 0, 255),
+                panelBackgroundColor = new Color32(102, 26, 26, 230),
+                panelBorderColor = new Color32(255, 77, 77, 255),
+                textColor = new Color32(255, 255, 255, 255)
             };
             
             /// <summary>
@@ -104,11 +104,11 @@ namespace ObjDropWatcher.ExportImport
             /// </summary>
             public static MemoDesignConfig GreenSuccess => new MemoDesignConfig
             {
-                markerColor = Color.green,
-                lineColor = Color.green,
-                panelBackgroundColor = new Color(0.1f, 0.4f, 0.1f, 0.9f),
-                panelBorderColor = new Color(0.3f, 1f, 0.3f, 1f),
-                textColor = Color.white
+                markerColor = new Color32(0, 255, 0, 255),
+                lineColor = new Color32(0, 255, 0, 255),
+                panelBackgroundColor = new Color32(26, 102, 26, 230),
+                panelBorderColor = new Color32(77, 255, 77, 255),
+                textColor = new Color32(255, 255, 255, 255)
             };
             
             /// <summary>
@@ -116,11 +116,11 @@ namespace ObjDropWatcher.ExportImport
             /// </summary>
             public static MemoDesignConfig BlueInfo => new MemoDesignConfig
             {
-                markerColor = Color.cyan,
-                lineColor = Color.cyan,
-                panelBackgroundColor = new Color(0.1f, 0.2f, 0.4f, 0.9f),
-                panelBorderColor = new Color(0.3f, 0.6f, 1f, 1f),
-                textColor = Color.white
+                markerColor = new Color32(0, 255, 255, 255),
+                lineColor = new Color32(0, 255, 255, 255),
+                panelBackgroundColor = new Color32(26, 51, 102, 230),
+                panelBorderColor = new Color32(77, 153, 255, 255),
+                textColor = new Color32(255, 255, 255, 255)
             };
             
             /// <summary>
@@ -128,11 +128,11 @@ namespace ObjDropWatcher.ExportImport
             /// </summary>
             public static MemoDesignConfig YellowHighlight => new MemoDesignConfig
             {
-                markerColor = Color.yellow,
-                lineColor = Color.yellow,
-                panelBackgroundColor = new Color(0.4f, 0.3f, 0.1f, 0.9f),
-                panelBorderColor = new Color(1f, 0.8f, 0.3f, 1f),
-                textColor = Color.black
+                markerColor = new Color32(255, 255, 0, 255),
+                lineColor = new Color32(255, 255, 0, 255),
+                panelBackgroundColor = new Color32(102, 77, 26, 230),
+                panelBorderColor = new Color32(255, 204, 77, 255),
+                textColor = new Color32(0, 0, 0, 255)
             };
         }
     }
