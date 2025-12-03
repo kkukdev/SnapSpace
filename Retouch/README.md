@@ -45,12 +45,12 @@ source install_requirements.bat
 # 위의 코드 문제 발생 시, 아래와 같이 실행
 python -m venv venv
 source venv/Scripts/activate
-pip install -r requirements.txt
-pip install -r requirements-ai-inpaint.txt
+pip install -r requirements/requirements.txt
+pip install -r requirements/requirements-ai-inpaint.txt
 
 # pytorch 설치
-pip install -r requirements-pytorch.txt
-pip install -r requirements-pyg.txt
+pip install -r requirements/requirements-pytorch.txt
+pip install -r requirements/requirements-pyg.txt
 ```
 
 ### 서버 실행
