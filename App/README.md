@@ -1,8 +1,8 @@
-# App - SpaceSnap Mobile Application
+# App - SnapSpace Mobile Application
 
 ## 📱 프로젝트 개요
 
-**App** 폴더는 SpaceSnap 프로젝트의 모바일 애플리케이션 부분입니다. 이 부분은 **Android 기반의 3D 스캐닝 및 AR(증강현실) 애플리케이션**을 포함하고 있으며, Google ARCore를 활용한 실시간 환경 인식 및 3D 모델 생성을 지원합니다.
+**App** 폴더는 SnapSpace 프로젝트의 모바일 애플리케이션 부분입니다. 이 부분은 **Android 기반의 3D 스캐닝 및 AR(증강현실) 애플리케이션**을 포함하고 있으며, Google ARCore를 활용한 실시간 환경 인식 및 3D 모델 생성을 지원합니다.
 
 ## 🏗️ 주요 구성
 
@@ -166,7 +166,7 @@ Release 빌드 시 ProGuard를 통해 자동으로 코드 난독화가 적용됩
 
 ## 🔗 관련 링크
 
-- **메인 프로젝트:** SpaceSnap (SSAFY 13기 자율프로젝트)
+- **메인 프로젝트:** SnapSpace (SSAFY 13기 자율프로젝트)
 - **백엔드:** `BackEnd/` 폴더 참조
 - **웹 프론트엔드:** `working/admin/my-app/` 참조
 - **AI 처리:** `AI/` 폴더 참조
