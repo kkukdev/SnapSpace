@@ -519,7 +519,12 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
             }
             
             EditorGUILayout.Space();
-            DrawMemoPanelSettingsSection();
+            EditorGUILayout.LabelField("Memo Panel Settings", EditorStyles.boldLabel);
+            if (GUILayout.Button("Open Memo Design Config", GUILayout.Height(24)))
+            {
+                MemoDesignConfigWindow.Open();
+            }
+            EditorGUILayout.HelpBox("메모 디자인 설정을 별도 창에서 관리할 수 있습니다.", MessageType.Info);
         }
         else
         {
@@ -595,7 +600,7 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
                     int textMemosCount = it.memos.Count(m => m != null && m.type == "text");
                     if (textMemosCount > 0)
                     {
-                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다. (API 응답)\nImport 시에는 로컬 파일 시스템의 memos.json을 읽어서 사용합니다.", MessageType.Info);
+                        EditorGUILayout.HelpBox($"메모: {textMemosCount}개의 텍스트 메모가 있습니다.", MessageType.Info);
                     }
                 }
                 
@@ -611,71 +616,8 @@ public class ObjDropWatcherWindow : EditorWindow, ISerializationCallbackReceiver
         EditorGUILayout.EndScrollView();
         
         EditorGUILayout.Space();
-        EditorGUILayout.HelpBox("Transform Export/Import 기능은 별도 툴로 분리되었습니다.\nTools > Object Transform Manager를 사용하세요.", MessageType.Info);
-        if (GUILayout.Button("Open Transform Manager", GUILayout.Height(24)))
-        {
-            ObjectTransformManagerWindow.Open();
-        }
     }
     
-    void DrawMemoPanelSettingsSection()
-    {
-        MemoDesignConfig currentDesignConfig = MemoUtils.GetDesignConfig();
-        if (currentDesignConfig == null)
-        {
-            EditorGUILayout.HelpBox("메모 디자인 설정을 불러올 수 없습니다.", MessageType.Warning);
-            return;
-        }
-        
-        EditorGUILayout.LabelField("Memo Panel", EditorStyles.boldLabel);
-        EditorGUI.BeginChangeCheck();
-        bool lockPanelWorldY = EditorGUILayout.Toggle("Lock Panel World Y", currentDesignConfig.lockPanelWorldY);
-        EditorGUI.BeginDisabledGroup(!lockPanelWorldY);
-        float fixedWorldY = EditorGUILayout.FloatField("Fixed Panel World Y", currentDesignConfig.fixedPanelWorldY);
-        EditorGUI.EndDisabledGroup();
-        EditorGUILayout.HelpBox("Lock을 활성화하면 모든 메모 패널이 지정한 월드 Y 높이에 고정됩니다.", MessageType.Info);
-        bool designChanged = EditorGUI.EndChangeCheck();
-        
-        if (designChanged)
-        {
-            MemoDesignConfig updatedConfig = CloneMemoDesignConfig(currentDesignConfig);
-            if (updatedConfig != null)
-            {
-                updatedConfig.lockPanelWorldY = lockPanelWorldY;
-                updatedConfig.fixedPanelWorldY = fixedWorldY;
-                MemoUtils.SetDesignConfig(updatedConfig);
-            }
-        }
-    }
-
-    MemoDesignConfig CloneMemoDesignConfig(MemoDesignConfig source)
-    {
-        if (source == null)
-            return null;
-        
-        return new MemoDesignConfig
-        {
-            markerRadius = source.markerRadius,
-            markerColor = source.markerColor,
-            lineHeight = source.lineHeight,
-            lineWidth = source.lineWidth,
-            lineColor = source.lineColor,
-            panelWidth = source.panelWidth,
-            panelHeight = source.panelHeight,
-            panelBackgroundColor = source.panelBackgroundColor,
-            panelBorderColor = source.panelBorderColor,
-            panelBorderWidth = source.panelBorderWidth,
-            panelPadding = source.panelPadding,
-            fontSize = source.fontSize,
-            characterSize = source.characterSize,
-            textColor = source.textColor,
-            anchor = source.anchor,
-            alignment = source.alignment,
-            maxNameLength = source.maxNameLength,
-            lockPanelWorldY = source.lockPanelWorldY,
-            fixedPanelWorldY = source.fixedPanelWorldY
-        };
-    }
     
     void RefreshGroupList()
     {

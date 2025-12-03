@@ -1287,7 +1287,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                                 Color matColor = materials[i].color;
                                 if (matColor.a < 0.999f)
                                 {
-                                    materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
+                                    materials[i].color = new Color32((byte)(matColor.r * 255), (byte)(matColor.g * 255), (byte)(matColor.b * 255), 255);
                                     materialFixed = true;
                                 }
                                 
@@ -1464,7 +1464,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                                 Color matColor = materials[i].color;
                                 if (matColor.a < 0.999f)
                                 {
-                                    materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
+                                    materials[i].color = new Color32((byte)(matColor.r * 255), (byte)(matColor.g * 255), (byte)(matColor.b * 255), 255);
                                     materialFixed = true;
                                 }
                                 
@@ -3065,7 +3065,7 @@ public class ObjectTransformManagerWindow : EditorWindow, ISerializationCallback
                                             Color matColor = materials[i].color;
                                             if (matColor.a < 0.999f)
                                             {
-                                                materials[i].color = new Color(matColor.r, matColor.g, matColor.b, 1f);
+                                                materials[i].color = new Color32((byte)(matColor.r * 255), (byte)(matColor.g * 255), (byte)(matColor.b * 255), 255);
                                                 materialFixed = true;
                                             }
                                             
