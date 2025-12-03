@@ -83,14 +83,6 @@ stack-data==0.6.3
 starlette==0.50.0
 sympy==1.13.1
 tokenizers==0.22.1
-torch==2.6.0+cu124
-torch-geometric==2.6.0
-torch_cluster==1.6.3+pt26cu124
-torch_scatter==2.1.2+pt26cu124
-torch_sparse==0.6.18+pt26cu124
-torch_spline_conv==1.2.2+pt26cu124
-torchaudio==2.6.0+cu124
-torchvision==0.21.0+cu124
 tqdm==4.67.1
 traitlets==5.14.3
 transformers==4.57.1
