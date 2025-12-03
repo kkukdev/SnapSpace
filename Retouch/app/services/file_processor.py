@@ -192,42 +192,30 @@ class FileProcessor:
                     break
                     
                 try:
-                    logger.info(f"[폴더명 추출] 시도 중: 경로={current_path}")
-                    
                     # 경로를 정규화하지 않고 그대로 사용
                     path_obj = Path(current_path)
                     path_parts = list(path_obj.parts)
-                    logger.info(f"[폴더명 추출] path_parts={path_parts}, 길이={len(path_parts)}")
                 
                     # 여러 방법으로 folder_name 추출 시도
                     # 방법 1: 'uploads' 디렉토리 기준으로 추출
                     if 'uploads' in path_parts:
                         uploads_idx = path_parts.index('uploads')
-                        logger.info(f"[폴더명 추출] 방법1: uploads 인덱스={uploads_idx}")
                         
                         # uploads 다음에 group_id (인덱스: uploads_idx + 1), 그 다음이 folder_name (인덱스: uploads_idx + 2), 마지막이 파일명
                         required_length = uploads_idx + 4
-                        logger.info(f"[폴더명 추출] 방법1: 필요한 최소 길이={required_length}, 실제 길이={len(path_parts)}")
                         
                         if len(path_parts) >= required_length:
                             extracted_folder_name = path_parts[uploads_idx + 2]
-                            logger.info(f"[폴더명 추출] 방법1: 추출 시도 - 인덱스 {uploads_idx + 2}의 값='{extracted_folder_name}'")
                             
                             # 추출된 값이 유효한지 확인
                             if extracted_folder_name and extracted_folder_name.strip():
                                 # uploads/{group_id}/{folder_name}/파일명 구조에서 folder_name은 항상 폴더명
                                 folder_name = extracted_folder_name
-                                logger.info(f"[폴더명 추출] 방법1 성공: {folder_name}")
                                 break  # 성공했으므로 다른 경로 시도 불필요
-                            else:
-                                logger.warning(f"[폴더명 추출] 방법1: 추출된 폴더명이 비어있음")
-                        else:
-                            logger.warning(f"[폴더명 추출] 방법1: 경로 길이 부족 - uploads 인덱스 {uploads_idx}, 전체 길이 {len(path_parts)}, 필요한 최소 길이 {required_length}")
                     
                     # 방법 2: 문자열 기반 추출 (uploads/{group_id}/{folder_name}/...)
                     if not folder_name:
                         path_str = str(current_path).replace('\\', '/')
-                        logger.info(f"[폴더명 추출] 방법2: 문자열 기반 추출 시도 - 경로={path_str}")
                         
                         # /uploads/{group_id}/{folder_name}/ 패턴 찾기
                         import re
@@ -237,25 +225,16 @@ class FileProcessor:
                             extracted_folder_name = match.group(1)
                             if extracted_folder_name and extracted_folder_name.strip():
                                 folder_name = extracted_folder_name
-                                logger.info(f"[폴더명 추출] 방법2 성공: {folder_name}")
                                 break  # 성공했으므로 다른 경로 시도 불필요
-                            else:
-                                logger.warning(f"[폴더명 추출] 방법2: 추출된 값이 비어있음")
-                        else:
-                            logger.warning(f"[폴더명 추출] 방법2: 정규식 패턴 매칭 실패")
                     
                     # 방법 3: 마지막에서 두 번째가 폴더명일 수 있음
                     if not folder_name and len(path_parts) >= 2:
                         fallback_folder_name = path_parts[-2]
-                        logger.info(f"[폴더명 추출] 방법3: 마지막에서 두 번째 값='{fallback_folder_name}'")
                         
                         if fallback_folder_name and fallback_folder_name.strip():
                             # 경로 구조상 마지막에서 두 번째는 폴더명일 가능성이 높음
                             folder_name = fallback_folder_name
-                            logger.info(f"[폴더명 추출] 방법3 성공: {folder_name}")
                             break  # 성공했으므로 다른 경로 시도 불필요
-                        else:
-                            logger.warning(f"[폴더명 추출] 방법3: 추출된 값이 비어있음")
                             
                 except Exception as e:
                     logger.error(f"[폴더명 추출] 경로 '{current_path}' 처리 중 예외 발생: {e}", exc_info=True)
@@ -348,7 +327,7 @@ class FileProcessor:
                 except RuntimeError:
                     # 이벤트 루프 관련 에러 무시
                     pass
-                logger.info(f"[AI Pipeline] {progress}% - {message}")
+                # 진행률 로그는 ai_pipeline.py의 _update_progress에서 이미 출력되므로 중복 제거
             
             # AI 파이프라인 실행 (outputs 루트 전달)
             # 저장소 기본 경로 사용 (로컬 또는 네트워크)
