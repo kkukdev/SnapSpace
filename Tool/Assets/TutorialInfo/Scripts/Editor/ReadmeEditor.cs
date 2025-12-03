@@ -215,7 +215,7 @@ public class ReadmeEditor : Editor
         m_LinkStyle.wordWrap = false;
 
         // Match selection color which works nicely for both light and dark skins
-        m_LinkStyle.normal.textColor = new Color(0x00 / 255f, 0x78 / 255f, 0xDA / 255f, 1f);
+        m_LinkStyle.normal.textColor = new Color32(0x00, 0x78, 0xDA, 255);
         m_LinkStyle.stretchWidth = false;
 
         m_ButtonStyle = new GUIStyle(EditorStyles.miniButton);

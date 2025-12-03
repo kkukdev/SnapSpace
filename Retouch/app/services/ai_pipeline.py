@@ -12,6 +12,7 @@ import os
 import sys
 import shutil
 import logging
+import time
 from typing import Callable, Optional
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from app.services.pipeline import (
     resolve_pipeline_paths,
     sanitize_filename,
 )
+from app.utils.mesh_utils import get_mesh_stats, format_file_size
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,16 @@ class AIPipeline:
         from app.config import settings
         import tempfile
         
+        # 보정 전 성능 지표 수집
+        start_time = time.time()
+        input_stats = get_mesh_stats(Path(src_input_path))
+        if input_stats:
+            input_vertices, input_faces, input_size = input_stats
+            logger.info(f"[Optimizer] 보정 전 - Vertices: {input_vertices:,}, Faces: {input_faces:,}, 크기: {format_file_size(input_size)}")
+        else:
+            input_size = Path(src_input_path).stat().st_size if Path(src_input_path).exists() else 0
+            logger.info(f"[Optimizer] 보정 전 - 크기: {format_file_size(input_size)} (통계 계산 실패)")
+        
         # 네트워크 경로인지 확인 (UNC 경로 또는 로컬 마운트된 네트워크 경로)
         optimized_dir_str = str(optimized_dir)
         
@@ -105,7 +117,6 @@ class AIPipeline:
             mounted_pattern = re.compile(r'^[A-Z]:\\([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[A-Za-z0-9_-]+)\\')
             if mounted_pattern.match(src_input_path):
                 is_mounted_network = True
-                logger.info(f"[네트워크 경로 감지] 로컬 마운트된 네트워크 경로: {src_input_path}")
         
         is_network_path = is_unc_path or is_mounted_network
         
@@ -131,14 +142,12 @@ class AIPipeline:
             local_optimized_dir = local_temp_dir / "optimized"
             local_optimized_dir.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"[성능 최적화] 네트워크 경로 감지, 로컬 임시 디렉토리 사용: {local_temp_dir}")
             
             # 입력 파일을 로컬로 복사 (한 번만 네트워크 I/O)
             input_filename = Path(src_input_path).name
             local_input_path = local_temp_dir / input_filename
             self._update_progress(12, "입력 파일을 로컬로 복사 중...")
             shutil.copy2(src_input_path, local_input_path)
-            logger.info(f"입력 파일 복사 완료: {src_input_path} -> {local_input_path}")
             
             work_input = local_input_path
             work_temp_dir = local_temp_dir
@@ -233,7 +242,6 @@ class AIPipeline:
                 if not target_original.exists():
                     try:
                         shutil.copy2(cleaned_local, target_original)
-                        logger.info(f"[Optimizer] 원래 파일명으로 보조 복사: {cleaned_local} -> {target_original}")
                     except Exception as copy_error:
                         logger.warning(f"[Optimizer] 원래 파일명 복사 실패 (무시): {copy_error}")
 
@@ -269,7 +277,6 @@ class AIPipeline:
                 # 네트워크 디렉토리 생성 확인
                 try:
                     optimized_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"네트워크 디렉토리 생성 확인: {optimized_dir} (존재: {optimized_dir.exists()})")
                 except Exception as e:
                     logger.error(f"네트워크 디렉토리 생성 실패: {optimized_dir}, 오류: {e}")
                     raise
@@ -277,17 +284,12 @@ class AIPipeline:
                 # 파일 복사 및 검증
                 try:
                     shutil.copy2(cleaned_local, cleaned_network)
-                    logger.info(f"최적화 결과 복사 완료: {cleaned_local} -> {cleaned_network}")
-                    
                     # 복사 후 파일 존재 확인
                     if not cleaned_network.exists():
                         raise FileNotFoundError(f"파일 복사 후에도 존재하지 않습니다: {cleaned_network}")
                     
                     # 파일 크기 확인
-                    local_size = cleaned_local.stat().st_size if cleaned_local.exists() else 0
                     network_size = cleaned_network.stat().st_size if cleaned_network.exists() else 0
-                    logger.info(f"파일 크기 확인 - 로컬: {local_size} bytes, 네트워크: {network_size} bytes")
-                    
                     if network_size == 0:
                         raise FileNotFoundError(f"네트워크 경로에 복사된 파일 크기가 0입니다: {cleaned_network}")
                         
@@ -300,18 +302,42 @@ class AIPipeline:
                 if cleaned_network.exists() and cleaned_network != cleaned_local:
                     try:
                         shutil.rmtree(local_temp_dir)
-                        logger.info(f"로컬 임시 디렉토리 정리 완료: {local_temp_dir}")
                     except Exception as e:
-                        logger.warning(f"로컬 임시 디렉토리 정리 실패 (무시): {e}")
+                        logger.warning(f"[Optimizer] 로컬 임시 디렉토리 정리 실패 (무시): {e}")
                 
                 cleaned = cleaned_network
             else:
                 cleaned = cleaned_local
             
-            logger.info(f"[Optimizer] 최종 파일 경로 확정: {cleaned}")
             
             if not cleaned.exists():
                 raise FileNotFoundError(f"메쉬 최적화 결과가 없습니다: {cleaned}")
+            
+            # 보정 후 성능 지표 수집 및 비교
+            elapsed_time = time.time() - start_time
+            output_stats = get_mesh_stats(cleaned)
+            
+            if output_stats:
+                output_vertices, output_faces, output_size = output_stats
+                logger.info(f"[Optimizer] 보정 후 - Vertices: {output_vertices:,}, Faces: {output_faces:,}, 크기: {format_file_size(output_size)}")
+                
+                if input_stats:
+                    input_vertices, input_faces, input_size = input_stats
+                    vertex_change = output_vertices - input_vertices
+                    face_change = output_faces - input_faces
+                    size_change = output_size - input_size
+                    size_change_pct = (size_change / input_size * 100) if input_size > 0 else 0
+                    
+                    logger.info(f"[Optimizer] 성능 비교 - 처리시간: {elapsed_time:.2f}초, "
+                              f"Vertices 변화: {vertex_change:+,} ({output_vertices/input_vertices*100 if input_vertices > 0 else 0:.1f}%), "
+                              f"Faces 변화: {face_change:+,} ({output_faces/input_faces*100 if input_faces > 0 else 0:.1f}%), "
+                              f"크기 변화: {size_change:+,} bytes ({size_change_pct:+.1f}%)")
+                else:
+                    logger.info(f"[Optimizer] 성능 비교 - 처리시간: {elapsed_time:.2f}초, 크기: {format_file_size(output_size)}")
+            else:
+                output_size = cleaned.stat().st_size if cleaned.exists() else 0
+                logger.info(f"[Optimizer] 보정 후 - 크기: {format_file_size(output_size)} (통계 계산 실패)")
+                logger.info(f"[Optimizer] 성능 비교 - 처리시간: {elapsed_time:.2f}초")
             
             self._update_progress(50, f"메쉬 최적화 완료: {cleaned}")
             return cleaned
@@ -338,6 +364,16 @@ class AIPipeline:
         from app.config import settings
         import tempfile
         
+        # 보정 전 성능 지표 수집
+        start_time = time.time()
+        input_stats = get_mesh_stats(cleaned_polygon_path)
+        if input_stats:
+            input_vertices, input_faces, input_size = input_stats
+            logger.info(f"[Denoiser] 보정 전 - Vertices: {input_vertices:,}, Faces: {input_faces:,}, 크기: {format_file_size(input_size)}")
+        else:
+            input_size = cleaned_polygon_path.stat().st_size if cleaned_polygon_path.exists() else 0
+            logger.info(f"[Denoiser] 보정 전 - 크기: {format_file_size(input_size)} (통계 계산 실패)")
+        
         # 네트워크 경로인지 확인 (UNC 경로 또는 로컬 마운트된 네트워크 경로)
         cleaned_input_str = str(cleaned_polygon_path)
         final_dir_str = str(final_dir)
@@ -352,7 +388,6 @@ class AIPipeline:
             mounted_pattern = re.compile(r'^[A-Z]:\\([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[A-Za-z0-9_-]+)\\')
             if mounted_pattern.match(cleaned_input_str):
                 is_mounted_network = True
-                logger.info(f"[네트워크 경로 감지] 로컬 마운트된 네트워크 경로: {cleaned_input_str}")
         
         is_network_path = is_unc_path or is_mounted_network
         
@@ -377,14 +412,12 @@ class AIPipeline:
             local_output_dir = local_temp_dir / "output"
             local_output_dir.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"[성능 최적화] 네트워크 경로 감지, 로컬 임시 디렉토리 사용: {local_temp_dir}")
             
             # 입력 파일을 로컬로 복사 (한 번만 네트워크 I/O)
             input_filename = Path(cleaned_polygon_path).name
             local_input_path = local_temp_dir / input_filename
             self._update_progress(52, "입력 파일을 로컬로 복사 중...")
             shutil.copy2(cleaned_polygon_path, local_input_path)
-            logger.info(f"입력 파일 복사 완료: {cleaned_polygon_path} -> {local_input_path}")
             
             work_input = local_input_path
             work_output_dir = local_output_dir
@@ -495,7 +528,6 @@ class AIPipeline:
                 if not target_original.exists():
                     try:
                         shutil.copy2(final_output_local, target_original)
-                        logger.info(f"[Denoiser] 원래 파일명으로 보조 복사: {final_output_local} -> {target_original}")
                     except Exception as copy_error:
                         logger.warning(f"[Denoiser] 원래 파일명 복사 실패 (무시): {copy_error}")
 
@@ -529,16 +561,8 @@ class AIPipeline:
                 # 네트워크 디렉토리 접근성 점검
                 try:
                     final_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info(f"[Denoiser] 네트워크 디렉토리 생성 확인: {final_dir} (존재: {final_dir.exists()})")
                     if not final_dir.exists():
                         raise FileNotFoundError(f"디렉토리가 생성되지 않았습니다: {final_dir}")
-                    test_file = final_dir / ".test_write"
-                    try:
-                        test_file.touch()
-                        test_file.unlink()
-                        logger.info(f"[Denoiser] 디렉토리 쓰기 권한 확인 완료: {final_dir}")
-                    except Exception as write_e:
-                        logger.warning(f"[Denoiser] 디렉토리 쓰기 권한 확인 실패: {final_dir}, 오류: {write_e}")
                 except Exception as e:
                     logger.error(f"[Denoiser] 네트워크 디렉토리 생성 실패: {final_dir}, 오류: {e}")
                     raise
@@ -547,15 +571,12 @@ class AIPipeline:
 
                 try:
                     shutil.copy2(final_output_local, final_output_network)
-                    logger.info(f"최종 결과 복사 완료: {final_output_local} -> {final_output_network}")
 
                     if not final_output_network.exists():
                         raise FileNotFoundError(f"파일 복사 후에도 존재하지 않습니다: {final_output_network}")
 
-                    local_size = final_output_local.stat().st_size if final_output_local.exists() else 0
+                    # 파일 크기 확인
                     network_size = final_output_network.stat().st_size if final_output_network.exists() else 0
-                    logger.info(f"파일 크기 확인 - 로컬: {local_size} bytes, 네트워크: {network_size} bytes")
-
                     if network_size == 0:
                         raise FileNotFoundError(f"네트워크 경로에 복사된 파일 크기가 0입니다: {final_output_network}")
 
@@ -566,9 +587,8 @@ class AIPipeline:
                 if final_output_network.exists() and final_output_network != final_output_local:
                     try:
                         shutil.rmtree(local_temp_dir)
-                        logger.info(f"로컬 임시 디렉토리 정리 완료: {local_temp_dir}")
                     except Exception as e:
-                        logger.warning(f"로컬 임시 디렉토리 정리 실패 (무시): {e}")
+                        logger.warning(f"[Denoiser] 로컬 임시 디렉토리 정리 실패 (무시): {e}")
 
                 final_output = final_output_network
             else:
@@ -576,12 +596,36 @@ class AIPipeline:
                 source_candidate = work_output_dir_abs / output_filename
                 if not final_output.exists() and source_candidate.exists() and source_candidate != final_output:
                     shutil.copy2(source_candidate, final_output)
-                    logger.info(f"최종 결과 이동: {source_candidate} -> {final_output}")
 
-            logger.info(f"[Denoiser] 최종 파일 경로 확정: {final_output}")
 
             if not final_output.exists():
                 raise FileNotFoundError(f"메쉬 노이즈 제거 결과가 없습니다: {final_output}")
+
+            # 보정 후 성능 지표 수집 및 비교
+            elapsed_time = time.time() - start_time
+            output_stats = get_mesh_stats(final_output)
+            
+            if output_stats:
+                output_vertices, output_faces, output_size = output_stats
+                logger.info(f"[Denoiser] 보정 후 - Vertices: {output_vertices:,}, Faces: {output_faces:,}, 크기: {format_file_size(output_size)}")
+                
+                if input_stats:
+                    input_vertices, input_faces, input_size = input_stats
+                    vertex_change = output_vertices - input_vertices
+                    face_change = output_faces - input_faces
+                    size_change = output_size - input_size
+                    size_change_pct = (size_change / input_size * 100) if input_size > 0 else 0
+                    
+                    logger.info(f"[Denoiser] 성능 비교 - 처리시간: {elapsed_time:.2f}초, "
+                              f"Vertices 변화: {vertex_change:+,} ({output_vertices/input_vertices*100 if input_vertices > 0 else 0:.1f}%), "
+                              f"Faces 변화: {face_change:+,} ({output_faces/input_faces*100 if input_faces > 0 else 0:.1f}%), "
+                              f"크기 변화: {size_change:+,} bytes ({size_change_pct:+.1f}%)")
+                else:
+                    logger.info(f"[Denoiser] 성능 비교 - 처리시간: {elapsed_time:.2f}초, 크기: {format_file_size(output_size)}")
+            else:
+                output_size = final_output.stat().st_size if final_output.exists() else 0
+                logger.info(f"[Denoiser] 보정 후 - 크기: {format_file_size(output_size)} (통계 계산 실패)")
+                logger.info(f"[Denoiser] 성능 비교 - 처리시간: {elapsed_time:.2f}초")
 
             self._update_progress(80, f"메쉬 노이즈 제거 완료: {final_output}")
             return final_output

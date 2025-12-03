@@ -369,14 +369,14 @@ public static class RuntimeObjLoader
                     {
                         if (cur == null) break;
                         var t = tail.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                        cur.kd = new Color(float.Parse(t[0], ci), float.Parse(t[1], ci), float.Parse(t[2], ci), cur.alpha);
+                        cur.kd = new Color32((byte)(float.Parse(t[0], ci) * 255), (byte)(float.Parse(t[1], ci) * 255), (byte)(float.Parse(t[2], ci) * 255), (byte)(cur.alpha * 255));
                         break;
                     }
                     case "ks":
                     {
                         if (cur == null) break;
                         var t = tail.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                        cur.ks = new Color(float.Parse(t[0], ci), float.Parse(t[1], ci), float.Parse(t[2], ci), 1f);
+                        cur.ks = new Color32((byte)(float.Parse(t[0], ci) * 255), (byte)(float.Parse(t[1], ci) * 255), (byte)(float.Parse(t[2], ci) * 255), 255);
                         break;
                     }
                     case "ns":
@@ -384,11 +384,11 @@ public static class RuntimeObjLoader
                         break;
 
                     case "d":
-                        if (cur != null) { cur.alpha = float.Parse(tail, ci); cur.kd.a = cur.alpha; }
+                        if (cur != null) { cur.alpha = float.Parse(tail, ci); cur.kd = new Color32((byte)(cur.kd.r * 255), (byte)(cur.kd.g * 255), (byte)(cur.kd.b * 255), (byte)(cur.alpha * 255)); }
                         break;
 
                     case "tr":
-                        if (cur != null) { cur.alpha = 1f - float.Parse(tail, ci); cur.kd.a = cur.alpha; }
+                        if (cur != null) { cur.alpha = 1f - float.Parse(tail, ci); cur.kd = new Color32((byte)(cur.kd.r * 255), (byte)(cur.kd.g * 255), (byte)(cur.kd.b * 255), (byte)(cur.alpha * 255)); }
                         break;
 
                     case "map_kd":
@@ -578,7 +578,7 @@ public static class RuntimeObjLoader
                         std.mainTexture = tex; // 호환성을 위해 둘 다 설정
                         
                         // 텍스처가 있을 때는 색상을 흰색으로 설정하여 텍스처가 제대로 보이도록 함
-                        std.color = new Color(1f, 1f, 1f, m.alpha);
+                        std.color = new Color32(255, 255, 255, (byte)(m.alpha * 255));
                         
                         // 텍스처 타일링 설정
                         std.SetTextureScale("_MainTex", Vector2.one);
@@ -613,13 +613,13 @@ public static class RuntimeObjLoader
                     catch (Exception)
                     {
                         // 텍스처가 무효하면 색상만 사용
-                        std.color = new Color(m.kd.r, m.kd.g, m.kd.b, m.alpha);
+                        std.color = new Color32((byte)(m.kd.r * 255), (byte)(m.kd.g * 255), (byte)(m.kd.b * 255), (byte)(m.alpha * 255));
                     }
                 }
                 else
                 {
                     // 텍스처가 없을 때만 MTL의 diffuse 색상 사용
-                    std.color = new Color(m.kd.r, m.kd.g, m.kd.b, m.alpha);
+                    std.color = new Color32((byte)(m.kd.r * 255), (byte)(m.kd.g * 255), (byte)(m.kd.b * 255), (byte)(m.alpha * 255));
                     
                     // 투명도 설정 (URP 방식)
                     if (m.alpha < 0.999f)
@@ -644,7 +644,7 @@ public static class RuntimeObjLoader
             else
             {
                 // 텍스처 경로가 없을 때는 MTL의 diffuse 색상 사용
-                std.color = new Color(m.kd.r, m.kd.g, m.kd.b, m.alpha);
+                std.color = new Color32((byte)(m.kd.r * 255), (byte)(m.kd.g * 255), (byte)(m.kd.b * 255), (byte)(m.alpha * 255));
 
                 if (m.alpha < 0.999f)
                 {
