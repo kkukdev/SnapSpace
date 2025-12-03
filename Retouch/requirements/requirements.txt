@@ -67,6 +67,8 @@ pydantic_core==2.41.5
 pure_eval==0.2.3
 pygltflib==1.16.5
 Pygments==2.19.2
+pymesh==1.0.2
+pymeshlab==2025.7
 pyparsing==3.2.5
 python-dotenv==1.2.1
 PyYAML==6.0.3
