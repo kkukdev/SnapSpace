@@ -544,16 +544,6 @@ public class Main extends AbstractActivity implements View.OnClickListener,
         // 녹음 중단
         stopVoiceRecording();
       }
-    } else if (id == R.id.memo_clear_button) {
-      pauseScanning();
-      if (JNI.getScanSize() > 0) {
-        CommonDialogs.confirmDialog(this, R.string.scan_discard, () -> {
-          JNI.onClearButtonClicked();
-          // ★ 메모도 함께 초기화
-          mMemoManager.clear();
-          Log.d("Main", "Memos cleared");
-        });
-      }
     }
 
     if (!mPhotoMode) {
